@@ -1,6 +1,6 @@
 # HTTP handlers — planned responsibilities
 
-Documentation only; no routes or request/response models are implemented.
+The package serves the embedded Auth0 test page, exposes public health/browser configuration, and protects provisioning and test API routes with Auth0 JWT validation. Provisioning accepts identity only from validated token context and Auth0 `/userinfo`, never browser-submitted profile fields.
 
 | Requirements | Future HTTP responsibility |
 | --- | --- |

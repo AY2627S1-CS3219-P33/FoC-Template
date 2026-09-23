@@ -56,12 +56,14 @@ func testDatabase(t *testing.T) *pgxpool.Pool {
 		t.Fatal("create test pool failed")
 	}
 	t.Cleanup(pool.Close)
-	sql, err := os.ReadFile("../../migrations/000001_accounts.up.sql")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := pool.Exec(ctx, string(sql)); err != nil {
-		t.Fatalf("apply migration: %v", err)
+	for _, migration := range []string{"000001_accounts.up.sql", "000002_auth0_identities.up.sql"} {
+		sql, err := os.ReadFile("../../migrations/" + migration)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := pool.Exec(ctx, string(sql)); err != nil {
+			t.Fatalf("apply %s: %v", migration, err)
+		}
 	}
 	return pool
 }
@@ -146,13 +148,15 @@ func TestPostgresAccountCRUD(t *testing.T) {
 	if active || !deleted {
 		t.Fatal("soft deletion did not retain an inactive tombstone")
 	}
-	for _, duplicate := range []repository.CreateUser{
-		{Username: "student", Email: "different@nus.edu.sg", PasswordHash: input.PasswordHash},
-		{Username: "different", Email: input.Email, PasswordHash: input.PasswordHash},
-	} {
-		if _, err := repo.Create(ctx, duplicate); !errors.Is(err, repository.ErrConflict) {
-			t.Fatalf("deleted identity reused: %v", err)
-		}
+	if _, err := repo.Create(ctx, repository.CreateUser{
+		Username: "student", Email: "different@nus.edu.sg", PasswordHash: input.PasswordHash,
+	}); err != nil {
+		t.Fatalf("duplicate username rejected: %v", err)
+	}
+	if _, err := repo.Create(ctx, repository.CreateUser{
+		Username: "different", Email: input.Email, PasswordHash: input.PasswordHash,
+	}); !errors.Is(err, repository.ErrConflict) {
+		t.Fatalf("deleted email reused: %v", err)
 	}
 	for _, id := range []string{"not-a-uuid", "00000000-0000-0000-0000-000000000000"} {
 		if _, err := repo.FindByID(ctx, id); !errors.Is(err, repository.ErrNotFound) {
@@ -171,7 +175,7 @@ func TestPostgresConcurrentUniqueness(t *testing.T) {
 	pool := testDatabase(t)
 	repo := repository.NewPostgres(pool)
 	input := newInput(t, "unused")
-	for _, dimension := range []string{"username", "email"} {
+	for _, dimension := range []string{"duplicate_username", "email"} {
 		t.Run(dimension, func(t *testing.T) {
 			const count = 8
 			results := make(chan error, count)
@@ -184,7 +188,7 @@ func TestPostgresConcurrentUniqueness(t *testing.T) {
 					candidate := input
 					candidate.Username = fmt.Sprintf("%s_%d", dimension, i)
 					candidate.Email = fmt.Sprintf("%s_%d@nus.edu.sg", dimension, i)
-					if dimension == "username" {
+					if dimension == "duplicate_username" {
 						candidate.Username = "SameStudent"
 						if i%2 == 0 {
 							candidate.Username = strings.ToLower(candidate.Username)
@@ -210,7 +214,11 @@ func TestPostgresConcurrentUniqueness(t *testing.T) {
 					t.Errorf("unexpected error: %v", err)
 				}
 			}
-			if success != 1 || conflicts != count-1 {
+			wantSuccess, wantConflicts := 1, count-1
+			if dimension == "duplicate_username" {
+				wantSuccess, wantConflicts = count, 0
+			}
+			if success != wantSuccess || conflicts != wantConflicts {
 				t.Fatalf("got %d successes and %d conflicts", success, conflicts)
 			}
 		})
@@ -266,22 +274,52 @@ func TestPostgresServiceFlow(t *testing.T) {
 func TestPostgresMigrationRollback(t *testing.T) {
 	pool := testDatabase(t)
 	ctx := context.Background()
-	down, err := os.ReadFile("../../migrations/000001_accounts.down.sql")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := pool.Exec(ctx, string(down)); err != nil {
-		t.Fatal(err)
-	}
-	up, err := os.ReadFile("../../migrations/000001_accounts.up.sql")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := pool.Exec(ctx, string(up)); err != nil {
-		t.Fatal(err)
+	for _, migration := range []string{"000002_auth0_identities.down.sql", "000001_accounts.down.sql", "000001_accounts.up.sql", "000002_auth0_identities.up.sql"} {
+		sql, err := os.ReadFile("../../migrations/" + migration)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := pool.Exec(ctx, string(sql)); err != nil {
+			t.Fatalf("apply %s: %v", migration, err)
+		}
 	}
 	if _, err := repository.NewPostgres(pool).Create(ctx, newInput(t, "after_rollback")); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestPostgresAuth0Provisioning(t *testing.T) {
+	pool := testDatabase(t)
+	repo := repository.NewPostgres(pool)
+	ctx := context.Background()
+	input := repository.CreateAuth0User{
+		Subject: "auth0|student-1", Username: "Shared Nickname",
+		Email: "student1@nus.edu.sg", DisplayName: "Student One",
+	}
+	created, wasCreated, err := repo.CreateAuth0(ctx, input)
+	if err != nil || !wasCreated || !created.Active || created.Auth0Subject != input.Subject {
+		t.Fatalf("create Auth0 account: created=%v user=%+v err=%v", wasCreated, created, err)
+	}
+	repeated, wasCreated, err := repo.CreateAuth0(ctx, input)
+	if err != nil || wasCreated || repeated.ID != created.ID {
+		t.Fatalf("idempotent Auth0 creation failed: created=%v user=%+v err=%v", wasCreated, repeated, err)
+	}
+	if _, _, err := repo.CreateAuth0(ctx, repository.CreateAuth0User{
+		Subject: "auth0|student-2", Username: input.Username, Email: "student2@nus.edu.sg",
+	}); err != nil {
+		t.Fatalf("duplicate Auth0 nickname rejected: %v", err)
+	}
+	if _, _, err := repo.CreateAuth0(ctx, repository.CreateAuth0User{
+		Subject: "auth0|student-3", Username: "Another", Email: input.Email,
+	}); !errors.Is(err, repository.ErrConflict) {
+		t.Fatalf("duplicate Auth0 email: %v", err)
+	}
+	var passwordHash *string
+	if err := pool.QueryRow(ctx, "SELECT password_hash FROM accounts WHERE id = $1", created.ID).Scan(&passwordHash); err != nil {
+		t.Fatal(err)
+	}
+	if passwordHash != nil {
+		t.Fatal("Auth0 account received a local password hash")
 	}
 }
 

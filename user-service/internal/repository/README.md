@@ -6,7 +6,7 @@ Current implementation: `Postgres` uses pgx to create inactive USER accounts, fi
 
 | Requirements | Future persistence responsibility |
 | --- | --- |
-| F1.1.1, F1.9.1 | Enforce username/email uniqueness atomically, including concurrent requests. Normalization and case-sensitivity rules remain to be specified. |
+| F1.1.1, F1.9.1 | Enforce email and external-identity uniqueness atomically, including concurrent requests. Usernames are non-unique display labels. |
 | F1.1, F1.1.4, F1.3.1 | Store user identity, password hashes, account role, and activation state; support account lookup. |
 | F1.2.4, F1.3, F1.3.2, F1.10.4–F1.10.5 | Persist sessions, expiration and revocation state, and account deletion/deactivation state for the eventual session design. |
 | F1.4.1–F1.4.3 | Read user-owned profile fields and persist permitted edits. Do not store an authoritative credit balance here. |

@@ -1,6 +1,6 @@
 # Authentication primitives — planned responsibilities
 
-Current implementation: `Argon2Hasher` securely hashes and verifies passwords using random salts and fixed, bounded Argon2id parameters. See the root README for parameters and input limits. Login, session management, token workflows, and re-authentication remain unimplemented; the allocation below describes their future responsibilities.
+Current implementation: `Argon2Hasher` securely hashes local passwords. `UserInfoClient` retrieves the profile associated with a validated Auth0 user access token without exposing the token or upstream response body in errors. Auth0 owns browser login, logout, and external-user sessions; local re-authentication and account-wide revocation remain future work.
 
 - **F1.1.2, F1.3.1, F1.8.3, F1.9.4:** Provide one secure password-hashing and verification mechanism shared by normal accounts, bootstrap accounts, and activated super administrators. Registration policy and password-confirmation matching belong to the service workflow.
 - **F1.3.1–F1.3.2:** Provide session creation, resolution, expiration, current-session logout, and Remember me support. Coordinate browser transport with handlers and persisted state with repositories.

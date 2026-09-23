@@ -1,6 +1,6 @@
 # Application entry point — planned responsibilities
 
-Documentation only; no startup behavior described here is implemented.
+The entry point loads local environment values when present, validates configuration, connects to PostgreSQL, wires Auth0 JWT validation and account provisioning, serves the embedded test page, and performs graceful HTTP shutdown.
 
 - **F1.6.7, F1.8:** Coordinate configuration loading, database migration execution, and initial super-administrator bootstrap during startup before accepting requests.
 - **F1.8.1, F1.8.4, F1.8.7:** Invoke the bootstrap workflow, which must use repository transaction guarantees to initialize at most once across concurrent instances. Do not decide whether to create an account using an unprotected startup check.

@@ -5,7 +5,7 @@ Current implementation: internal student registration validation/persistence and
 ## Registration — F1.1
 
 - **F1.1:** Register a student using username, NUS email, and password with account role USER.
-- **F1.1.1:** Require unique username and email, backed by atomic repository/database constraints.
+- **F1.1.1:** Require a unique email; usernames are non-unique display labels.
 - **F1.1.2:** Require at least eight password characters, including uppercase, lowercase, number, and symbol; use the auth package for secure hashing.
 - **F1.1.3:** Require password and confirmation to match exactly before proceeding.
 - **F1.1.4:** Coordinate verification-email delivery and email ownership verification before account activation.
@@ -63,7 +63,7 @@ If initialization is already marked complete but no super-administrator record e
 ## Additional super administrators — F1.9
 
 - **F1.9, F1.9.2:** Allow only an authenticated super administrator to create additional super administrators; reject users and administrators.
-- **F1.9.1:** Require unique username and email.
+- **F1.9.1:** Require a unique email; usernames are non-unique display labels.
 - **F1.9.3:** Arrange a time-limited activation link to the new account's registered email.
 - **F1.9.4:** Keep the account inactive until its holder completes activation and sets a password.
 - **F1.9.5:** Audit every creation attempt, recording creator, new account, timestamp, and outcome. For attempts rejected before an account exists, define a safe attempted-target representation without inventing an account record.
