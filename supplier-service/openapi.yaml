@@ -1,0 +1,32 @@
+openapi: 3.1.0
+
+info:
+  title: Friend on Campus Supplier Service API
+  version: 0.1.0
+  description: API contract for the supplier service.
+  license:
+    name: MIT
+    identifier: MIT
+
+servers:
+  - url: /supplier-service
+    description: API gateway route
+
+# Add each endpoint here when its implementation begins.
+paths: {}
+
+components:
+  # Add reusable request and response models here.
+  schemas: {}
+
+  # Add reusable parameters such as supplierId, cursor, and limit here.
+  parameters: {}
+
+  # Add reusable headers such as ETag here.
+  headers: {}
+
+  # Add reusable error and success responses here.
+  responses: {}
+
+  # Add bearer and service-to-service authentication schemes when needed.
+  securitySchemes: {}
