@@ -6,7 +6,7 @@ Current implementation: `Postgres` uses pgx to provision active Auth0-backed USE
 
 | Requirements | Future persistence responsibility |
 | --- | --- |
-| F1.1.1, F1.9.1 | Enforce email and external-identity uniqueness atomically, including concurrent requests. Usernames are non-unique display labels. |
+| F1.1.1, F1.9.1 | Enforce username, email, and external-identity uniqueness atomically, including concurrent requests. |
 | F1.1, F1.1.4, F1.3.1 | Store the Auth0 subject, email, account role, and activation state; support account lookup. |
 | F1.2.4, F1.3, F1.3.2, F1.10.4–F1.10.5 | Persist application account deletion/deactivation state; Auth0 owns session state and revocation. |
 | F1.4.1–F1.4.3 | Read user-owned profile fields and persist permitted edits. Do not store an authoritative credit balance here. |

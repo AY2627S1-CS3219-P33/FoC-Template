@@ -139,7 +139,7 @@ func translateError(err error) error {
 	}
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == "23505" &&
-		(pgErr.ConstraintName == "accounts_email_unique" || pgErr.ConstraintName == "accounts_auth0_subject_unique") {
+		(pgErr.ConstraintName == "accounts_username_unique" || pgErr.ConstraintName == "accounts_email_unique" || pgErr.ConstraintName == "accounts_auth0_subject_unique") {
 		return ErrConflict
 	}
 	// PostgreSQL detail fields can contain submitted account data.

@@ -112,3 +112,49 @@ func TestAuth0ProvisionReturnsExistingAccountWithoutUserInfo(t *testing.T) {
 		t.Fatalf("existing account lookup failed: profile=%+v created=%v calls=%d err=%v", result, created, profiles.calls, err)
 	}
 }
+
+func TestAuth0ProvisionClassifiesDependencyFailures(t *testing.T) {
+	profile := auth.UserInfo{
+		Subject: "auth0|student", Email: "student@u.nus.edu", EmailVerified: true, Nickname: "student",
+	}
+	tests := []struct {
+		name     string
+		repo     *auth0RepositorySpy
+		profiles *userInfoStub
+		want     error
+	}{
+		{"repository lookup", &auth0RepositorySpy{findErr: errors.New("database unavailable")}, &userInfoStub{}, ErrUnavailable},
+		{"Auth0 profile", &auth0RepositorySpy{findErr: repository.ErrNotFound}, &userInfoStub{err: errors.New("Auth0 unavailable")}, ErrProfileUnavailable},
+		{"repository create", &auth0RepositorySpy{findErr: repository.ErrNotFound, createErr: errors.New("database unavailable")}, &userInfoStub{profile: profile}, ErrUnavailable},
+		{"repository conflict", &auth0RepositorySpy{findErr: repository.ErrNotFound, createErr: repository.ErrConflict}, &userInfoStub{profile: profile}, repository.ErrConflict},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, _, err := NewAuth0Provisioner(test.repo, test.profiles).Provision(context.Background(), "auth0|student", "token")
+			if !errors.Is(err, test.want) {
+				t.Fatalf("got %v, want %v", err, test.want)
+			}
+		})
+	}
+}
+
+func TestRequireActiveAccount(t *testing.T) {
+	tests := []struct {
+		name string
+		repo *auth0RepositorySpy
+		want error
+	}{
+		{"active", &auth0RepositorySpy{user: &repository.User{ID: "account-id", Active: true}}, nil},
+		{"not provisioned", &auth0RepositorySpy{findErr: repository.ErrNotFound}, ErrNotFound},
+		{"inactive", &auth0RepositorySpy{user: &repository.User{ID: "account-id"}}, ErrInactive},
+		{"unavailable", &auth0RepositorySpy{findErr: errors.New("database unavailable")}, ErrUnavailable},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			id, err := NewAuth0Provisioner(test.repo, nil).RequireActiveAccount(context.Background(), "auth0|student")
+			if !errors.Is(err, test.want) || (test.want == nil && id != "account-id") {
+				t.Fatalf("id=%q err=%v want=%v", id, err, test.want)
+			}
+		})
+	}
+}

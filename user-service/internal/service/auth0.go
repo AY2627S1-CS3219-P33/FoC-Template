@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/mail"
 	"strings"
 
@@ -14,6 +15,7 @@ var (
 	ErrIdentityUnverified = errors.New("Auth0 email is not verified")
 	ErrIdentityIneligible = errors.New("Auth0 email is not an eligible NUS address")
 	ErrIdentityMismatch   = errors.New("Auth0 profile does not match the access token")
+	ErrProfileUnavailable = errors.New("Auth0 profile is unavailable")
 )
 
 // Auth0Provisioner creates local accounts from trusted Auth0 identity data.
@@ -24,6 +26,23 @@ type Auth0Provisioner struct {
 
 func NewAuth0Provisioner(users repository.Auth0UserRepository, profiles auth.UserInfoReader) *Auth0Provisioner {
 	return &Auth0Provisioner{users: users, profiles: profiles}
+}
+
+func (s *Auth0Provisioner) RequireActiveAccount(ctx context.Context, subject string) (string, error) {
+	if s.users == nil {
+		return "", ErrUnavailable
+	}
+	u, err := s.users.FindByAuth0Subject(ctx, subject)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return "", ErrNotFound
+		}
+		return "", fmt.Errorf("%w: %v", ErrUnavailable, err)
+	}
+	if !u.Active {
+		return "", ErrInactive
+	}
+	return u.ID, nil
 }
 
 // Provision returns the local profile and whether this call created it.
@@ -42,12 +61,12 @@ func (s *Auth0Provisioner) Provision(ctx context.Context, subject, accessToken s
 		return profile(u), false, nil
 	}
 	if !errors.Is(err, repository.ErrNotFound) {
-		return nil, false, err
+		return nil, false, fmt.Errorf("%w: %v", ErrUnavailable, err)
 	}
 
 	identity, err := s.profiles.Get(ctx, accessToken)
 	if err != nil {
-		return nil, false, err
+		return nil, false, fmt.Errorf("%w: %v", ErrProfileUnavailable, err)
 	}
 	if identity.Subject != subject {
 		return nil, false, ErrIdentityMismatch
@@ -72,7 +91,10 @@ func (s *Auth0Provisioner) Provision(ctx context.Context, subject, accessToken s
 		Subject: subject, Username: username, Email: email, DisplayName: displayName,
 	})
 	if err != nil {
-		return nil, false, err
+		if errors.Is(err, repository.ErrConflict) {
+			return nil, false, err
+		}
+		return nil, false, fmt.Errorf("%w: %v", ErrUnavailable, err)
 	}
 	return profile(u), created, nil
 }

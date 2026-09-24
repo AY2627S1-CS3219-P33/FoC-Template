@@ -24,6 +24,7 @@ type AuthConfig struct {
 
 type Provisioner interface {
 	Provision(context.Context, string, string) (*service.Profile, bool, error)
+	RequireActiveAccount(context.Context, string) (string, error)
 }
 
 // Handler owns public assets and authenticated API routes.
@@ -40,12 +41,37 @@ func New(authConfig AuthConfig, authentication *middleware.Auth0, provisioner Pr
 	router.HandleFunc("GET /api/auth/config", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, authConfig)
 	})
-	router.Handle("GET /api/private", authentication.Authentication(http.HandlerFunc(private)))
+	router.Handle("GET /api/private", authentication.Authentication(requireActiveAccount(provisioner, http.HandlerFunc(private))))
 	router.Handle("POST /api/auth/logout", authentication.Authentication(http.HandlerFunc(logout)))
 	router.Handle("POST /api/auth/provision", authentication.Authentication(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		provision(w, r, provisioner)
 	})))
 	return &Handler{Router: router}
+}
+
+func requireActiveAccount(authorizer Provisioner, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if authorizer == nil {
+			writeError(w, http.StatusServiceUnavailable, "account_check_unavailable", "Local account status could not be verified.")
+			return
+		}
+		subject, ok := middleware.Subject(r.Context())
+		if !ok {
+			writeError(w, http.StatusUnauthorized, "authentication_required", "A valid access token is required.")
+			return
+		}
+		_, err := authorizer.RequireActiveAccount(r.Context(), subject)
+		switch {
+		case errors.Is(err, service.ErrNotFound):
+			writeError(w, http.StatusForbidden, "account_not_provisioned", "Provision a local account before accessing this resource.")
+		case errors.Is(err, service.ErrInactive):
+			writeError(w, http.StatusForbidden, "account_inactive", "This local account is inactive.")
+		case err != nil:
+			writeError(w, http.StatusServiceUnavailable, "account_check_unavailable", "Local account status could not be verified.")
+		default:
+			next.ServeHTTP(w, r)
+		}
+	})
 }
 
 func serveIndex(w http.ResponseWriter, r *http.Request) {
@@ -137,11 +163,13 @@ func writeProvisionError(w http.ResponseWriter, err error) {
 	case errors.Is(err, service.ErrInactive), errors.Is(err, repository.ErrInactive):
 		writeError(w, http.StatusForbidden, "account_inactive", "This local account is inactive.")
 	case errors.Is(err, repository.ErrConflict):
-		writeError(w, http.StatusConflict, "account_conflict", "This email already belongs to another local account; automatic linking is disabled.")
+		writeError(w, http.StatusConflict, "account_conflict", "This username, email, or Auth0 identity already belongs to another local account; automatic linking is disabled.")
+	case errors.Is(err, service.ErrProfileUnavailable):
+		writeError(w, http.StatusBadGateway, "auth0_profile_unavailable", "The Auth0 user profile could not be retrieved.")
 	case errors.Is(err, service.ErrUnavailable):
 		writeError(w, http.StatusServiceUnavailable, "provisioning_unavailable", "Account provisioning is unavailable.")
 	default:
-		writeError(w, http.StatusBadGateway, "auth0_profile_unavailable", "The Auth0 user profile could not be retrieved.")
+		writeError(w, http.StatusInternalServerError, "internal_error", "An unexpected error occurred.")
 	}
 }
 

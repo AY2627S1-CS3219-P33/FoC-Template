@@ -123,8 +123,8 @@ func TestPostgresAccountCRUD(t *testing.T) {
 	}
 	if _, _, err := repo.CreateAuth0(ctx, repository.CreateAuth0User{
 		Subject: "auth0|different", Username: "student", Email: "different@u.nus.edu",
-	}); err != nil {
-		t.Fatalf("duplicate username rejected: %v", err)
+	}); !errors.Is(err, repository.ErrConflict) {
+		t.Fatalf("deleted username reused: %v", err)
 	}
 	if _, _, err := repo.CreateAuth0(ctx, repository.CreateAuth0User{
 		Subject: "auth0|duplicate-email", Username: "different", Email: input.Email,
@@ -189,9 +189,6 @@ func TestPostgresConcurrentUniqueness(t *testing.T) {
 				}
 			}
 			wantSuccess, wantConflicts := 1, count-1
-			if dimension == "duplicate_username" {
-				wantSuccess, wantConflicts = count, 0
-			}
 			if success != wantSuccess || conflicts != wantConflicts {
 				t.Fatalf("got %d successes and %d conflicts", success, conflicts)
 			}
@@ -261,6 +258,13 @@ func TestPostgresAuth0Provisioning(t *testing.T) {
 	pool := testDatabase(t)
 	repo := repository.NewPostgres(pool)
 	ctx := context.Background()
+	for i, subject := range []string{"", "   ", " auth0|student "} {
+		if _, _, err := repo.CreateAuth0(ctx, repository.CreateAuth0User{
+			Subject: subject, Username: fmt.Sprintf("invalid_%d", i), Email: fmt.Sprintf("invalid%d@u.nus.edu", i),
+		}); err == nil {
+			t.Fatalf("invalid Auth0 subject %q accepted", subject)
+		}
+	}
 	input := repository.CreateAuth0User{
 		Subject: "auth0|student-1", Username: "Shared Nickname",
 		Email: "student1@u.nus.edu", DisplayName: "Student One",
@@ -275,8 +279,8 @@ func TestPostgresAuth0Provisioning(t *testing.T) {
 	}
 	if _, _, err := repo.CreateAuth0(ctx, repository.CreateAuth0User{
 		Subject: "auth0|student-2", Username: input.Username, Email: "student2@u.nus.edu",
-	}); err != nil {
-		t.Fatalf("duplicate Auth0 nickname rejected: %v", err)
+	}); !errors.Is(err, repository.ErrConflict) {
+		t.Fatalf("duplicate Auth0 nickname accepted: %v", err)
 	}
 	if _, _, err := repo.CreateAuth0(ctx, repository.CreateAuth0User{
 		Subject: "auth0|student-3", Username: "Another", Email: input.Email,

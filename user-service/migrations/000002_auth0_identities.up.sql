@@ -1,7 +1,5 @@
 BEGIN;
 
-DROP INDEX accounts_username_unique;
-
 ALTER TABLE accounts
     DROP CONSTRAINT accounts_password_hash_check,
     ALTER COLUMN password_hash DROP NOT NULL,

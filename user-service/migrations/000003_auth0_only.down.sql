@@ -1,6 +1,7 @@
 BEGIN;
 
 ALTER TABLE accounts
+    DROP CONSTRAINT accounts_auth0_subject_check,
     ADD COLUMN password_hash text,
     ALTER COLUMN auth0_subject DROP NOT NULL,
     ADD CONSTRAINT accounts_authentication_check CHECK (

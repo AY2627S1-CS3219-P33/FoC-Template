@@ -25,6 +25,10 @@ type Auth0 struct {
 }
 
 func NewAuth0(domain, audience string) (*Auth0, error) {
+	return newAuth0(domain, audience, nil)
+}
+
+func newAuth0(domain, audience string, httpClient *http.Client) (*Auth0, error) {
 	issuer, err := internalauth.IssuerURL(domain)
 	if err != nil {
 		return nil, err
@@ -32,10 +36,14 @@ func NewAuth0(domain, audience string) (*Auth0, error) {
 	if strings.TrimSpace(audience) == "" {
 		return nil, errors.New("Auth0 audience is required")
 	}
-	provider, err := jwks.NewCachingProvider(
+	providerOptions := []any{
 		jwks.WithIssuerURL(issuer),
 		jwks.WithStrictJWKSURIOrigin(),
-	)
+	}
+	if httpClient != nil {
+		providerOptions = append(providerOptions, jwks.WithCustomClient(httpClient))
+	}
+	provider, err := jwks.NewCachingProvider(providerOptions...)
 	if err != nil {
 		return nil, errors.New("create Auth0 JWKS provider")
 	}

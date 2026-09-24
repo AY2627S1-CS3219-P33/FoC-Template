@@ -5,7 +5,7 @@ Current implementation: verified Auth0 student provisioning and active-account p
 ## Registration — F1.1
 
 - **F1.1:** Register through Auth0 Universal Login, then provision a local USER account from the validated identity.
-- **F1.1.1:** Require a unique email; usernames are non-unique display labels.
+- **F1.1.1:** Require unique usernames and email addresses.
 - **F1.1.2–F1.1.3:** Configure password policy and confirmation in the Auth0 database connection; never receive passwords in this service.
 - **F1.1.4:** Require Auth0's `email_verified` claim before local provisioning.
 - **F1.1.5:** Accept only the exact `u.nus.edu` domain.
@@ -61,7 +61,7 @@ If initialization is already marked complete but no super-administrator record e
 ## Additional super administrators — F1.9
 
 - **F1.9, F1.9.2:** Allow only an authenticated super administrator to create additional super administrators; reject users and administrators.
-- **F1.9.1:** Require a unique email; usernames are non-unique display labels.
+- **F1.9.1:** Require unique usernames and email addresses.
 - **F1.9.3:** Arrange a time-limited activation link to the new account's registered email.
 - **F1.9.4:** Keep the account inactive until its holder completes the Auth0-owned activation flow.
 - **F1.9.5:** Audit every creation attempt, recording creator, new account, timestamp, and outcome. For attempts rejected before an account exists, define a safe attempted-target representation without inventing an account record.

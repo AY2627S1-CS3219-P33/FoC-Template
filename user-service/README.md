@@ -35,7 +35,7 @@ Construct a pool with `repository.Open(ctx, cfg.DatabaseURL)`, close it when fin
 
 Profile and deletion operations take a trusted authenticated account ID. The future caller must obtain it from real authentication, never a request-supplied identity. There is no authentication substitute, account listing, or target-account override in this slice.
 
-Usernames come from the verified Auth0 profile, with the email local part as fallback; they are display labels and are not unique. Emails are normalized and remain unique even after soft deletion. Only the exact `u.nus.edu` domain is accepted. Password policy and password reset are configured in the Auth0 database connection.
+Usernames come from the verified Auth0 profile, with the email local part as fallback. Usernames and emails are case-insensitively unique and remain reserved after soft deletion. Only the exact `u.nus.edu` domain is accepted. Password policy and password reset are configured in the Auth0 database connection.
 
 Display names are limited to 100 characters and mobile numbers to 32, with control characters rejected. Phone ownership/format validation is not implemented. Validation errors contain field names and explanations, not submitted values; conflicts, missing accounts, inactive accounts, and missing dependencies have distinguishable errors.
 
@@ -109,9 +109,9 @@ The local endpoints are:
 - `GET /health` and `GET /api/auth/config` — public service/configuration endpoints.
 - `POST /api/auth/provision` — requires an access token and creates an active local USER from a matching, verified NUS Auth0 profile.
 - `POST /api/auth/logout` — validates the current access token before the SPA ends its Auth0 browser session; returns `204 No Content`.
-- `GET /api/private` — requires a valid Auth0 access token.
+- `GET /api/private` — requires a valid Auth0 access token and a provisioned, active local account.
 
-Automatic provisioning never links an existing local account by email. A conflict requires a future explicit account-linking workflow. The Auth0 nickname becomes the non-unique username; a missing or invalid nickname falls back to the email local part.
+Automatic provisioning never links an existing local account by email. A username or email conflict requires a future explicit account-linking workflow. The Auth0 nickname becomes the username; a missing or invalid nickname falls back to the email local part.
 
 Use a dedicated user-service database on PostgreSQL 16 or newer. Set `DATABASE_URL` through your environment/secret manager, then apply the initial migration once:
 

@@ -9,7 +9,7 @@ import (
 
 var (
 	ErrNotFound = errors.New("account not found")
-	ErrConflict = errors.New("email or external identity is already registered")
+	ErrConflict = errors.New("username, email, or external identity is already registered")
 	ErrInactive = errors.New("account is inactive")
 )
 

@@ -12,20 +12,30 @@ import (
 	"github.com/auth0/go-jwt-middleware/v3/validator"
 
 	"user-service/internal/middleware"
+	"user-service/internal/repository"
 	"user-service/internal/service"
 )
 
 type provisionerStub struct {
-	profile *service.Profile
-	created bool
-	err     error
-	token   string
-	subject string
+	profile        *service.Profile
+	created        bool
+	err            error
+	token          string
+	subject        string
+	accountID      string
+	authorizeErr   error
+	authorizeCalls int
 }
 
 func (p *provisionerStub) Provision(_ context.Context, subject, token string) (*service.Profile, bool, error) {
 	p.subject, p.token = subject, token
 	return p.profile, p.created, p.err
+}
+
+func (p *provisionerStub) RequireActiveAccount(_ context.Context, subject string) (string, error) {
+	p.authorizeCalls++
+	p.subject = subject
+	return p.accountID, p.authorizeErr
 }
 
 func testAuthentication(t *testing.T) *middleware.Auth0 {
@@ -80,35 +90,73 @@ func TestLogoutAcceptsValidatedSubject(t *testing.T) {
 }
 
 func TestProvisionUsesValidatedSubjectAndBearerToken(t *testing.T) {
-	stub := &provisionerStub{profile: &service.Profile{ID: "account-id", Username: "student"}, created: true}
+	stub := &provisionerStub{
+		profile: &service.Profile{ID: "account-id", Username: "student"}, created: true,
+		authorizeErr: service.ErrNotFound,
+	}
 	request := httptest.NewRequest(http.MethodPost, "/api/auth/provision", nil)
 	request.Header.Set("Authorization", "Bearer validated-token")
 	claims := &validator.ValidatedClaims{RegisteredClaims: validator.RegisteredClaims{Subject: "auth0|student"}}
 	request = request.WithContext(core.SetClaims(request.Context(), claims))
 	response := httptest.NewRecorder()
 	provision(response, request, stub)
-	if response.Code != http.StatusCreated || stub.subject != "auth0|student" || stub.token != "validated-token" {
-		t.Fatalf("status=%d subject=%q token=%q", response.Code, stub.subject, stub.token)
+	if response.Code != http.StatusCreated || stub.subject != "auth0|student" || stub.token != "validated-token" || stub.authorizeCalls != 0 {
+		t.Fatalf("status=%d subject=%q token=%q authorization_calls=%d", response.Code, stub.subject, stub.token, stub.authorizeCalls)
+	}
+}
+
+func TestRequireActiveAccount(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		want     int
+		contains string
+	}{
+		{"active", nil, http.StatusNoContent, ""},
+		{"not provisioned", service.ErrNotFound, http.StatusForbidden, "account_not_provisioned"},
+		{"inactive", service.ErrInactive, http.StatusForbidden, "account_inactive"},
+		{"unavailable", service.ErrUnavailable, http.StatusServiceUnavailable, "account_check_unavailable"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			stub := &provisionerStub{accountID: "account-id", authorizeErr: test.err}
+			request := httptest.NewRequest(http.MethodGet, "/api/private", nil)
+			claims := &validator.ValidatedClaims{RegisteredClaims: validator.RegisteredClaims{Subject: "auth0|student"}}
+			request = request.WithContext(core.SetClaims(request.Context(), claims))
+			response := httptest.NewRecorder()
+			requireActiveAccount(stub, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusNoContent)
+			})).ServeHTTP(response, request)
+			if response.Code != test.want || (test.contains != "" && !strings.Contains(response.Body.String(), test.contains)) {
+				t.Fatalf("status=%d body=%q want=%d/%q", response.Code, response.Body.String(), test.want, test.contains)
+			}
+			if stub.authorizeCalls != 1 || stub.subject != "auth0|student" {
+				t.Fatalf("authorization_calls=%d subject=%q", stub.authorizeCalls, stub.subject)
+			}
+		})
 	}
 }
 
 func TestProvisionErrorMapping(t *testing.T) {
 	tests := []struct {
-		err  error
-		want int
+		err      error
+		want     int
+		contains string
 	}{
-		{service.ErrIdentityUnverified, http.StatusForbidden},
-		{service.ErrIdentityIneligible, http.StatusForbidden},
-		{service.ErrIdentityMismatch, http.StatusUnauthorized},
-		{service.ErrInactive, http.StatusForbidden},
-		{service.ErrUnavailable, http.StatusServiceUnavailable},
-		{errors.New("upstream failed"), http.StatusBadGateway},
+		{service.ErrIdentityUnverified, http.StatusForbidden, "email_not_verified"},
+		{service.ErrIdentityIneligible, http.StatusForbidden, "ineligible_email"},
+		{service.ErrIdentityMismatch, http.StatusUnauthorized, "identity_mismatch"},
+		{service.ErrInactive, http.StatusForbidden, "account_inactive"},
+		{repository.ErrConflict, http.StatusConflict, "account_conflict"},
+		{service.ErrProfileUnavailable, http.StatusBadGateway, "auth0_profile_unavailable"},
+		{service.ErrUnavailable, http.StatusServiceUnavailable, "provisioning_unavailable"},
+		{errors.New("unexpected failure"), http.StatusInternalServerError, "internal_error"},
 	}
 	for _, test := range tests {
 		response := httptest.NewRecorder()
 		writeProvisionError(response, test.err)
-		if response.Code != test.want {
-			t.Fatalf("err=%v status=%d want=%d", test.err, response.Code, test.want)
+		if response.Code != test.want || !strings.Contains(response.Body.String(), test.contains) {
+			t.Fatalf("err=%v status=%d body=%q want=%d/%q", test.err, response.Code, response.Body.String(), test.want, test.contains)
 		}
 	}
 }
