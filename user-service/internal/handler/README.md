@@ -1,6 +1,6 @@
 # HTTP handlers — planned responsibilities
 
-The package serves the embedded Auth0 test page, exposes public health/browser configuration, and protects provisioning and test API routes with Auth0 JWT validation. Provisioning accepts identity only from validated token context and Auth0 `/userinfo`, never browser-submitted profile fields.
+The package serves the embedded Auth0 test page (Will be deleted once proper frontend is made), exposes public health/browser configuration, and protects provisioning, logout, and test API routes with Auth0 JWT validation. Provisioning accepts identity only from validated token context and Auth0 `/userinfo`, never browser-submitted profile fields. Logout returns `204` before the SPA clears its in-memory state and Auth0 browser session; stateless access tokens remain valid until expiry.
 
 | Requirements | Future HTTP responsibility |
 | --- | --- |

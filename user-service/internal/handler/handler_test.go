@@ -40,6 +40,7 @@ func testAuthentication(t *testing.T) *middleware.Auth0 {
 func TestPublicRoutesAndProtectedRejection(t *testing.T) {
 	h := New(AuthConfig{Domain: "example.auth0.com", ClientID: "client", Audience: "audience"}, testAuthentication(t), &provisionerStub{})
 	tests := []struct {
+		method     string
 		path       string
 		wantStatus int
 		contains   string
@@ -50,15 +51,31 @@ func TestPublicRoutesAndProtectedRejection(t *testing.T) {
 		{path: "/health", wantStatus: http.StatusNoContent},
 		{path: "/missing", wantStatus: http.StatusNotFound},
 		{path: "/api/private", wantStatus: http.StatusUnauthorized, contains: "missing_token"},
+		{method: http.MethodPost, path: "/api/auth/logout", wantStatus: http.StatusUnauthorized, contains: "missing_token"},
 	}
 	for _, test := range tests {
 		t.Run(test.path, func(t *testing.T) {
 			response := httptest.NewRecorder()
-			h.Router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, test.path, nil))
+			method := test.method
+			if method == "" {
+				method = http.MethodGet
+			}
+			h.Router.ServeHTTP(response, httptest.NewRequest(method, test.path, nil))
 			if response.Code != test.wantStatus || (test.contains != "" && !strings.Contains(response.Body.String(), test.contains)) {
 				t.Fatalf("status=%d body=%q", response.Code, response.Body.String())
 			}
 		})
+	}
+}
+
+func TestLogoutAcceptsValidatedSubject(t *testing.T) {
+	request := httptest.NewRequest(http.MethodPost, "/api/auth/logout", nil)
+	claims := &validator.ValidatedClaims{RegisteredClaims: validator.RegisteredClaims{Subject: "auth0|student"}}
+	request = request.WithContext(core.SetClaims(request.Context(), claims))
+	response := httptest.NewRecorder()
+	logout(response, request)
+	if response.Code != http.StatusNoContent || response.Body.Len() != 0 {
+		t.Fatalf("status=%d body=%q", response.Code, response.Body.String())
 	}
 }
 

@@ -65,6 +65,20 @@ async function callProtectedAPI() {
   }
 }
 
+async function logout() {
+  elements.logout.disabled = true;
+  try {
+    const token = await accessToken();
+    await fetch("/api/auth/logout", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  } catch {
+    // Local notification is best-effort; Auth0 logout must still run.
+  }
+  authClient.logout({ logoutParams: { returnTo: window.location.origin } });
+}
+
 async function initialize() {
   try {
     const config = await jsonResponse(await fetch("/api/auth/config", { cache: "no-store" }));
@@ -118,9 +132,9 @@ async function initialize() {
 elements.login.addEventListener("click", () => {
   if (authClient) authClient.loginWithRedirect();
 });
-elements.logout.addEventListener("click", () => authClient.logout({
-  logoutParams: { returnTo: window.location.origin },
-}));
+elements.logout.addEventListener("click", () => {
+  if (authClient) logout();
+});
 elements.callAPI.addEventListener("click", callProtectedAPI);
 
 initialize();

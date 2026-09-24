@@ -101,11 +101,14 @@ Copy `.env.example` to `.env`, fill in the values, and run `go run ./cmd/api`. T
 
 Create an Auth0 API named `FoC User Service API` with identifier `https://api.foc.local/user-service` and RS256 signing. Create a Single Page Application named `FoC Login Test`, then set its Allowed Callback URLs, Allowed Logout URLs, and Allowed Web Origins to `http://localhost:8080`. Put its tenant domain and client ID in `.env`; no client secret is used by the SPA.
 
+Set the API's **Token Expiration** to `600` seconds. Logout clears the SPA's in-memory state and Auth0 browser session, but an issued stateless JWT remains valid until it expires. The service deliberately has no local session table or token denylist.
+
 The local endpoints are:
 
 - `GET /` — embedded Auth0 login test page.
 - `GET /health` and `GET /api/auth/config` — public service/configuration endpoints.
 - `POST /api/auth/provision` — requires an access token and creates an active local USER from a matching, verified NUS Auth0 profile.
+- `POST /api/auth/logout` — validates the current access token before the SPA ends its Auth0 browser session; returns `204 No Content`.
 - `GET /api/private` — requires a valid Auth0 access token.
 
 Automatic provisioning never links an existing local account by email. A conflict requires a future explicit account-linking workflow. The Auth0 nickname becomes the non-unique username; a missing or invalid nickname falls back to the email local part.

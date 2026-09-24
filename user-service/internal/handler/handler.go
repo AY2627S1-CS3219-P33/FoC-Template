@@ -41,6 +41,7 @@ func New(authConfig AuthConfig, authentication *middleware.Auth0, provisioner Pr
 		writeJSON(w, http.StatusOK, authConfig)
 	})
 	router.Handle("GET /api/private", authentication.Authentication(http.HandlerFunc(private)))
+	router.Handle("POST /api/auth/logout", authentication.Authentication(http.HandlerFunc(logout)))
 	router.Handle("POST /api/auth/provision", authentication.Authentication(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		provision(w, r, provisioner)
 	})))
@@ -87,6 +88,15 @@ func private(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{
 		"message": "Authenticated request succeeded.", "subject": subject,
 	})
+}
+
+func logout(w http.ResponseWriter, r *http.Request) {
+	if _, ok := middleware.Subject(r.Context()); !ok {
+		writeError(w, http.StatusUnauthorized, "authentication_required", "A valid access token is required.")
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func provision(w http.ResponseWriter, r *http.Request, provisioner Provisioner) {
