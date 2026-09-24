@@ -1,0 +1,10 @@
+.git
+.gitignore
+.env
+.env.*
+node_modules
+bin
+coverage.out
+compose.test.yaml
+README.md
+*.log
