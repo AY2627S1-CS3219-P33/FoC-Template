@@ -28,14 +28,6 @@ type User struct {
 	UpdatedAt    time.Time
 }
 
-// CreateUser is persistence input. PasswordHash must be an encoded secure hash.
-// Role and activation cannot be chosen by the caller.
-type CreateUser struct {
-	Username     string
-	Email        string
-	PasswordHash string `json:"-"`
-}
-
 // CreateAuth0User is trusted persistence input derived from a validated Auth0
 // access token and the matching /userinfo response.
 type CreateAuth0User struct {
@@ -53,7 +45,6 @@ type ProfilePatch struct {
 }
 
 type UserRepository interface {
-	Create(ctx context.Context, input CreateUser) (*User, error)
 	FindByID(ctx context.Context, id string) (*User, error)
 	UpdateProfile(ctx context.Context, id string, patch ProfilePatch) (*User, error)
 	// SoftDelete is a persistence primitive, not authorization to delete an account.

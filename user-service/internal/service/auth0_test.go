@@ -50,14 +50,14 @@ func (s *userInfoStub) Get(context.Context, string) (auth.UserInfo, error) {
 func TestAuth0ProvisionCreatesEligibleAccount(t *testing.T) {
 	repo := &auth0RepositorySpy{findErr: repository.ErrNotFound}
 	profiles := &userInfoStub{profile: auth.UserInfo{
-		Subject: "auth0|student", Email: " Student@U.NUS.EDU.SG ", EmailVerified: true,
+		Subject: "auth0|student", Email: " Student@U.NUS.EDU ", EmailVerified: true,
 		Nickname: " Campus Friend ", Name: " Student Name ",
 	}}
 	result, created, err := NewAuth0Provisioner(repo, profiles).Provision(context.Background(), "auth0|student", "token")
 	if err != nil || !created {
 		t.Fatalf("provision failed: created=%v err=%v", created, err)
 	}
-	if result.Username != "Campus Friend" || result.Email != "student@u.nus.edu.sg" || result.DisplayName != "Student Name" || !result.Active {
+	if result.Username != "Campus Friend" || result.Email != "student@u.nus.edu" || result.DisplayName != "Student Name" || !result.Active {
 		t.Fatalf("incorrect profile: %+v", result)
 	}
 	if repo.created.Subject != "auth0|student" || repo.creates != 1 || profiles.calls != 1 {
@@ -68,7 +68,7 @@ func TestAuth0ProvisionCreatesEligibleAccount(t *testing.T) {
 func TestAuth0ProvisionUsesEmailFallback(t *testing.T) {
 	repo := &auth0RepositorySpy{findErr: repository.ErrNotFound}
 	profiles := &userInfoStub{profile: auth.UserInfo{
-		Subject: "auth0|student", Email: "student@nus.edu.sg", EmailVerified: true,
+		Subject: "auth0|student", Email: "student@u.nus.edu", EmailVerified: true,
 		Nickname: "bad\x00nickname",
 	}}
 	result, _, err := NewAuth0Provisioner(repo, profiles).Provision(context.Background(), "auth0|student", "token")
@@ -83,8 +83,10 @@ func TestAuth0ProvisionRejectsUntrustedIdentity(t *testing.T) {
 		profile auth.UserInfo
 		want    error
 	}{
-		{name: "subject mismatch", profile: auth.UserInfo{Subject: "auth0|other", Email: "student@nus.edu.sg", EmailVerified: true}, want: ErrIdentityMismatch},
-		{name: "unverified", profile: auth.UserInfo{Subject: "auth0|student", Email: "student@nus.edu.sg"}, want: ErrIdentityUnverified},
+		{name: "subject mismatch", profile: auth.UserInfo{Subject: "auth0|other", Email: "student@u.nus.edu", EmailVerified: true}, want: ErrIdentityMismatch},
+		{name: "unverified", profile: auth.UserInfo{Subject: "auth0|student", Email: "student@u.nus.edu"}, want: ErrIdentityUnverified},
+		{name: "subdomain", profile: auth.UserInfo{Subject: "auth0|student", Email: "student@dept.u.nus.edu", EmailVerified: true}, want: ErrIdentityIneligible},
+		{name: "other NUS domain", profile: auth.UserInfo{Subject: "auth0|student", Email: "student@nus.edu.sg", EmailVerified: true}, want: ErrIdentityIneligible},
 		{name: "not NUS", profile: auth.UserInfo{Subject: "auth0|student", Email: "student@notnus.edu.sg", EmailVerified: true}, want: ErrIdentityIneligible},
 	}
 	for _, test := range tests {
@@ -102,7 +104,7 @@ func TestAuth0ProvisionRejectsUntrustedIdentity(t *testing.T) {
 func TestAuth0ProvisionReturnsExistingAccountWithoutUserInfo(t *testing.T) {
 	repo := &auth0RepositorySpy{user: &repository.User{
 		ID: "account-id", Auth0Subject: "auth0|student", Username: "student",
-		Email: "student@nus.edu.sg", Role: "USER", Active: true,
+		Email: "student@u.nus.edu", Role: "USER", Active: true,
 	}}
 	profiles := &userInfoStub{err: errors.New("must not be called")}
 	result, created, err := NewAuth0Provisioner(repo, profiles).Provision(context.Background(), "auth0|student", "token")

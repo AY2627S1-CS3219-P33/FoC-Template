@@ -6,7 +6,6 @@ require (
 	github.com/auth0/go-jwt-middleware/v3 v3.3.0
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/joho/godotenv v1.5.1
-	golang.org/x/crypto v0.57.0
 )
 
 require (
@@ -24,6 +23,7 @@ require (
 	github.com/lestrrat-go/option/v2 v2.0.0 // indirect
 	github.com/segmentio/asm v1.2.1 // indirect
 	github.com/valyala/fastjson v1.6.7 // indirect
+	golang.org/x/crypto v0.57.0 // indirect
 	golang.org/x/sync v0.23.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/text v0.42.0 // indirect

@@ -26,7 +26,7 @@ func TestUserInfoClient(t *testing.T) {
 			t.Error("bearer token not forwarded")
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"sub":"auth0|student","email":"student@nus.edu.sg","email_verified":true,"nickname":"student"}`))
+		_, _ = w.Write([]byte(`{"sub":"auth0|student","email":"student@u.nus.edu","email_verified":true,"nickname":"student"}`))
 	}))
 	defer server.Close()
 	client := &UserInfoClient{endpoint: server.URL, httpClient: server.Client()}

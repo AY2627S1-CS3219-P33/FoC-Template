@@ -40,20 +40,13 @@ var (
 
 const columns = `id::text, COALESCE(auth0_subject, ''), username, email, role, active, display_name, mobile_number, created_at, updated_at`
 
-func (p *Postgres) Create(ctx context.Context, input CreateUser) (*User, error) {
-	return scanUser(p.pool.QueryRow(ctx, `
-		INSERT INTO accounts (username, email, password_hash)
-		VALUES ($1, $2, $3) RETURNING `+columns,
-		input.Username, input.Email, input.PasswordHash))
-}
-
 func (p *Postgres) FindByAuth0Subject(ctx context.Context, subject string) (*User, error) {
 	return scanUser(p.pool.QueryRow(ctx,
 		`SELECT `+columns+` FROM accounts WHERE auth0_subject = $1 AND deleted_at IS NULL`, subject))
 }
 
-// CreateAuth0 creates an active USER without a local password. It is
-// idempotent for one Auth0 subject, including under concurrent first logins.
+// CreateAuth0 creates an active USER. It is idempotent for one Auth0 subject,
+// including under concurrent first logins.
 func (p *Postgres) CreateAuth0(ctx context.Context, input CreateAuth0User) (*User, bool, error) {
 	u, err := scanUser(p.pool.QueryRow(ctx, `
 		INSERT INTO accounts (auth0_subject, username, email, display_name, active)

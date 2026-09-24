@@ -1,29 +1,28 @@
 # Business services — planned requirement breakdown
 
-Current implementation: internal student registration validation/persistence and active-account profile reads/updates. Registration stays inactive; verification is not sent. Profile credit balance is unavailable without an adapter. Business deletion validates confirmation/account state, then returns a dependency-unavailable error without modifying data. The remaining workflows below are planned, not implemented. See the root README for exact limits and usage.
+Current implementation: verified Auth0 student provisioning and active-account profile reads/updates. Profile credit balance is unavailable without an adapter. Business deletion validates confirmation/account state, then returns a dependency-unavailable error without modifying data. The remaining workflows below are planned, not implemented.
 
 ## Registration — F1.1
 
-- **F1.1:** Register a student using username, NUS email, and password with account role USER.
+- **F1.1:** Register through Auth0 Universal Login, then provision a local USER account from the validated identity.
 - **F1.1.1:** Require a unique email; usernames are non-unique display labels.
-- **F1.1.2:** Require at least eight password characters, including uppercase, lowercase, number, and symbol; use the auth package for secure hashing.
-- **F1.1.3:** Require password and confirmation to match exactly before proceeding.
-- **F1.1.4:** Coordinate verification-email delivery and email ownership verification before account activation.
-- **F1.1.5:** Validate the parsed email domain against `nus.edu.sg`. Treat an allowed suffix as a domain boundary: `nus.edu.sg` and its subdomains qualify, while an unrelated domain such as `notnus.edu.sg` does not.
+- **F1.1.2–F1.1.3:** Configure password policy and confirmation in the Auth0 database connection; never receive passwords in this service.
+- **F1.1.4:** Require Auth0's `email_verified` claim before local provisioning.
+- **F1.1.5:** Accept only the exact `u.nus.edu` domain.
 
 ## Account deletion — F1.2
 
 - **F1.2, F1.2.1:** Allow authenticated self-deletion only after explicit confirmation.
 - **F1.2.2:** Block deletion if credits are reserved in active errands; obtain this state from the credit-owning service through an API/event contract.
 - **F1.2.3:** Block deletion while participating as courier in an active errand; obtain participation state from the errand-owning service.
-- **F1.2.4:** On successful deletion, terminate all active sessions and prevent subsequent login.
+- **F1.2.4:** On successful deletion, revoke Auth0 sessions and prevent subsequent protected access.
 
 Before implementation, define cross-service coordination so a reservation or courier assignment cannot race with deletion. Do not assume that a single remote lookup makes deletion safe. Deletion representation and record-retention rules remain undecided.
 
 ## Authentication and sessions — F1.3
 
-- **F1.3, F1.3.1:** Authenticate only matching credentials for an active account, establish a session, and terminate the current session on logout.
-- **F1.3.2:** Support Remember me persistence across browser sessions until expiry or logout, using the auth/session contracts. Session lifetimes remain to be defined.
+- **F1.3, F1.3.1:** Validate Auth0 access tokens and require an active local account for protected operations; Auth0 handles login and logout.
+- **F1.3.2:** Configure session persistence and lifetime in Auth0 and its SPA SDK.
 
 ## Profiles — F1.4
 
@@ -45,17 +44,16 @@ Before implementation, define cross-service coordination so a reservation or cou
 
 ## Password reset — F1.7
 
-- **F1.7:** Coordinate password reset through an email confirmation link using auth and email contracts.
-- **F1.7.1:** Send the reset link only to the email used to create the target account; never use a caller-supplied alternative destination.
+- **F1.7–F1.7.1:** Use Auth0's password-reset flow for the registered Auth0 database identity.
 
 ## Initial super-administrator bootstrap — F1.8
 
-- **F1.8, F1.8.2:** Use credentials supplied by deployment configuration during initial startup.
+- **F1.8, F1.8.2:** Link initial bootstrap to an existing Auth0 identity supplied by deployment configuration.
 - **F1.8.1:** Create the initial account only if bootstrap has never completed and no super-administrator record exists. An inactive record still counts as an existing record.
-- **F1.8.3:** Hash the initial password using the same secure mechanism as other accounts.
+- **F1.8.3:** Do not accept or store a bootstrap password locally.
 - **F1.8.4:** Never overwrite or reset an existing super administrator on later startups.
 - **F1.8.5:** Fail initialization with a configuration error for missing or invalid required bootstrap values while no super administrator exists.
-- **F1.8.6:** Never expose credential values in errors, logs, or audit output.
+- **F1.8.6:** Never expose tokens or Auth0 configuration secrets in errors, logs, or audit output.
 - **F1.8.7:** Use an atomic repository transaction and durable initialization state to create at most one initial super administrator across concurrent startup instances.
 
 If initialization is already marked complete but no super-administrator record exists, F1.8.1 prohibits automatic recreation. An explicit recovery policy is still needed; do not silently reset bootstrap state.
@@ -65,7 +63,7 @@ If initialization is already marked complete but no super-administrator record e
 - **F1.9, F1.9.2:** Allow only an authenticated super administrator to create additional super administrators; reject users and administrators.
 - **F1.9.1:** Require a unique email; usernames are non-unique display labels.
 - **F1.9.3:** Arrange a time-limited activation link to the new account's registered email.
-- **F1.9.4:** Keep the account inactive until its holder completes activation and sets a password.
+- **F1.9.4:** Keep the account inactive until its holder completes the Auth0-owned activation flow.
 - **F1.9.5:** Audit every creation attempt, recording creator, new account, timestamp, and outcome. For attempts rejected before an account exists, define a safe attempted-target representation without inventing an account record.
 
 ## Super-administrator deactivation and reactivation — F1.10
@@ -76,6 +74,6 @@ If initialization is already marked complete but no super-administrator record e
 - **F1.10.3:** Require the actor to re-authenticate before confirming deactivation.
 - **F1.10.4–F1.10.5:** Terminate all target sessions and prevent login and protected operations after deactivation.
 - **F1.10.6:** Audit every deactivation attempt with actor, affected account, timestamp, and outcome, including rejected attempts.
-- **F1.10.7:** Allow an authenticated super administrator to reactivate a deactivated super administrator. Keep reactivation distinct from pending first-time activation and password setup.
+- **F1.10.7:** Allow an authenticated super administrator to reactivate a deactivated super administrator. Keep reactivation distinct from pending first-time activation.
 
 Middleware rejections of auditable attempts must also reach the audit-recording path. Audit persistence and failure behavior need to be designed so rejected attempts are not lost when an account transaction rolls back.
