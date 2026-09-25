@@ -13,6 +13,7 @@ import (
 	"github.com/CS3219-AY2627S1/FoC-Template/supplier-service/internal/config"
 	"github.com/CS3219-AY2627S1/FoC-Template/supplier-service/internal/database"
 	"github.com/CS3219-AY2627S1/FoC-Template/supplier-service/internal/httpapi"
+	"github.com/CS3219-AY2627S1/FoC-Template/supplier-service/internal/readiness"
 )
 
 type Application struct {
@@ -27,10 +28,10 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Applicat
 		return nil, err
 	}
 
-	handler := httpapi.NewRouter(httpapi.Dependencies{
-		Logger:   logger,
-		Database: pool,
-	})
+	handler := httpapi.NewRouter(
+		httpapi.Dependencies{Logger: logger},
+		readiness.NewHandler(pool),
+	)
 
 	return &Application{
 		database: pool,

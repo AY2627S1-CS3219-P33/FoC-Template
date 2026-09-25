@@ -4,9 +4,11 @@ Go service for supplier and pickup-location listing, search, administration,
 seed data, and immutable record versions. Planned scope and requirement IDs are
 defined in [docs/product-backlog.md](docs/product-backlog.md).
 
-This scaffold provides the application shell and development infrastructure. It
-does not implement API operations yet, so [openapi.yaml](openapi.yaml) remains
-an empty contract template.
+This scaffold provides the application shell and development infrastructure.
+The frozen domain and HTTP decisions are documented in
+[docs/contracts.md](docs/contracts.md). [openapi.yaml](openapi.yaml) composes
+separate catalogue, administration, and common contract fragments; business
+operations are contracts only until their feature handlers are implemented.
 
 ## Technology
 
@@ -87,8 +89,8 @@ Run the service with:
 go run ./cmd/supplier-service
 ```
 
-The default address is `0.0.0.0:3002`. No routes are registered by this
-scaffold.
+The default address is `0.0.0.0:3002`. `/readyz` is implemented; the supplier
+routes are frozen in OpenAPI and will be registered by their feature packages.
 
 ## Environment variables
 
@@ -135,11 +137,30 @@ Run static analysis separately with:
 go vet ./...
 ```
 
-Validate the incremental OpenAPI contract with:
+Validate the OpenAPI contract with:
 
 ```sh
 npx --yes @redocly/cli@2.54.1 lint openapi.yaml
 ```
+
+### Preview the OpenAPI documentation
+
+From the `supplier-service/` directory, start a local Redoc documentation
+preview with:
+
+```sh
+npx --yes @redocly/cli@1.34.5 preview-docs openapi.yaml
+```
+
+Open the URL printed by the command, typically
+`http://127.0.0.1:8080`. The preview renders the endpoints, parameters,
+request and response schemas, authentication requirements, and examples in a
+browser-friendly format. It also watches `openapi.yaml` and its referenced
+files under `openapi/` and refreshes when they change.
+
+The preview command intentionally uses Redocly CLI v1 because the
+`preview-docs` command was removed in Redocly CLI v2. Continue to use the
+version-pinned v2 command above for contract validation.
 
 ## Test database
 
@@ -198,10 +219,11 @@ unprivileged user and contains no `.env` files or build toolchain.
 For each API operation:
 
 1. Select a requirement from the product backlog.
-2. Add the endpoint, schemas, security, and errors to `openapi.yaml`.
+2. Implement the already-frozen endpoint contract, changing it only through an
+   explicit cross-team contract review.
 3. Add focused tests for the contract and use case.
 4. Implement the operation in the corresponding supplier feature package.
 5. Run tests, `go vet`, and contract validation before committing.
 
-Plan stable supplier IDs and immutable version IDs in the database model before
-implementing CRUD operations, even though endpoints will be added incrementally.
+Keep stable supplier IDs, immutable version IDs, soft deletion, and historical
+reads aligned with [docs/contracts.md](docs/contracts.md).
