@@ -89,7 +89,16 @@ operations:
       - bearerAuth: []
     parameters:
       - $ref: ./common.yaml#/components/parameters/SupplierID
+      - $ref: ./common.yaml#/components/parameters/DeletionOperationID
     responses:
+      "202":
+        description: >-
+          The supplier is already soft-deleted and the durable deletion
+          operation will keep reconciling an unconfirmed fence commit.
+        content:
+          application/json:
+            schema:
+              $ref: ./common.yaml#/components/schemas/DeletionPending
       "204":
         description: Supplier deleted; no response body.
       "400":

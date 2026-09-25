@@ -23,6 +23,26 @@ type Principal struct {
 	Roles   []Role
 }
 
+// FailureKind is a stable authentication outcome that middleware can map to
+// the frozen HTTP contract without depending on a verifier implementation.
+type FailureKind string
+
+const (
+	InvalidCredential   FailureKind = "invalid_credential"
+	AccountDisabled     FailureKind = "account_disabled"
+	VerifierUnavailable FailureKind = "verifier_unavailable"
+)
+
+// AuthenticationError deliberately excludes credential contents and provider
+// error text so it is safe to return across the authentication boundary.
+type AuthenticationError struct {
+	Kind FailureKind
+}
+
+func (e *AuthenticationError) Error() string {
+	return "authentication failed"
+}
+
 func (p Principal) Has(permission Permission) bool {
 	if p.Subject == "" {
 		return false
@@ -40,9 +60,12 @@ func (p Principal) Has(permission Permission) bool {
 	return false
 }
 
-// Port verifies opaque credentials and returns trusted identity data. A future
-// JWT validator, session service, or user-service client can implement it
-// without changing supplier use cases.
+// Port verifies opaque credentials and returns trusted identity data. It
+// returns InvalidCredential for missing, invalid, or expired credentials,
+// AccountDisabled when authoritative account state denies access, and
+// VerifierUnavailable when identity cannot be established because its
+// dependency is unavailable. A future JWT validator, session service, or
+// user-service client can implement it without changing supplier use cases.
 type Port interface {
 	Authenticate(context.Context, string) (Principal, error)
 }

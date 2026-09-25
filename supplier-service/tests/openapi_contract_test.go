@@ -68,6 +68,50 @@ func TestOpenAPIContainsEverySharedErrorCode(t *testing.T) {
 	}
 }
 
+func TestNamedErrorResponsesConstrainTheirStableCodes(t *testing.T) {
+	document := readYAML(t, "../openapi/common.yaml")
+	responses := mapping(t, mapping(t, document, "components"), "responses")
+	expected := map[string]apperror.Code{
+		"InvalidArgument":          apperror.InvalidArgument,
+		"Unauthenticated":          apperror.Unauthenticated,
+		"Forbidden":                apperror.Forbidden,
+		"SupplierNotFound":         apperror.SupplierNotFound,
+		"SupplierVersionNotFound":  apperror.SupplierVersionNotFound,
+		"NameConflict":             apperror.SupplierNameConflict,
+		"ActiveErrands":            apperror.SupplierHasActiveErrands,
+		"DeletionFenceUnavailable": apperror.DeletionFenceUnavailable,
+		"DependencyUnavailable":    apperror.DependencyUnavailable,
+		"Internal":                 apperror.Internal,
+	}
+	for responseName, code := range expected {
+		response := mapping(t, responses, responseName)
+		require.Contains(t, marshalYAML(t, response), "const: "+string(code))
+	}
+}
+
+func TestDeleteContractIsIdempotentAndCanReportPendingReconciliation(t *testing.T) {
+	common := readYAML(t, "../openapi/common.yaml")
+	parameters := mapping(t, mapping(t, common, "components"), "parameters")
+	idempotencyKey := mapping(t, parameters, "DeletionOperationID")
+	require.Equal(t, "Idempotency-Key", scalar(t, idempotencyKey, "name"))
+	require.Equal(t, "true", scalar(t, idempotencyKey, "required"))
+
+	administration := readYAML(t, "../openapi/administration.yaml")
+	deleteOperation := mapping(t, mapping(t, administration, "operations"), "deleteSupplier")
+	contract := marshalYAML(t, deleteOperation)
+	require.Contains(t, contract, "DeletionOperationID")
+	require.Contains(t, contract, "\"202\"")
+	require.Contains(t, contract, "DeletionPending")
+}
+
+func TestWriteContractMatchesServerStringValidation(t *testing.T) {
+	document := readYAML(t, "../openapi/common.yaml")
+	schemas := mapping(t, mapping(t, document, "components"), "schemas")
+	contract := marshalYAML(t, schemas)
+	require.Contains(t, contract, `pattern: \S`)
+	require.Contains(t, contract, `pattern: ^https?://`)
+}
+
 func readYAML(t *testing.T, path string) map[string]any {
 	t.Helper()
 	content, err := os.ReadFile(path)

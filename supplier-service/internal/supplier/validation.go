@@ -38,6 +38,45 @@ func ValidVersionID(id VersionID) bool {
 	return uuidPattern.MatchString(string(id))
 }
 
+func ValidDeletionOperationID(id DeletionOperationID) bool {
+	return uuidPattern.MatchString(string(id))
+}
+
+// ValidateCreate checks presence-sensitive create fields and returns the
+// validated domain details used by the repository.
+func ValidateCreate(input Create) (Details, error) {
+	details := Details{
+		Name:                input.Name,
+		Type:                input.Type,
+		Building:            input.Building,
+		Floor:               input.Floor,
+		LocationDescription: input.LocationDescription,
+		OpeningTime:         input.OpeningTime,
+		ClosingTime:         input.ClosingTime,
+		ImageURL:            input.ImageURL,
+	}
+	violations := make([]FieldViolation, 0)
+	if input.Latitude == nil {
+		violations = append(violations, FieldViolation{Field: "latitude", Message: "is required"})
+	} else {
+		details.Latitude = *input.Latitude
+	}
+	if input.Longitude == nil {
+		violations = append(violations, FieldViolation{Field: "longitude", Message: "is required"})
+	} else {
+		details.Longitude = *input.Longitude
+	}
+
+	if err := ValidateDetails(details); err != nil {
+		validationError := err.(*ValidationError)
+		violations = append(violations, validationError.Violations...)
+	}
+	if len(violations) > 0 {
+		return Details{}, &ValidationError{Violations: violations}
+	}
+	return details, nil
+}
+
 // ValidateDetails implements F2.2.1-F2.2.3 for both create and update.
 func ValidateDetails(details Details) error {
 	violations := make([]FieldViolation, 0)
@@ -45,7 +84,7 @@ func ValidateDetails(details Details) error {
 		trimmed := strings.TrimSpace(value)
 		if trimmed == "" {
 			violations = append(violations, FieldViolation{Field: field, Message: "is required"})
-		} else if utf8.RuneCountInString(trimmed) > maximum {
+		} else if utf8.RuneCountInString(value) > maximum {
 			violations = append(violations, FieldViolation{Field: field, Message: "is too long"})
 		}
 	}

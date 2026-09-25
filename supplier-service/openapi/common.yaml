@@ -42,6 +42,16 @@ components:
       schema:
         type: string
         format: uuid
+    DeletionOperationID:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: >-
+        Caller-generated UUID that identifies one deletion attempt. Reuse the
+        same value when retrying an ambiguous or interrupted request.
+      schema:
+        type: string
+        format: uuid
     Query:
       name: q
       in: query
@@ -91,22 +101,27 @@ components:
           type: string
           minLength: 1
           maxLength: 120
+          pattern: '\S'
         type:
           type: string
           minLength: 1
           maxLength: 64
+          pattern: '\S'
         building:
           type: string
           minLength: 1
           maxLength: 120
+          pattern: '\S'
         floor:
           type: string
           minLength: 1
           maxLength: 32
+          pattern: '\S'
         locationDescription:
           type: string
           minLength: 1
           maxLength: 500
+          pattern: '\S'
         latitude:
           type: number
           format: double
@@ -129,6 +144,7 @@ components:
           type: [string, "null"]
           format: uri
           maxLength: 2048
+          pattern: '^https?://'
 
     SupplierWrite:
       allOf:
@@ -143,22 +159,27 @@ components:
           type: string
           minLength: 1
           maxLength: 120
+          pattern: '\S'
         type:
           type: string
           minLength: 1
           maxLength: 64
+          pattern: '\S'
         building:
           type: string
           minLength: 1
           maxLength: 120
+          pattern: '\S'
         floor:
           type: string
           minLength: 1
           maxLength: 32
+          pattern: '\S'
         locationDescription:
           type: string
           minLength: 1
           maxLength: 500
+          pattern: '\S'
         latitude:
           type: number
           format: double
@@ -179,6 +200,7 @@ components:
           type: [string, "null"]
           format: uri
           maxLength: 2048
+          pattern: '^https?://'
       additionalProperties: false
 
     Supplier:
@@ -290,64 +312,120 @@ components:
           enum: [ready, not_ready]
       additionalProperties: false
 
+    DeletionPending:
+      type: object
+      required: [operationId, status]
+      properties:
+        operationId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          const: pending_fence_commit
+      additionalProperties: false
+
   responses:
     InvalidArgument:
       description: The request or one or more named fields are invalid.
       content:
         application/json:
           schema:
-            $ref: "#/components/schemas/Error"
+            allOf:
+              - $ref: "#/components/schemas/Error"
+              - properties:
+                  code:
+                    const: INVALID_ARGUMENT
     Unauthenticated:
       description: A valid authenticated identity is required.
       content:
         application/json:
           schema:
-            $ref: "#/components/schemas/Error"
+            allOf:
+              - $ref: "#/components/schemas/Error"
+              - properties:
+                  code:
+                    const: UNAUTHENTICATED
     Forbidden:
-      description: Administrator permission is required.
+      description: >-
+        The authenticated identity lacks administrator permission or its
+        authoritative account state denies access.
       content:
         application/json:
           schema:
-            $ref: "#/components/schemas/Error"
+            allOf:
+              - $ref: "#/components/schemas/Error"
+              - properties:
+                  code:
+                    const: FORBIDDEN
     SupplierNotFound:
       description: The supplier does not exist or has been deleted.
       content:
         application/json:
           schema:
-            $ref: "#/components/schemas/Error"
+            allOf:
+              - $ref: "#/components/schemas/Error"
+              - properties:
+                  code:
+                    const: SUPPLIER_NOT_FOUND
     SupplierVersionNotFound:
       description: The immutable supplier version does not exist.
       content:
         application/json:
           schema:
-            $ref: "#/components/schemas/Error"
+            allOf:
+              - $ref: "#/components/schemas/Error"
+              - properties:
+                  code:
+                    const: SUPPLIER_VERSION_NOT_FOUND
     NameConflict:
       description: The normalized name is used by another non-deleted supplier.
       content:
         application/json:
           schema:
-            $ref: "#/components/schemas/Error"
+            allOf:
+              - $ref: "#/components/schemas/Error"
+              - properties:
+                  code:
+                    const: SUPPLIER_NAME_CONFLICT
     ActiveErrands:
       description: One or more active errands still use this supplier.
       content:
         application/json:
           schema:
-            $ref: "#/components/schemas/Error"
+            allOf:
+              - $ref: "#/components/schemas/Error"
+              - properties:
+                  code:
+                    const: SUPPLIER_HAS_ACTIVE_ERRANDS
     DeletionFenceUnavailable:
-      description: Deletion safety could not be established; nothing was deleted.
+      description: >-
+        The fence could not be acquired or inspected safely. The supplier was
+        not deleted by this operation.
       content:
         application/json:
           schema:
-            $ref: "#/components/schemas/Error"
+            allOf:
+              - $ref: "#/components/schemas/Error"
+              - properties:
+                  code:
+                    const: DELETION_FENCE_UNAVAILABLE
     DependencyUnavailable:
       description: A required dependency is unavailable.
       content:
         application/json:
           schema:
-            $ref: "#/components/schemas/Error"
+            allOf:
+              - $ref: "#/components/schemas/Error"
+              - properties:
+                  code:
+                    const: DEPENDENCY_UNAVAILABLE
     Internal:
       description: An unexpected internal error occurred.
       content:
         application/json:
           schema:
-            $ref: "#/components/schemas/Error"
+            allOf:
+              - $ref: "#/components/schemas/Error"
+              - properties:
+                  code:
+                    const: INTERNAL

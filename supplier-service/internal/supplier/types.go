@@ -14,6 +14,10 @@ type SupplierID string
 // VersionID is a system-generated UUID for exactly one immutable snapshot.
 type VersionID string
 
+// DeletionOperationID is a caller-generated UUID used to make a guarded
+// deletion recoverable and idempotent across HTTP and service retries.
+type DeletionOperationID string
+
 // Details are the versioned, administrator-editable supplier fields.
 type Details struct {
 	Name                string
@@ -50,10 +54,21 @@ type Supplier struct {
 	UpdatedAt  time.Time
 }
 
-// Create contains client-controlled fields only. IDs and timestamps are
-// supplied by trusted service components.
+// Create is the presence-aware input to the creation use case. Coordinates
+// are pointers because zero is a valid coordinate and must remain distinct
+// from an omitted mandatory field. IDs and timestamps are supplied by trusted
+// service components.
 type Create struct {
-	Details Details
+	Name                string
+	Type                string
+	Building            string
+	Floor               string
+	LocationDescription string
+	Latitude            *float64
+	Longitude           *float64
+	OpeningTime         string
+	ClosingTime         string
+	ImageURL            *string
 }
 
 // Patch represents a partial update. ImageURLSet distinguishes an omitted

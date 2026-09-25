@@ -37,7 +37,8 @@ optional. Patch accepts those fields but rejects an empty object; setting
 Coordinates use latitude `[-90, 90]` and longitude `[-180, 180]`. Times use
 24-hour `HH:MM` and must differ. Image URLs must be absolute HTTP(S) URLs. The
 length bounds in the common OpenAPI fragment are the shared bounds used by Go
-validation.
+validation. Create inputs preserve coordinate presence separately from their
+numeric value so an omitted coordinate cannot be mistaken for valid zero.
 
 `GET /suppliers` accepts:
 
@@ -59,6 +60,13 @@ delete additionally require `suppliers:manage`, currently granted to the
 the trusted `auth.Principal`; an `auth.Port` adapter owns token, session, or
 user-service verification. Payload identity and role values are ignored.
 
+The authentication port returns stable failure kinds. Missing, invalid, or
+expired credentials are `invalid_credential` and map to `401`. An
+authoritatively disabled account is `account_disabled` and maps to `403`. An
+identity-provider outage is `verifier_unavailable` and maps to `503`. Unknown
+authentication failures map to `500`; credential contents and provider error
+details must not cross this boundary.
+
 Stable error codes are defined in `internal/apperror` and the common OpenAPI
 fragment. Field validation uses `INVALID_ARGUMENT` plus a `fields` array.
 Not-found current and historical reads intentionally have distinct codes.
@@ -78,19 +86,31 @@ Not-found current and historical reads intentionally have distinct codes.
 Deletion uses `deletefeature.OrderDeletionFence` with this fail-closed
 protocol:
 
-1. `Acquire(supplierId)` atomically blocks creation of new errands for that
-   supplier, then checks whether an active errand exists.
-2. If active errands exist, supplier-service calls `Release(fenceId)` and
+1. The client supplies a UUID `Idempotency-Key`, which becomes the deletion
+   operation ID and must be reused for retries of the same logical deletion.
+2. `Acquire(operationId, supplierId)` is idempotent for that pair. It
+   atomically blocks creation of new errands for the supplier, then checks
+   whether an active errand exists. Reusing an operation ID for another
+   supplier returns `400 INVALID_ARGUMENT`.
+3. If `Acquire` has an ambiguous result, supplier-service calls
+   `Inspect(operationId)`; it never starts a different operation to guess the
+   outcome.
+4. If active errands exist, supplier-service calls `Release(operationId)` and
    returns `SUPPLIER_HAS_ACTIVE_ERRANDS` without deleting.
-3. If none exist, supplier-service soft-deletes its current record and calls
-   `Commit(fenceId)`. Commit makes the order-side block permanent.
-4. If the supplier write fails, supplier-service calls `Release`. If acquire
+5. If none exist, supplier-service atomically soft-deletes its current record
+   and stores the pending deletion operation, then calls `Commit(operationId)`.
+   Commit makes the order-side block permanent.
+6. If the supplier write fails, supplier-service calls `Release`. If acquire
    is unavailable or ambiguous, deletion returns
    `DELETION_FENCE_UNAVAILABLE`. It never assumes deletion is safe.
 
-`Commit` and `Release` are idempotent. A commit failure after the local soft
-delete leaves the fence closed (safe for new-order creation) and is retried or
-reconciled; it must not be treated as permission to create an errand.
+`Inspect`, `Commit`, and `Release` are idempotent. A commit failure after the
+local soft delete leaves the fence closed (safe for new-order creation) and
+returns `202 Accepted` with the operation ID. Pending operations are durably
+listed after restart and reconciled by inspecting and committing the same
+operation ID. They are marked complete locally only after order-service
+confirms `committed`; a post-delete failure must never release the fence or be
+treated as permission to create an errand.
 
 Order-service must run every errand creation through the same supplier gate and
 reject creation while a fence is open or committed. On success it stores both

@@ -24,8 +24,45 @@ func validDetails() Details {
 	}
 }
 
+func validCreate() Create {
+	details := validDetails()
+	return Create{
+		Name:                details.Name,
+		Type:                details.Type,
+		Building:            details.Building,
+		Floor:               details.Floor,
+		LocationDescription: details.LocationDescription,
+		Latitude:            &details.Latitude,
+		Longitude:           &details.Longitude,
+		OpeningTime:         details.OpeningTime,
+		ClosingTime:         details.ClosingTime,
+		ImageURL:            details.ImageURL,
+	}
+}
+
 func TestValidateDetailsAcceptsCompleteSupplier(t *testing.T) {
 	require.NoError(t, ValidateDetails(validDetails()))
+}
+
+func TestValidateCreateDistinguishesMissingCoordinatesFromZero(t *testing.T) {
+	missing := validCreate()
+	missing.Latitude = nil
+	missing.Longitude = nil
+
+	_, validationErr := ValidateCreate(missing)
+	err := &ValidationError{}
+	require.ErrorAs(t, validationErr, &err)
+	require.ElementsMatch(t, []string{"latitude", "longitude"}, violationFields(err))
+
+	zero := validCreate()
+	zeroLatitude := 0.0
+	zeroLongitude := 0.0
+	zero.Latitude = &zeroLatitude
+	zero.Longitude = &zeroLongitude
+	details, validationErr := ValidateCreate(zero)
+	require.NoError(t, validationErr)
+	require.Zero(t, details.Latitude)
+	require.Zero(t, details.Longitude)
 }
 
 func TestValidateDetailsReportsNamedFields(t *testing.T) {
@@ -76,6 +113,8 @@ func TestIdentifierValidationUsesUUIDs(t *testing.T) {
 	require.True(t, ValidVersionID("019925d7-9248-7a73-9a40-9d60f37dbd2d"))
 	require.False(t, ValidSupplierID("client-chosen-id"))
 	require.False(t, ValidVersionID(""))
+	require.True(t, ValidDeletionOperationID("019925d7-9248-7a73-9a40-9d60f37dbd2d"))
+	require.False(t, ValidDeletionOperationID("retry-1"))
 }
 
 func violationFields(err *ValidationError) []string {
