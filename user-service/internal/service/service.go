@@ -5,12 +5,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/mail"
-	"strings"
 	"unicode"
 	"unicode/utf8"
 
-	"user-service/internal/auth"
 	"user-service/internal/repository"
 )
 
@@ -22,18 +19,11 @@ var (
 	ErrInactive    = repository.ErrInactive
 )
 
-// ValidationError never contains submitted values, especially passwords.
+// ValidationError never contains submitted values.
 type ValidationError struct{ Field, Message string }
 
 func (e *ValidationError) Error() string { return e.Field + ": " + e.Message }
 func (e *ValidationError) Unwrap() error { return ErrValidation }
-
-type Registration struct {
-	Username             string
-	Email                string
-	Password             string `json:"-"`
-	PasswordConfirmation string `json:"-"`
-}
 
 // Profile contains no credentials. A nil CreditBalance means unavailable, not zero.
 // The future credit adapter returns an exact decimal string, never a float.
@@ -62,33 +52,6 @@ type UserService struct {
 
 func NewUserService(users repository.UserRepository, balances CreditBalanceReader) *UserService {
 	return &UserService{users: users, balances: balances}
-}
-
-// Register creates an inactive USER. Verification delivery and activation are
-// deliberately absent; a successful result does not imply an email was sent.
-func (s *UserService) Register(ctx context.Context, input Registration) (*Profile, error) {
-	input.Username = strings.TrimSpace(input.Username)
-	input.Email = strings.ToLower(strings.TrimSpace(input.Email))
-	if err := validateRegistration(input); err != nil {
-		return nil, err
-	}
-	if s.users == nil {
-		return nil, ErrUnavailable
-	}
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	hash, err := (auth.Argon2Hasher{}).Hash(input.Password)
-	if err != nil {
-		return nil, err
-	}
-	u, err := s.users.Create(ctx, repository.CreateUser{
-		Username: input.Username, Email: input.Email, PasswordHash: hash,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return profile(u), nil
 }
 
 func (s *UserService) GetProfile(ctx context.Context, authenticatedUserID string) (*Profile, error) {
@@ -166,52 +129,8 @@ func profile(u *repository.User) *Profile {
 		Active: u.Active, DisplayName: u.DisplayName, Mobile: u.Mobile}
 }
 
-func validateRegistration(input Registration) error {
-	if input.Username == "" || !validText(input.Username, 64) {
-		return invalid("username", "must contain 1 to 64 characters without control characters")
-	}
-	address, err := mail.ParseAddress(input.Email)
-	if err != nil || address.Address != input.Email || len(input.Email) > 254 {
-		return invalid("email", "must be a single NUS email address")
-	}
-	_, domain, ok := strings.Cut(input.Email, "@")
-	if !ok || !nusDomain(domain) {
-		return invalid("email", "must belong to nus.edu.sg or one of its subdomains")
-	}
-	if input.Password != input.PasswordConfirmation {
-		return invalid("password_confirmation", "must match the password exactly")
-	}
-	if !utf8.ValidString(input.Password) || len(input.Password) > auth.MaxPasswordBytes || utf8.RuneCountInString(input.Password) < 8 {
-		return invalid("password", "must contain at least 8 characters and at most 1024 bytes of valid UTF-8")
-	}
-	var upper, lower, number, symbol bool
-	for _, r := range input.Password {
-		upper = upper || unicode.IsUpper(r)
-		lower = lower || unicode.IsLower(r)
-		number = number || unicode.IsDigit(r)
-		symbol = symbol || unicode.IsPunct(r) || unicode.IsSymbol(r)
-	}
-	if !upper || !lower || !number || !symbol {
-		return invalid("password", "must include uppercase, lowercase, a number, and a symbol")
-	}
-	return nil
-}
-
 func nusDomain(domain string) bool {
-	if domain != "nus.edu.sg" && !strings.HasSuffix(domain, ".nus.edu.sg") {
-		return false
-	}
-	for _, label := range strings.Split(domain, ".") {
-		if len(label) == 0 || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
-			return false
-		}
-		for _, r := range label {
-			if !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '-') {
-				return false
-			}
-		}
-	}
-	return true
+	return domain == "u.nus.edu"
 }
 
 func validText(value string, max int) bool {
