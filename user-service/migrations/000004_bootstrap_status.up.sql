@@ -6,6 +6,6 @@ BEGIN;
   );
 
   INSERT INTO bootstrap_state (name)
-  VALUES ('initial_super_admin');
+  VALUES ('bootstrap_is_completed');
 
   COMMIT;

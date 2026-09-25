@@ -1,6 +1,6 @@
 # Business services — planned requirement breakdown
 
-Current implementation: verified Auth0 student provisioning and active-account profile reads/updates. Profile credit balance is unavailable without an adapter. Business deletion validates confirmation/account state, then returns a dependency-unavailable error without modifying data. The remaining workflows below are planned, not implemented.
+Current implementation: verified Auth0 student provisioning and active-account profile reads/updates. Profile credit balance is unavailable without an adapter. Business deletion validates confirmation/account state, then returns a dependency-unavailable error without modifying data. Initial super-administrator bootstrap is implemented using trusted deployment configuration and an atomic repository callback. The other remaining workflows below are planned, not implemented.
 
 ## Registration — F1.1
 

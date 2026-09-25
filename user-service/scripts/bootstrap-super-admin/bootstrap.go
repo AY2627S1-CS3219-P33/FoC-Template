@@ -1,36 +1,35 @@
-package bootstrapsuperadmin
+package main
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"os"
 	"time"
-	"user-service/internal/repository"
-	
+
 	"github.com/joho/godotenv"
+	"user-service/internal/config"
+	"user-service/internal/repository"
+	"user-service/internal/service"
 )
 
-
 func main() {
-	if err := godotenv.Load("../../.env"); err != nil {
-		log.Fatal(fmt.Errorf("load .env for super admin bootstrap: %w", err))
+	if err := run(); err != nil {
+		log.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*30)
-	defer cancel()
-
-	database_url := os.Getenv("DATABASE_URL")
-	pool, err := repository.Open(ctx, database_url)
-	if err != nil {
-		log.Fatal(fmt.Errorf("Error connecting to DB when bootstrapping super admin. %w", err))
-	}
-	defer pool.Close()
-	db := repository.NewPostgres(pool)
-
-
-
+	log.Print("super-administrator bootstrap complete")
 }
 
-func indempotency_check() {
-
+func run() error {
+	_ = godotenv.Load()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	pool, err := repository.Open(ctx, os.Getenv("DATABASE_URL"))
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+	cfg := config.LoadBootstrap()
+	return service.BootstrapSuperAdmin(ctx, repository.NewPostgres(pool), repository.CreateAuth0User{
+		Subject: cfg.Subject, Username: cfg.Username, Email: cfg.Email,
+	})
 }

@@ -35,7 +35,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	startupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	startupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	pool, err := repository.Open(startupCtx, cfg.DatabaseURL)
 	if err != nil {
@@ -52,6 +52,12 @@ func run() error {
 		return err
 	}
 	users := repository.NewPostgres(pool)
+	bootstrap := config.LoadBootstrap()
+	if err := service.BootstrapSuperAdmin(startupCtx, users, repository.CreateAuth0User{
+		Subject: bootstrap.Subject, Username: bootstrap.Username, Email: bootstrap.Email,
+	}); err != nil {
+		return err
+	}
 	provisioner := service.NewAuth0Provisioner(users, userInfo)
 	httpHandler := handler.New(handler.AuthConfig{
 		Domain: cfg.Auth0Domain, ClientID: cfg.Auth0ClientID, Audience: cfg.Auth0Audience,

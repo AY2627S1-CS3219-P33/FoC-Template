@@ -2,7 +2,7 @@
 
 PostgreSQL-backed student-account service for the food-delivery platform. Auth0 Universal Login owns registration, credentials, and sessions; this service validates access tokens, provisions local application accounts, and manages profile data. A small browser page exercises the login and protected API.
 
-Business-level deletion remains blocked until coordinated credit/errand checks and Auth0 session revocation are implemented. Role-based access enforcement, administrator/super-administrator management, bootstrap, and audit logging remain future work. The service never receives or stores passwords.
+Business-level deletion remains blocked until coordinated credit/errand checks and Auth0 session revocation are implemented. Role-based access enforcement, administrator/super-administrator management, and audit logging remain future work. Initial super-administrator bootstrap links a deployment-supplied Auth0 identity. The service never receives or stores passwords.
 
 ## Structure
 
@@ -119,9 +119,10 @@ Use a dedicated user-service database on PostgreSQL 16 or newer. Set `DATABASE_U
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/000001_accounts.up.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/000002_auth0_identities.up.sql
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/000003_auth0_only.up.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/000004_bootstrap_status.up.sql
 ```
 
-Migrations are explicit, transactional SQL files; there is no automatic runner or bootstrap. See [migration instructions](migrations/README.md) for rollback behavior.
+Migrations are explicit, transactional SQL files; there is no automatic migration runner; bootstrap runs after migrations are applied. See [migration instructions](migrations/README.md) for rollback behavior.
 
 ### PostgreSQL integration tests
 
@@ -134,3 +135,13 @@ go test -count=1 ./...
 Without `TEST_DATABASE_URL`, PostgreSQL integration tests are skipped explicitly; unit tests still run. Each integration test creates and removes a randomly named isolated schema. Tests never fall back to `DATABASE_URL`, reset an existing schema/database, or require pre-applied migrations. Integration coverage includes concurrent uniqueness, Auth0 provisioning, CRUD, guarded profile updates, blocked business deletion, and migration rollback/reapply.
 
 Build the container with `docker build -t user-service .`. Supply all variables documented in `.env.example` when running it; the environment file itself is not copied into the image.
+
+## Initial super-administrator bootstrap
+
+Prepare an existing Auth0 identity and set `BOOTSTRAP_AUTH0_SUBJECT` to its exact user ID, plus `BOOTSTRAP_USERNAME` and `BOOTSTRAP_EMAIL`. These trusted deployment values are required only when initial account creation is needed. Any valid email domain is allowed for this administrator; ordinary student signup retains its NUS policy. Bootstrap does not verify the identity remotely, create an Auth0 account, or accept a password.
+
+Apply all migrations, including `000004_bootstrap_status.up.sql`, before starting the API. From `user-service/`, you may also run `go run ./scripts/bootstrap-super-admin`. Both entrypoints load an optional `.env` without overriding supplied environment variables and run the same workflow with a 30-second deadline. The API accepts requests only after bootstrap succeeds.
+
+Bootstrap locks a durable coordination row, inserts an active `SUPER_ADMIN`, and records completion in one transaction. Concurrent instances serialize; subsequent runs do not reset the account or completion timestamp. Existing super administrators, including inactive or deleted records, prevent creation and cause completion to be recorded if needed. Conflicting users are never promoted or overwritten. If completion exists but no super-administrator record remains, startup fails and requires explicit recovery; do not reset the flag automatically.
+
+This creates the account only. Administrator endpoints and role-based authorization remain future work. Remove bootstrap configuration after successful initialization if desired. Errors omit configured values and database diagnostics.

@@ -1,6 +1,6 @@
 # Persistence — planned responsibilities
 
-Current implementation: `Postgres` uses pgx to provision active Auth0-backed USER accounts, find non-deleted accounts, update permitted profile fields, and soft-delete accounts. The account migration enforces unique email and Auth0 identities, including after deletion. `Open` connects and pings with redacted errors. Bootstrap and audit persistence remain unimplemented.
+Current implementation: `Postgres` uses pgx to provision active Auth0-backed USER accounts, find non-deleted accounts, update permitted profile fields, and soft-delete accounts. The account migration enforces unique email and Auth0 identities, including after deletion. `Open` connects and pings with redacted errors. Bootstrap persistence now locks its coordination row and commits account creation with durable completion atomically. Audit persistence remains unimplemented.
 
 `SoftDelete` is a low-level primitive, not a complete deletion workflow: it neither checks other services nor invalidates sessions. The service layer deliberately does not call it yet.
 

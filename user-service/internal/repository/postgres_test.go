@@ -55,7 +55,7 @@ func testDatabase(t *testing.T) *pgxpool.Pool {
 		t.Fatal("create test pool failed")
 	}
 	t.Cleanup(pool.Close)
-	for _, migration := range []string{"000001_accounts.up.sql", "000002_auth0_identities.up.sql", "000003_auth0_only.up.sql"} {
+	for _, migration := range []string{"000001_accounts.up.sql", "000002_auth0_identities.up.sql", "000003_auth0_only.up.sql", "000004_bootstrap_status.up.sql"} {
 		sql, err := os.ReadFile("../../migrations/" + migration)
 		if err != nil {
 			t.Fatal(err)
@@ -238,7 +238,7 @@ func TestPostgresServiceFlow(t *testing.T) {
 func TestPostgresMigrationRollback(t *testing.T) {
 	pool := testDatabase(t)
 	ctx := context.Background()
-	for _, migration := range []string{"000003_auth0_only.down.sql", "000002_auth0_identities.down.sql", "000001_accounts.down.sql", "000001_accounts.up.sql", "000002_auth0_identities.up.sql", "000003_auth0_only.up.sql"} {
+	for _, migration := range []string{"000004_bootstrap_status.down.sql", "000003_auth0_only.down.sql", "000002_auth0_identities.down.sql", "000001_accounts.down.sql", "000001_accounts.up.sql", "000002_auth0_identities.up.sql", "000003_auth0_only.up.sql", "000004_bootstrap_status.up.sql"} {
 		sql, err := os.ReadFile("../../migrations/" + migration)
 		if err != nil {
 			t.Fatal(err)
