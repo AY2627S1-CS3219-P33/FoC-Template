@@ -93,6 +93,14 @@ func (p *Postgres) SoftDelete(ctx context.Context, id string) error {
 	return nil
 }
 
+func (db *Postgres)lock_bootstrap_status(ctx context.Context) {
+
+}
+
+func (db *Postgres)create_super_admin() {
+
+}
+
 func parseID(id string) (pgtype.UUID, error) {
 	var uuid pgtype.UUID
 	if err := uuid.Scan(id); err != nil || !uuid.Valid {
@@ -125,3 +133,4 @@ func translateError(err error) error {
 	// PostgreSQL detail fields can contain submitted account data.
 	return errors.New("account persistence operation failed")
 }
+
