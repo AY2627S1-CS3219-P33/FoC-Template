@@ -143,6 +143,25 @@ Validate the OpenAPI contract with:
 npx --yes @redocly/cli@2.54.1 lint openapi.yaml
 ```
 
+### Preview the OpenAPI documentation
+
+From the `supplier-service/` directory, start a local Redoc documentation
+preview with:
+
+```sh
+npx --yes @redocly/cli@1.34.5 preview-docs openapi.yaml
+```
+
+Open the URL printed by the command, typically
+`http://127.0.0.1:8080`. The preview renders the endpoints, parameters,
+request and response schemas, authentication requirements, and examples in a
+browser-friendly format. It also watches `openapi.yaml` and its referenced
+files under `openapi/` and refreshes when they change.
+
+The preview command intentionally uses Redocly CLI v1 because the
+`preview-docs` command was removed in Redocly CLI v2. Continue to use the
+version-pinned v2 command above for contract validation.
+
 ## Test database
 
 Start the disposable PostgreSQL database from the repository root:
