@@ -1,6 +1,6 @@
 # Configuration — planned responsibilities
 
-Current implementation: `Load` reads required `DATABASE_URL` and optional `HTTP_ADDRESS` (default `:8080`). Repository connection setup validates and checks connectivity without exposing credentials. The entry point does not wire either setting yet. Bootstrap and email configuration below remain future work.
+Current implementation: `Load` reads required `DATABASE_URL`, `AUTH0_DOMAIN`, `AUTH0_CLIENT_ID`, and `AUTH0_AUDIENCE`, plus optional `HTTP_ADDRESS` (default `:8080`). The Auth0 domain is a hostname without a scheme; the audience is the custom API identifier. Repository connection setup validates connectivity without exposing credentials.
 
 - **F1.8.2:** Read initial super-administrator credentials from the deployment environment. Exact variable names remain to be defined.
 - **F1.8.5:** Support validation of required bootstrap values when initialization is needed. The service determines this from persisted initialization/account state; configuration alone cannot decide.

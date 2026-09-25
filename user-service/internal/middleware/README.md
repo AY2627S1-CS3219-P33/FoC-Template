@@ -1,6 +1,6 @@
 # HTTP access enforcement — planned responsibilities
 
-Documentation only; no authentication or authorization middleware is implemented.
+Auth0 authentication validates RS256 access-token signatures, issuer, audience, and lifetime with `go-jwt-middleware/v3`. Protected handlers receive the trusted `sub` claim through request context. Raw bearer tokens are used only after validation and only to retrieve the matching Auth0 `/userinfo` profile.
 
 - **F1.3.1–F1.3.2:** Resolve the eventual session mechanism and attach authenticated identity to requests; reject expired, revoked, or otherwise invalid sessions on protected routes.
 - **F1.2, F1.4:** Require authentication for self-deletion and profile access. Services enforce ownership and permitted operations.

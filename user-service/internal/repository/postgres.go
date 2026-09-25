@@ -33,15 +33,35 @@ type Postgres struct {
 
 func NewPostgres(pool *pgxpool.Pool) *Postgres { return &Postgres{pool: pool} }
 
-var _ UserRepository = (*Postgres)(nil)
+var (
+	_ UserRepository      = (*Postgres)(nil)
+	_ Auth0UserRepository = (*Postgres)(nil)
+)
 
-const columns = `id::text, username, email, role, active, display_name, mobile_number, created_at, updated_at`
+const columns = `id::text, COALESCE(auth0_subject, ''), username, email, role, active, display_name, mobile_number, created_at, updated_at`
 
-func (p *Postgres) Create(ctx context.Context, input CreateUser) (*User, error) {
-	return scanUser(p.pool.QueryRow(ctx, `
-		INSERT INTO accounts (username, email, password_hash)
-		VALUES ($1, $2, $3) RETURNING `+columns,
-		input.Username, input.Email, input.PasswordHash))
+func (p *Postgres) FindByAuth0Subject(ctx context.Context, subject string) (*User, error) {
+	return scanUser(p.pool.QueryRow(ctx,
+		`SELECT `+columns+` FROM accounts WHERE auth0_subject = $1 AND deleted_at IS NULL`, subject))
+}
+
+// CreateAuth0 creates an active USER. It is idempotent for one Auth0 subject,
+// including under concurrent first logins.
+func (p *Postgres) CreateAuth0(ctx context.Context, input CreateAuth0User) (*User, bool, error) {
+	u, err := scanUser(p.pool.QueryRow(ctx, `
+		INSERT INTO accounts (auth0_subject, username, email, display_name, active)
+		VALUES ($1, $2, $3, $4, true)
+		ON CONFLICT (auth0_subject) WHERE auth0_subject IS NOT NULL DO NOTHING
+		RETURNING `+columns,
+		input.Subject, input.Username, input.Email, input.DisplayName))
+	if errors.Is(err, ErrNotFound) {
+		u, err = p.FindByAuth0Subject(ctx, input.Subject)
+		if errors.Is(err, ErrNotFound) {
+			return nil, false, ErrConflict
+		}
+		return u, false, err
+	}
+	return u, err == nil, err
 }
 
 func (p *Postgres) FindByID(ctx context.Context, id string) (*User, error) {
@@ -103,7 +123,7 @@ func parseID(id string) (pgtype.UUID, error) {
 
 func scanUser(row pgx.Row) (*User, error) {
 	var u User
-	if err := row.Scan(&u.ID, &u.Username, &u.Email, &u.Role, &u.Active,
+	if err := row.Scan(&u.ID, &u.Auth0Subject, &u.Username, &u.Email, &u.Role, &u.Active,
 		&u.DisplayName, &u.Mobile, &u.CreatedAt, &u.UpdatedAt); err != nil {
 		return nil, translateError(err)
 	}
@@ -119,7 +139,7 @@ func translateError(err error) error {
 	}
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == "23505" &&
-		(pgErr.ConstraintName == "accounts_username_unique" || pgErr.ConstraintName == "accounts_email_unique") {
+		(pgErr.ConstraintName == "accounts_username_unique" || pgErr.ConstraintName == "accounts_email_unique" || pgErr.ConstraintName == "accounts_auth0_subject_unique") {
 		return ErrConflict
 	}
 	// PostgreSQL detail fields can contain submitted account data.
