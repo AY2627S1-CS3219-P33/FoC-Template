@@ -48,7 +48,7 @@ func testAuthentication(t *testing.T) *middleware.Auth0 {
 }
 
 func TestPublicRoutesAndProtectedRejection(t *testing.T) {
-	h := New(AuthConfig{Domain: "example.auth0.com", ClientID: "client", Audience: "audience"}, testAuthentication(t), &provisionerStub{})
+	h := New(AuthConfig{Domain: "example.auth0.com", ClientID: "client", Audience: "audience"}, testAuthentication(t), &provisionerStub{}, service.NewUserService(nil, nil))
 	tests := []struct {
 		method     string
 		path       string
@@ -60,6 +60,8 @@ func TestPublicRoutesAndProtectedRejection(t *testing.T) {
 		{path: "/api/auth/config", wantStatus: http.StatusOK, contains: `"clientId":"client"`},
 		{path: "/health", wantStatus: http.StatusNoContent},
 		{path: "/missing", wantStatus: http.StatusNotFound},
+		{path: "/api/me", wantStatus: http.StatusUnauthorized, contains: "missing_token"},
+		{method: http.MethodPatch, path: "/api/me", wantStatus: http.StatusUnauthorized, contains: "missing_token"},
 		{path: "/api/private", wantStatus: http.StatusUnauthorized, contains: "missing_token"},
 		{method: http.MethodPost, path: "/api/auth/logout", wantStatus: http.StatusUnauthorized, contains: "missing_token"},
 	}

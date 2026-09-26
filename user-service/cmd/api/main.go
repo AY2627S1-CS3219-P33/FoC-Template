@@ -58,10 +58,12 @@ func run() error {
 	}); err != nil {
 		return err
 	}
+
+	userService := service.NewUserService(users, nil)
 	provisioner := service.NewAuth0Provisioner(users, userInfo)
 	httpHandler := handler.New(handler.AuthConfig{
 		Domain: cfg.Auth0Domain, ClientID: cfg.Auth0ClientID, Audience: cfg.Auth0Audience,
-	}, authentication, provisioner)
+	}, authentication, provisioner, userService)
 
 	server := &http.Server{
 		Addr:              cfg.HTTPAddress,

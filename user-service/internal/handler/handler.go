@@ -32,8 +32,9 @@ type Handler struct {
 	Router *http.ServeMux
 }
 
-func New(authConfig AuthConfig, authentication *middleware.Auth0, provisioner Provisioner) *Handler {
+func New(authConfig AuthConfig, authentication *middleware.Auth0, provisioner Provisioner, userService *service.UserService) *Handler {
 	router := http.NewServeMux()
+	registerUserRoutes(router, authentication, provisioner, userService)
 	router.HandleFunc("GET /", serveIndex)
 	router.HandleFunc("GET /assets/app.js", serveAsset("web/app.js", "application/javascript; charset=utf-8"))
 	router.HandleFunc("GET /assets/styles.css", serveAsset("web/styles.css", "text/css; charset=utf-8"))
