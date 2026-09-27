@@ -17,21 +17,27 @@ Own supplier and pickup-location listing, search, creation, update, deletion, se
 | F2.2.2 | The system shall reject incomplete information of supplier or pickup location and enforce location and name of the record to be required. The admin shall be informed about which information is missing. | Medium | 2 |
 | F2.2.3 | The system shall ensure that the normalised name of the supplier or pickup location record created is unique | High | 1 |
 | F2.2.4 | The system shall give the administrator an option to cancel creating the record. When cancelling, the admin shall be warned that all progress will be lost if the administrator wishes to continue | Low | 4 |
+| F2.2.5 | The system shall generate a stable unique identifier for every supplier or pickup location record and shall reject any attempt by a client to choose that identifier during creation | High | 1 |
 | F2.3 | The system shall allow an authorised administrator to update existing supplier or pickup location records | Medium | 3 |
 | F2.3.1 | The system shall permit modifications to the following fields: supplier name, type, building, floor, location description, latitude, longitude, opening hours, closing hours, and image | High | 3 |
 | F2.3.2 | The system shall strictly prevent the modification of the system-generated unique identifier associated with the supplier or pickup location record | High | 3 |
 | F2.3.3 | The system shall give the administrator an option to cancel updating the record. When cancelling, the admin shall be warned that all progress will be lost if the administrator wishes to continue | Low | 4 |
+| F2.3.4 | The system shall preserve normalised-name uniqueness when a supplier or pickup location is renamed, including under concurrent create and update requests | High | 3 |
 | F2.4 | The system shall allow an authorised administrator to delete supplier or pickup location records | High | 1 |
 | F2.4.1 | The system shall get confirmation from the administrator that they actually want to delete the record | Low | 4 |
 | F2.4.2 | The system shall not allow a deletion of a record that is currently being used in an active errand | High | 1 |
 | F2.4.3 | Past errand pickup details shall remain readable even after the supplier or pickup location of that errand is deleted | Medium | 3 |
+| F2.4.4 | The system shall coordinate supplier deletion with errand creation so that no new errand can select the supplier after a deletion check has established that deletion may proceed | High | 1 |
 | F2.5 | The system shall implement record versioning for supplier and pickup location updates, retaining previous versions of the record | Medium | 2 |
 | F2.5.1 | The system shall ensure that an active or past errand remains linked to the specific version of the supplier or pickup location record that was active at the time of the errand’s creation | High | 2 |
 | F2.5.2 | The system shall display the newest version of the supplier or pickup location for all new errand requests | High | 2 |
+| F2.5.3 | Each supplier or pickup location version shall have an immutable unique reference that remains addressable after the version is superseded or its record is deleted | High | 2 |
 
 ## Applicable non-functional requirements
 
-These are the shared NFRs most directly applicable to this area. Consult `../shared/non-functional-requirements.md` for the complete NFR set.
+These are the shared NFRs most directly applicable to this area. System-level
+acceptance criteria require coordination with the frontend, user, order, and
+deployment owners where noted below.
 
 ### NFR1 Performance - Capacity
 
@@ -106,6 +112,7 @@ These are the shared NFRs most directly applicable to this area. Consult `../sha
 | NFR7.1 | The system shall apply configurable timeouts, retries and circuit breaking mechanisms to prevent the failures in one service to cascade to other services | Medium | 3 |
 | NFR7.3 | Repeated processing of the same logical operation shall not create duplicate errands, notifications, initial credit allocations, reservations, releases, or transfers | High | 2 |
 | NFR7.3.1 | Automated retries shall be bounded by documented attempt or elapsed-time limits and shall apply only to failures and operations for which retrying is safe | Medium | 2 |
+| NFR7.3.2 | Retrying a supplier deletion with the same operation identifier shall be idempotent and shall not create a second fence, repeat a completed state transition, or produce a contradictory outcome | High | 2 |
 | NFR7.4 | Once an operation requiring asynchronous processing has been acknowledged as accepted, the system shall retain sufficient durable information to resume or reconcile it after an application-service or messaging-component restart | Medium | 3 |
 | NFR7.4.1 | An asynchronous operation that exhausts its retry policy shall remain identifiable with its processing status and failure reason and shall not be silently discarded | Medium | 3 |
 | NFR7.4.2 | Where manual replay is supported, replaying a failed operation shall preserve the duplicate-effect protections in NFR7.3 | Medium | 3 |
@@ -113,6 +120,6 @@ These are the shared NFRs most directly applicable to this area. Consult `../sha
 ## Cross-service requirements
 
 - F2.2-F2.4 require administrator authorisation supplied by the user/account domain.
-- F2.4.2 requires preventing deletion when a supplier or pickup location is used by an active errand; this involves order state.
-- F2.4.3 and F2.5 require past and active errands to retain readable, version-specific pickup details for the order domain.
+- F2.4.2 and F2.4.4 require one order-service protocol that atomically blocks new errand creation before checking for active errands and that can be safely reconciled after either service restarts.
+- F2.4.3, F2.5.1, and F2.5.3 require past and active errands to retain readable, version-specific pickup details for the order domain.
 - F3.1.1 requires order creation to use an available pickup location owned by this service.
