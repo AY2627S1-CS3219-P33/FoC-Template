@@ -4,7 +4,6 @@ package service
 import (
 	"context"
 	"errors"
-	"fmt"
 	"unicode"
 	"unicode/utf8"
 
@@ -22,7 +21,10 @@ var (
 // ValidationError never contains submitted values.
 type ValidationError struct{ Field, Message string }
 
+// Error returns the field name and validation message.
 func (e *ValidationError) Error() string { return e.Field + ": " + e.Message }
+
+// Unwrap allows errors.Is to identify ErrValidation.
 func (e *ValidationError) Unwrap() error { return ErrValidation }
 
 // Profile contains no credentials. A nil CreditBalance means unavailable, not zero.
@@ -50,10 +52,13 @@ type UserService struct {
 	balances CreditBalanceReader
 }
 
+// NewUserService creates a user service with an optional credit balance reader.
 func NewUserService(users repository.UserRepository, balances CreditBalanceReader) *UserService {
 	return &UserService{users: users, balances: balances}
 }
 
+// GetProfile returns the authenticated account's profile if the account is active.
+// An unavailable credit balance is represented by nil.
 func (s *UserService) GetProfile(ctx context.Context, authenticatedUserID string) (*Profile, error) {
 	u, err := s.activeAccount(ctx, authenticatedUserID)
 	if err != nil {
@@ -62,6 +67,8 @@ func (s *UserService) GetProfile(ctx context.Context, authenticatedUserID string
 	return s.withBalance(ctx, u), nil
 }
 
+// UpdateProfile validates and updates the supplied fields of an active account.
+// Nil fields are left unchanged; empty strings clear the corresponding fields.
 func (s *UserService) UpdateProfile(ctx context.Context, authenticatedUserID string, input ProfileUpdate) (*Profile, error) {
 	if input.DisplayName == nil && input.Mobile == nil {
 		return nil, invalid("profile", "at least one editable field is required")
@@ -84,9 +91,8 @@ func (s *UserService) UpdateProfile(ctx context.Context, authenticatedUserID str
 	return s.withBalance(ctx, u), nil
 }
 
-// DeleteAccount deliberately never calls SoftDelete in this slice. A future
-// implementation must coordinate cross-service eligibility and invalidate all
-// sessions before enabling deletion; checking a remote snapshot is insufficient.
+// DeleteAccount soft-deletes the active local account after explicit confirmation.
+// Cross-service eligibility checks and session revocation are not yet integrated.
 func (s *UserService) DeleteAccount(ctx context.Context, authenticatedUserID string, confirmed bool) error {
 	if !confirmed {
 		return invalid("confirmation", "explicit account deletion confirmation is required")
@@ -94,9 +100,15 @@ func (s *UserService) DeleteAccount(ctx context.Context, authenticatedUserID str
 	if _, err := s.activeAccount(ctx, authenticatedUserID); err != nil {
 		return err
 	}
-	return fmt.Errorf("account deletion requires coordinated eligibility checks and session revocation: %w", ErrUnavailable)
+	err := s.users.SoftDelete(ctx, authenticatedUserID)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
+// activeAccount looks up an authenticated account and rejects inactive accounts.
 func (s *UserService) activeAccount(ctx context.Context, id string) (*repository.User, error) {
 	if id == "" {
 		return nil, invalid("identity", "an authenticated account identity is required")
@@ -114,6 +126,8 @@ func (s *UserService) activeAccount(ctx context.Context, id string) (*repository
 	return u, nil
 }
 
+// withBalance builds a profile and adds a credit balance when the lookup succeeds.
+// A missing reader or failed lookup leaves CreditBalance nil.
 func (s *UserService) withBalance(ctx context.Context, u *repository.User) *Profile {
 	result := profile(u)
 	if s.balances != nil {
@@ -124,15 +138,19 @@ func (s *UserService) withBalance(ctx context.Context, u *repository.User) *Prof
 	return result
 }
 
+// profile converts a stored account to a profile without a credit balance.
 func profile(u *repository.User) *Profile {
 	return &Profile{ID: u.ID, Username: u.Username, Email: u.Email, Role: u.Role,
 		Active: u.Active, DisplayName: u.DisplayName, Mobile: u.Mobile}
 }
 
+// nusDomain reports whether domain exactly matches the supported NUS student domain.
 func nusDomain(domain string) bool {
 	return domain == "u.nus.edu"
 }
 
+// validText reports whether value is valid UTF-8 with at most max runes
+// and no control characters. Empty strings are valid.
 func validText(value string, max int) bool {
 	if !utf8.ValidString(value) || utf8.RuneCountInString(value) > max {
 		return false
@@ -145,6 +163,7 @@ func validText(value string, max int) bool {
 	return true
 }
 
+// invalid creates a validation error for the given field and message.
 func invalid(field, message string) error {
 	return &ValidationError{Field: field, Message: message}
 }

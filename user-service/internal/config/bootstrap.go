@@ -9,6 +9,8 @@ type Bootstrap struct {
 	Email    string `json:"-"`
 }
 
+// LoadBootstrap reads the initial administrator identity from environment variables.
+// Validation is deferred until account creation is needed.
 func LoadBootstrap() Bootstrap {
 	return Bootstrap{
 		Subject:  os.Getenv("BOOTSTRAP_AUTH0_SUBJECT"),

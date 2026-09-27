@@ -22,6 +22,8 @@ type BootstrapRepository interface {
 
 type bootstrapTransaction struct{ tx pgx.Tx }
 
+// WithBootstrapLock runs fn in a transaction while holding the bootstrap coordination row lock.
+// It commits only when fn succeeds and otherwise rolls back.
 func (p *Postgres) WithBootstrapLock(ctx context.Context, fn func(BootstrapTransaction) error) error {
 	tx, err := p.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
@@ -45,6 +47,8 @@ func (p *Postgres) WithBootstrapLock(ctx context.Context, fn func(BootstrapTrans
 	return nil
 }
 
+// State reports whether bootstrap has completed and whether any SUPER_ADMIN row exists,
+// including inactive or deleted accounts.
 func (b bootstrapTransaction) State(ctx context.Context) (completed, adminExists bool, err error) {
 	err = b.tx.QueryRow(ctx, `SELECT completed_at IS NOT NULL,
  EXISTS (SELECT 1 FROM accounts WHERE role = 'SUPER_ADMIN')
@@ -55,6 +59,7 @@ func (b bootstrapTransaction) State(ctx context.Context) (completed, adminExists
 	return
 }
 
+// CreateSuperAdmin inserts an active SUPER_ADMIN within the bootstrap transaction.
 func (b bootstrapTransaction) CreateSuperAdmin(ctx context.Context, input CreateAuth0User) error {
 	_, err := b.tx.Exec(ctx, `INSERT INTO accounts (auth0_subject, username, email, role, active)
  VALUES ($1, $2, $3, 'SUPER_ADMIN', true)`, input.Subject, input.Username, input.Email)
@@ -64,6 +69,7 @@ func (b bootstrapTransaction) CreateSuperAdmin(ctx context.Context, input Create
 	return nil
 }
 
+// MarkCompleted records bootstrap completion and fails if it was already recorded.
 func (b bootstrapTransaction) MarkCompleted(ctx context.Context) error {
 	result, err := b.tx.Exec(ctx, `UPDATE bootstrap_state SET completed_at = CURRENT_TIMESTAMP
  WHERE name = 'bootstrap_is_completed' AND completed_at IS NULL`)
