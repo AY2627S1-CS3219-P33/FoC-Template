@@ -31,6 +31,7 @@ type Postgres struct {
 	pool *pgxpool.Pool
 }
 
+// NewPostgres creates an account repository using an existing connection pool.
 func NewPostgres(pool *pgxpool.Pool) *Postgres { return &Postgres{pool: pool} }
 
 var (
@@ -40,6 +41,8 @@ var (
 
 const columns = `id::text, COALESCE(auth0_subject, ''), username, email, role, active, display_name, mobile_number, created_at, updated_at`
 
+// FindByAuth0Subject returns a non-deleted account matching the Auth0 subject.
+// The returned account may be inactive.
 func (p *Postgres) FindByAuth0Subject(ctx context.Context, subject string) (*User, error) {
 	return scanUser(p.pool.QueryRow(ctx,
 		`SELECT `+columns+` FROM accounts WHERE auth0_subject = $1 AND deleted_at IS NULL`, subject))
@@ -64,6 +67,8 @@ func (p *Postgres) CreateAuth0(ctx context.Context, input CreateAuth0User) (*Use
 	return u, err == nil, err
 }
 
+// FindByID returns a non-deleted account by UUID.
+// Invalid IDs and missing accounts return ErrNotFound.
 func (p *Postgres) FindByID(ctx context.Context, id string) (*User, error) {
 	uuid, err := parseID(id)
 	if err != nil {
@@ -73,6 +78,8 @@ func (p *Postgres) FindByID(ctx context.Context, id string) (*User, error) {
 		`SELECT `+columns+` FROM accounts WHERE id = $1 AND deleted_at IS NULL`, uuid))
 }
 
+// UpdateProfile applies non-nil fields to an active, non-deleted account
+// and returns the updated account.
 func (p *Postgres) UpdateProfile(ctx context.Context, id string, patch ProfilePatch) (*User, error) {
 	uuid, err := parseID(id)
 	if err != nil {
@@ -96,6 +103,8 @@ func (p *Postgres) UpdateProfile(ctx context.Context, id string, patch ProfilePa
 	return u, err
 }
 
+// SoftDelete marks an account as deleted and inactive.
+// It performs no cross-service eligibility checks or session revocation.
 func (p *Postgres) SoftDelete(ctx context.Context, id string) error {
 	uuid, err := parseID(id)
 	if err != nil {
@@ -113,6 +122,7 @@ func (p *Postgres) SoftDelete(ctx context.Context, id string) error {
 	return nil
 }
 
+// parseID parses an account UUID, returning ErrNotFound for invalid or null IDs.
 func parseID(id string) (pgtype.UUID, error) {
 	var uuid pgtype.UUID
 	if err := uuid.Scan(id); err != nil || !uuid.Valid {
@@ -121,6 +131,7 @@ func parseID(id string) (pgtype.UUID, error) {
 	return uuid, nil
 }
 
+// scanUser reads an account row and translates database errors.
 func scanUser(row pgx.Row) (*User, error) {
 	var u User
 	if err := row.Scan(&u.ID, &u.Auth0Subject, &u.Username, &u.Email, &u.Role, &u.Active,
@@ -130,6 +141,8 @@ func scanUser(row pgx.Row) (*User, error) {
 	return &u, nil
 }
 
+// translateError maps missing rows and account uniqueness violations to repository errors.
+// It preserves context errors and hides driver diagnostics for other failures.
 func translateError(err error) error {
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrNotFound

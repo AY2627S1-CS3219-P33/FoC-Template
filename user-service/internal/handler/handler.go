@@ -32,6 +32,7 @@ type Handler struct {
 	Router *http.ServeMux
 }
 
+// New creates a handler with public web assets and authenticated API routes.
 func New(authConfig AuthConfig, authentication *middleware.Auth0, provisioner Provisioner, userService *service.UserService) *Handler {
 	router := http.NewServeMux()
 	registerUserRoutes(router, authentication, provisioner, userService)
@@ -50,6 +51,8 @@ func New(authConfig AuthConfig, authentication *middleware.Auth0, provisioner Pr
 	return &Handler{Router: router}
 }
 
+// requireActiveAccount allows requests only when the authenticated subject
+// is linked to an active local account.
 func requireActiveAccount(authorizer Provisioner, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if authorizer == nil {
@@ -75,6 +78,7 @@ func requireActiveAccount(authorizer Provisioner, next http.Handler) http.Handle
 	})
 }
 
+// serveIndex serves the application page at the root path with security headers.
 func serveIndex(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
@@ -84,10 +88,12 @@ func serveIndex(w http.ResponseWriter, r *http.Request) {
 	serveEmbedded(w, "web/index.html", "text/html; charset=utf-8")
 }
 
+// serveAsset returns a handler for an embedded asset with the given content type.
 func serveAsset(name, contentType string) http.HandlerFunc {
 	return func(w http.ResponseWriter, _ *http.Request) { serveEmbedded(w, name, contentType) }
 }
 
+// serveEmbedded writes an embedded asset and disables response caching.
 func serveEmbedded(w http.ResponseWriter, name, contentType string) {
 	contents, err := webAssets.ReadFile(name)
 	if err != nil {
@@ -100,12 +106,14 @@ func serveEmbedded(w http.ResponseWriter, name, contentType string) {
 	_, _ = w.Write(contents)
 }
 
+// setPageSecurityHeaders sets the application page's content, referrer, and MIME policies.
 func setPageSecurityHeaders(w http.ResponseWriter) {
 	w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' https://cdn.auth0.com; style-src 'self'; img-src 'self' data: https:; connect-src 'self' https:; frame-src https:; base-uri 'none'; form-action 'self' https:; frame-ancestors 'none'")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 }
 
+// private returns the authenticated subject for the protected example endpoint.
 func private(w http.ResponseWriter, r *http.Request) {
 	subject, ok := middleware.Subject(r.Context())
 	if !ok {
@@ -117,6 +125,8 @@ func private(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// logout acknowledges an authenticated logout request.
+// It does not revoke access tokens or terminate Auth0 sessions.
 func logout(w http.ResponseWriter, r *http.Request) {
 	if _, ok := middleware.Subject(r.Context()); !ok {
 		writeError(w, http.StatusUnauthorized, "authentication_required", "A valid access token is required.")
@@ -126,6 +136,8 @@ func logout(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// provision resolves or creates a local account using the authenticated Auth0 identity.
+// It returns HTTP 201 when an account is created and HTTP 200 for an existing account.
 func provision(w http.ResponseWriter, r *http.Request, provisioner Provisioner) {
 	if provisioner == nil {
 		writeError(w, http.StatusServiceUnavailable, "provisioning_unavailable", "Account provisioning is unavailable.")
@@ -153,6 +165,7 @@ func provision(w http.ResponseWriter, r *http.Request, provisioner Provisioner) 
 	writeJSON(w, status, profile)
 }
 
+// writeProvisionError maps provisioning failures to public JSON HTTP responses.
 func writeProvisionError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, service.ErrIdentityUnverified):
@@ -174,10 +187,12 @@ func writeProvisionError(w http.ResponseWriter, err error) {
 	}
 }
 
+// writeError writes a JSON error code and message with the supplied HTTP status.
 func writeError(w http.ResponseWriter, status int, code, message string) {
 	writeJSON(w, status, map[string]string{"error": code, "message": message})
 }
 
+// writeJSON encodes value as JSON with the supplied status and disables caching.
 func writeJSON(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")

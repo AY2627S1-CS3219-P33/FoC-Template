@@ -20,12 +20,15 @@ import (
 	"user-service/internal/service"
 )
 
+// main starts the API and logs a fatal error if startup or serving fails.
 func main() {
 	if err := run(); err != nil {
 		log.Fatal(err)
 	}
 }
 
+// run loads configuration, initializes dependencies and the initial administrator,
+// and serves HTTP requests until a shutdown signal or server error occurs.
 func run() error {
 	// Production supplies environment variables directly; .env is only a
 	// local-development convenience.

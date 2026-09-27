@@ -12,6 +12,7 @@ import (
 	"user-service/internal/service"
 )
 
+// main runs administrator bootstrap and logs the outcome.
 func main() {
 	if err := run(); err != nil {
 		log.Fatal(err)
@@ -19,6 +20,8 @@ func main() {
 	log.Print("super-administrator bootstrap complete")
 }
 
+// run loads deployment settings and bootstraps the initial administrator
+// with a 30-second timeout.
 func run() error {
 	_ = godotenv.Load()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

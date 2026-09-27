@@ -32,6 +32,8 @@ type UserInfoClient struct {
 	httpClient *http.Client
 }
 
+// NewUserInfoClient validates the tenant domain and creates an Auth0 userinfo client.
+// The caller must supply an HTTP client.
 func NewUserInfoClient(domain string, httpClient *http.Client) (*UserInfoClient, error) {
 	issuer, err := IssuerURL(domain)
 	if err != nil {
@@ -43,6 +45,8 @@ func NewUserInfoClient(domain string, httpClient *http.Client) (*UserInfoClient,
 	return &UserInfoClient{endpoint: issuer.ResolveReference(&url.URL{Path: "userinfo"}).String(), httpClient: httpClient}, nil
 }
 
+// Get retrieves the Auth0 profile associated with accessToken.
+// It limits response reads to 1 MiB and rejects non-200 responses.
 func (c *UserInfoClient) Get(ctx context.Context, accessToken string) (UserInfo, error) {
 	if strings.TrimSpace(accessToken) == "" {
 		return UserInfo{}, errors.New("access token is required")

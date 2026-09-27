@@ -77,11 +77,14 @@ func TestProfileAndDeletionBoundaries(t *testing.T) {
 	if err := svc.DeleteAccount(ctx, "self", false); !errors.Is(err, ErrValidation) {
 		t.Fatalf("confirmation: %v", err)
 	}
-	if err := svc.DeleteAccount(ctx, "self", true); !errors.Is(err, ErrUnavailable) {
-		t.Fatalf("deletion must remain blocked: %v", err)
-	}
 	if repo.deletes != 0 {
-		t.Fatal("business deletion reached persistence")
+		t.Fatal("unconfirmed deletion reached persistence")
+	}
+	if err := svc.DeleteAccount(ctx, "self", true); err != nil {
+		t.Fatalf("confirmed deletion: %v", err)
+	}
+	if repo.deletes != 1 {
+		t.Fatalf("confirmed deletion calls=%d, want 1", repo.deletes)
 	}
 	if _, err := svc.GetProfile(ctx, ""); !errors.Is(err, ErrValidation) {
 		t.Fatalf("missing identity: %v", err)

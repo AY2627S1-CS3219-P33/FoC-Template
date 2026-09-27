@@ -17,6 +17,7 @@ import (
 
 type CustomClaims struct{}
 
+// Validate accepts custom claims without applying additional validation rules.
 func (*CustomClaims) Validate(context.Context) error { return nil }
 
 // Auth0 validates RS256 access tokens issued for this API.
@@ -24,10 +25,13 @@ type Auth0 struct {
 	middleware *jwtmiddleware.JWTMiddleware
 }
 
+// NewAuth0 creates RS256 authentication middleware for the given tenant and audience.
 func NewAuth0(domain, audience string) (*Auth0, error) {
 	return newAuth0(domain, audience, nil)
 }
 
+// newAuth0 configures token validation and cached signing keys,
+// optionally using a supplied HTTP client for key discovery.
 func newAuth0(domain, audience string, httpClient *http.Client) (*Auth0, error) {
 	issuer, err := internalauth.IssuerURL(domain)
 	if err != nil {
@@ -67,6 +71,8 @@ func newAuth0(domain, audience string, httpClient *http.Client) (*Auth0, error) 
 	return &Auth0{middleware: jwt}, nil
 }
 
+// Authentication validates the access token before invoking next
+// and attaches the validated claims to the request context.
 func (a *Auth0) Authentication(next http.Handler) http.Handler {
 	return a.middleware.CheckJWT(next)
 }
@@ -89,6 +95,7 @@ func BearerToken(r *http.Request) (string, bool) {
 	return strings.TrimSpace(token), true
 }
 
+// authenticationError writes an HTTP 401 response for a missing or invalid token.
 func authenticationError(w http.ResponseWriter, _ *http.Request, err error) {
 	if errors.Is(err, jwtmiddleware.ErrJWTMissing) {
 		writeJSONError(w, http.StatusUnauthorized, "missing_token", "Authorization header with a bearer token is required.")
@@ -97,6 +104,7 @@ func authenticationError(w http.ResponseWriter, _ *http.Request, err error) {
 	writeJSONError(w, http.StatusUnauthorized, "invalid_token", "The access token is invalid or expired.")
 }
 
+// writeJSONError writes an error code and message as JSON with the supplied status.
 func writeJSONError(w http.ResponseWriter, status int, code, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
