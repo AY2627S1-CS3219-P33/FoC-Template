@@ -1,0 +1,90 @@
+operations:
+  listSuppliers:
+    operationId: listSuppliers
+    tags: [Catalog]
+    summary: List current available suppliers
+    description: >-
+      Returns only the newest version of non-deleted suppliers. q performs a
+      case-insensitive normalized search over name, building, floor, and
+      location description. type is an exact case-insensitive filter. Results
+      are ordered by normalized name and then supplierId, both ascending;
+      cursor values are opaque.
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: ./common.yaml#/components/parameters/Query
+      - $ref: ./common.yaml#/components/parameters/Type
+      - $ref: ./common.yaml#/components/parameters/Limit
+      - $ref: ./common.yaml#/components/parameters/Cursor
+    responses:
+      "200":
+        description: A bounded page of available suppliers.
+        content:
+          application/json:
+            schema:
+              $ref: ./common.yaml#/components/schemas/SupplierPage
+      "400":
+        $ref: ./common.yaml#/components/responses/InvalidArgument
+      "401":
+        $ref: ./common.yaml#/components/responses/Unauthenticated
+      "503":
+        $ref: ./common.yaml#/components/responses/DependencyUnavailable
+      "500":
+        $ref: ./common.yaml#/components/responses/Internal
+
+  getSupplier:
+    operationId: getSupplier
+    tags: [Catalog]
+    summary: Get the current available supplier version
+    description: A deleted supplier is treated as not found by this endpoint.
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: ./common.yaml#/components/parameters/SupplierID
+    responses:
+      "200":
+        description: The current available supplier version.
+        content:
+          application/json:
+            schema:
+              $ref: ./common.yaml#/components/schemas/Supplier
+      "400":
+        $ref: ./common.yaml#/components/responses/InvalidArgument
+      "401":
+        $ref: ./common.yaml#/components/responses/Unauthenticated
+      "404":
+        $ref: ./common.yaml#/components/responses/SupplierNotFound
+      "500":
+        $ref: ./common.yaml#/components/responses/Internal
+      "503":
+        $ref: ./common.yaml#/components/responses/DependencyUnavailable
+
+  getSupplierVersion:
+    operationId: getSupplierVersion
+    tags: [Catalog]
+    summary: Get an immutable supplier version
+    description: >-
+      Historical versions remain readable after they are superseded or their
+      supplier is deleted. available is true only for the current version of a
+      non-deleted supplier.
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: ./common.yaml#/components/parameters/VersionID
+    responses:
+      "200":
+        description: The immutable supplier snapshot.
+        content:
+          application/json:
+            schema:
+              $ref: ./common.yaml#/components/schemas/SupplierVersion
+      "400":
+        $ref: ./common.yaml#/components/responses/InvalidArgument
+      "401":
+        $ref: ./common.yaml#/components/responses/Unauthenticated
+      "404":
+        $ref: ./common.yaml#/components/responses/SupplierVersionNotFound
+      "500":
+        $ref: ./common.yaml#/components/responses/Internal
+      "503":
+        $ref: ./common.yaml#/components/responses/DependencyUnavailable

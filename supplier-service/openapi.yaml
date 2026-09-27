@@ -2,8 +2,10 @@ openapi: 3.1.0
 
 info:
   title: Friend on Campus Supplier Service API
-  version: 0.1.0
-  description: API contract for the supplier service.
+  version: 1.0.0
+  description: >-
+    Frozen supplier catalogue and administration contract. Supplier IDs are
+    stable; version IDs identify immutable snapshots.
   license:
     name: MIT
     identifier: MIT
@@ -12,21 +14,46 @@ servers:
   - url: /supplier-service
     description: API gateway route
 
-# Add each endpoint here when its implementation begins.
-paths: {}
+tags:
+  - name: Catalog
+    description: Authenticated current and historical supplier reads.
+  - name: Administration
+    description: Administrator-only supplier lifecycle operations.
+  - name: Operations
+    description: Service health and operational endpoints.
+
+paths:
+  /suppliers:
+    get:
+      $ref: ./openapi/catalog.yaml#/operations/listSuppliers
+    post:
+      $ref: ./openapi/administration.yaml#/operations/createSupplier
+  /suppliers/{supplierId}:
+    get:
+      $ref: ./openapi/catalog.yaml#/operations/getSupplier
+    patch:
+      $ref: ./openapi/administration.yaml#/operations/updateSupplier
+    delete:
+      $ref: ./openapi/administration.yaml#/operations/deleteSupplier
+  /supplier-versions/{versionId}:
+    get:
+      $ref: ./openapi/catalog.yaml#/operations/getSupplierVersion
+  /readyz:
+    get:
+      $ref: ./openapi/common.yaml#/operations/readiness
 
 components:
-  # Add reusable request and response models here.
-  schemas: {}
-
-  # Add reusable parameters such as supplierId, cursor, and limit here.
-  parameters: {}
-
-  # Add reusable headers such as ETag here.
-  headers: {}
-
-  # Add reusable error and success responses here.
-  responses: {}
-
-  # Add bearer and service-to-service authentication schemes when needed.
-  securitySchemes: {}
+  schemas:
+    Supplier:
+      $ref: ./openapi/common.yaml#/components/schemas/Supplier
+    SupplierVersion:
+      $ref: ./openapi/common.yaml#/components/schemas/SupplierVersion
+    SupplierWrite:
+      $ref: ./openapi/common.yaml#/components/schemas/SupplierWrite
+    SupplierPatch:
+      $ref: ./openapi/common.yaml#/components/schemas/SupplierPatch
+    Error:
+      $ref: ./openapi/common.yaml#/components/schemas/Error
+  securitySchemes:
+    bearerAuth:
+      $ref: ./openapi/common.yaml#/components/securitySchemes/bearerAuth

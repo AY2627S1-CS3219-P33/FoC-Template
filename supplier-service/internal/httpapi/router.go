@@ -3,25 +3,29 @@ package httpapi
 import (
 	"log/slog"
 	"net/http"
-
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type Dependencies struct {
-	Logger   *slog.Logger
-	Database *pgxpool.Pool
+	Logger *slog.Logger
 }
 
-func NewRouter(dependencies Dependencies) http.Handler {
+// RouteRegistrar lets each feature own its paths. Adding a feature only changes
+// application composition; it never requires editing the central router.
+type RouteRegistrar interface {
+	RegisterRoutes(*http.ServeMux)
+}
+
+func NewRouter(dependencies Dependencies, registrars ...RouteRegistrar) http.Handler {
 	if dependencies.Logger == nil {
 		panic("httpapi: logger is required")
 	}
-	if dependencies.Database == nil {
-		panic("httpapi: database pool is required")
-	}
 
 	router := http.NewServeMux()
-
-	// Routes are added here only as their OpenAPI operations are implemented.
+	for _, registrar := range registrars {
+		if registrar == nil {
+			panic("httpapi: route registrar is required")
+		}
+		registrar.RegisterRoutes(router)
+	}
 	return router
 }
