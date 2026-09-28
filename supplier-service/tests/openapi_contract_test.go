@@ -95,6 +95,12 @@ func TestDeleteContractIsIdempotentAndCanReportPendingReconciliation(t *testing.
 	idempotencyKey := mapping(t, parameters, "DeletionOperationID")
 	require.Equal(t, "Idempotency-Key", scalar(t, idempotencyKey, "name"))
 	require.Equal(t, "true", scalar(t, idempotencyKey, "required"))
+	require.Contains(t, scalar(t, idempotencyKey, "description"), "durably bound")
+	require.Contains(t, scalar(t, idempotencyKey, "description"), "another supplier is invalid")
+
+	schemas := mapping(t, mapping(t, common, "components"), "schemas")
+	pending := mapping(t, schemas, "DeletionPending")
+	require.Contains(t, marshalYAML(t, pending), "const: commit_pending")
 
 	administration := readYAML(t, "../openapi/administration.yaml")
 	deleteOperation := mapping(t, mapping(t, administration, "operations"), "deleteSupplier")
@@ -102,6 +108,7 @@ func TestDeleteContractIsIdempotentAndCanReportPendingReconciliation(t *testing.
 	require.Contains(t, contract, "DeletionOperationID")
 	require.Contains(t, contract, "\"202\"")
 	require.Contains(t, contract, "DeletionPending")
+	require.Contains(t, contract, "replay of an already completed")
 }
 
 func TestWriteContractMatchesServerStringValidation(t *testing.T) {

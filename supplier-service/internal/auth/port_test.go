@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -16,6 +17,18 @@ func TestPrincipalPermissionsComeFromTrustedRoles(t *testing.T) {
 	require.True(t, admin.Has(ReadSuppliers))
 	require.True(t, admin.Has(ManageSuppliers))
 	require.False(t, (Principal{}).Has(ReadSuppliers))
+}
+
+func TestPrincipalContextRoundTrip(t *testing.T) {
+	principal := Principal{Subject: "admin-1", Roles: []Role{RoleAdministrator}}
+	ctx := WithPrincipal(context.Background(), principal)
+
+	actual, ok := PrincipalFromContext(ctx)
+	require.True(t, ok)
+	require.Equal(t, principal, actual)
+
+	_, ok = PrincipalFromContext(context.Background())
+	require.False(t, ok)
 }
 
 func TestAuthenticationFailuresHaveStableKinds(t *testing.T) {

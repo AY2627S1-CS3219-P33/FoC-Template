@@ -82,9 +82,12 @@ operations:
     tags: [Administration]
     summary: Delete a supplier from the current catalogue
     description: >-
-      Uses the order-service deletion fence. Deletion is rejected while an
-      active errand exists or when the fence result is unavailable. Immutable
-      versions are retained for historical reads.
+      Durably records this idempotent operation before using the order-service
+      deletion fence. Replaying the key for this supplier observes or
+      continues the original operation; using it for another supplier is
+      invalid. Deletion is rejected while an active errand exists or when the
+      pre-delete fence result is unresolved. Immutable versions are retained
+      for historical reads.
     security:
       - bearerAuth: []
     parameters:
@@ -93,14 +96,18 @@ operations:
     responses:
       "202":
         description: >-
-          The supplier is already soft-deleted and the durable deletion
-          operation will keep reconciling an unconfirmed fence commit.
+          The operation is commit_pending: the supplier is already
+          soft-deleted and the durable operation will keep reconciling an
+          unconfirmed fence commit. A replay returns the same outcome until
+          commit is confirmed.
         content:
           application/json:
             schema:
               $ref: ./common.yaml#/components/schemas/DeletionPending
       "204":
-        description: Supplier deleted; no response body.
+        description: >-
+          Supplier deletion completed, or replay of an already completed
+          operation; no response body.
       "400":
         $ref: ./common.yaml#/components/responses/InvalidArgument
       "401":

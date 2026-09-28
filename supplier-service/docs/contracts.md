@@ -58,7 +58,10 @@ All supplier and version endpoints require authentication. Create, patch, and
 delete additionally require `suppliers:manage`, currently granted to the
 `administrator` role. `/readyz` is unauthenticated. Supplier use cases consume
 the trusted `auth.Principal`; an `auth.Port` adapter owns token, session, or
-user-service verification. Payload identity and role values are ignored.
+user-service verification. Middleware stores verified principals with
+`auth.WithPrincipal`; handlers retrieve them with `auth.PrincipalFromContext`.
+These helpers are transport-neutral, and payload identity and role values are
+ignored.
 
 The authentication port returns stable failure kinds. Missing, invalid, or
 expired credentials are `invalid_credential` and map to `401`. An
@@ -88,29 +91,64 @@ protocol:
 
 1. The client supplies a UUID `Idempotency-Key`, which becomes the deletion
    operation ID and must be reused for retries of the same logical deletion.
-2. `Acquire(operationId, supplierId)` is idempotent for that pair. It
+2. Before calling order-service, supplier-service durably creates a
+   `requested` operation that binds the operation ID to the supplier ID and a
+   bounded maximum-attempt count. Reusing the operation ID for the same
+   supplier loads that operation without resetting its state or retry count;
+   reusing it for another supplier returns `400 INVALID_ARGUMENT`.
+3. A worker must hold the operation's claim lease before calling the fence or
+   changing deletion state. Claims are atomic, have a unique claim ID and an
+   expiry, and increment the attempt count. An unexpired claim excludes other
+   workers; after a crash its expiry makes the operation claimable again.
+4. `Acquire(operationId, supplierId)` is idempotent for that pair. It
    atomically blocks creation of new errands for the supplier, then checks
-   whether an active errand exists. Reusing an operation ID for another
-   supplier returns `400 INVALID_ARGUMENT`.
-3. If `Acquire` has an ambiguous result, supplier-service calls
+   whether an active errand exists.
+5. If `Acquire` has an ambiguous result, supplier-service calls
    `Inspect(operationId)`; it never starts a different operation to guess the
    outcome.
-4. If active errands exist, supplier-service calls `Release(operationId)` and
-   returns `SUPPLIER_HAS_ACTIVE_ERRANDS` without deleting.
-5. If none exist, supplier-service atomically soft-deletes its current record
-   and stores the pending deletion operation, then calls `Commit(operationId)`.
-   Commit makes the order-side block permanent.
-6. If the supplier write fails, supplier-service calls `Release`. If acquire
+6. If active errands exist, supplier-service records `release_pending`, calls
+   `Release(operationId)`, then records `rejected_active_errands` and returns
+   `SUPPLIER_HAS_ACTIVE_ERRANDS` without deleting.
+7. If none exist, supplier-service atomically soft-deletes its current record
+   and changes the operation to `commit_pending`, then calls
+   `Commit(operationId)`. Commit makes the order-side block permanent; after
+   confirmation the local operation becomes `completed`.
+8. If the supplier write fails, supplier-service calls `Release`. If acquire
    is unavailable or ambiguous, deletion returns
    `DELETION_FENCE_UNAVAILABLE`. It never assumes deletion is safe.
 
+The durable state machine is:
+
+| State | Meaning | Allowed next state |
+| --- | --- | --- |
+| `requested` | Recorded before the first fence call; no local deletion is established | `release_pending`, `commit_pending` |
+| `release_pending` | Active errands were found and fence release must be confirmed | `rejected_active_errands` |
+| `commit_pending` | The supplier is soft-deleted and fence commit must be confirmed | `completed` |
+| `rejected_active_errands` | Terminal rejection after release confirmation | none |
+| `completed` | Terminal success after commit confirmation | none |
+
+Each operation retains `attemptCount`, `maxAttempts`, `nextAttemptAt`, lease
+metadata, and a bounded failure code such as `acquire_unavailable` or
+`commit_unavailable`. Raw dependency errors, headers, tokens, and credentials
+are never stored. Claimable-operation queries are bounded, return only due
+non-terminal operations with attempts remaining, and use stable operation-ID
+ordering. An expired claim may be replaced; every later mutation checks the
+current claim ID so the stale worker cannot update the operation.
+
 `Inspect`, `Commit`, and `Release` are idempotent. A commit failure after the
 local soft delete leaves the fence closed (safe for new-order creation) and
-returns `202 Accepted` with the operation ID. Pending operations are durably
-listed after restart and reconciled by inspecting and committing the same
+returns `202 Accepted` with `{operationId, state: "commit_pending"}`. Pending
+operations are durably listed after restart and reconciled using the same
 operation ID. They are marked complete locally only after order-service
 confirms `committed`; a post-delete failure must never release the fence or be
 treated as permission to create an errand.
+
+Replays observe or continue the original operation. `completed` returns the
+completed `204` result, `commit_pending` returns `202`, and
+`rejected_active_errands` returns `409 SUPPLIER_HAS_ACTIVE_ERRANDS`. A replay
+in `requested` or `release_pending` returns `503 DELETION_FENCE_UNAVAILABLE`
+unless the caller safely resolves and advances it; these pre-delete states
+never grant permission to delete.
 
 Order-service must run every errand creation through the same supplier gate and
 reject creation while a fence is open or committed. On success it stores both

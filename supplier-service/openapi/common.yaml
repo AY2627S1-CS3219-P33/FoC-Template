@@ -47,8 +47,10 @@ components:
       in: header
       required: true
       description: >-
-        Caller-generated UUID that identifies one deletion attempt. Reuse the
-        same value when retrying an ambiguous or interrupted request.
+        Caller-generated UUID that identifies one logical deletion. It is
+        durably bound to the supplier before the deletion fence is acquired.
+        Reuse the same value when retrying an ambiguous or interrupted
+        request. Reuse for another supplier is invalid.
       schema:
         type: string
         format: uuid
@@ -314,14 +316,14 @@ components:
 
     DeletionPending:
       type: object
-      required: [operationId, status]
+      required: [operationId, state]
       properties:
         operationId:
           type: string
           format: uuid
-        status:
+        state:
           type: string
-          const: pending_fence_commit
+          const: commit_pending
       additionalProperties: false
 
   responses:
@@ -399,8 +401,8 @@ components:
                     const: SUPPLIER_HAS_ACTIVE_ERRANDS
     DeletionFenceUnavailable:
       description: >-
-        The fence could not be acquired or inspected safely. The supplier was
-        not deleted by this operation.
+        The fence could not be acquired, inspected, or released safely. The
+        supplier was not deleted by this operation.
       content:
         application/json:
           schema:
