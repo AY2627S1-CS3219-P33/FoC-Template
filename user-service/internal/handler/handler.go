@@ -20,6 +20,9 @@ type AuthConfig struct {
 	Domain   string `json:"domain"`
 	ClientID string `json:"clientId"`
 	Audience string `json:"audience"`
+	// Dev signals the browser page to use the local mock sign-in flow instead of
+	// the Auth0 SPA. DEV-ONLY: set true only when the mock issuer is active.
+	Dev bool `json:"dev,omitempty"`
 }
 
 type Provisioner interface {

@@ -17,6 +17,15 @@
 
         <div id="status" class="status" role="status" aria-live="polite">Initializing…</div>
 
+        <section id="dev-panel" class="dev" hidden>
+          <p class="dev-note">Developer mode — signing in through a local mock issuer. No Auth0 account needed. Email must end in <code>@u.nus.edu</code>.</p>
+          <label for="dev-email">Sign in as</label>
+          <div class="dev-row">
+            <input id="dev-email" type="email" value="alice@u.nus.edu" autocomplete="off" spellcheck="false">
+            <button id="dev-login" type="button">Dev sign in</button>
+          </div>
+        </section>
+
         <div class="actions">
           <button id="login" type="button" hidden>Log in</button>
           <button id="logout" class="secondary" type="button" hidden>Log out</button>

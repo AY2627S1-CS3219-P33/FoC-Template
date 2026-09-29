@@ -1,12 +1,17 @@
 "use strict";
 
 let authClient;
+// DEV-ONLY: holds the mock-issued access token when the page runs in dev mode.
+let devToken = null;
 
 const elements = {
   status: document.querySelector("#status"),
   login: document.querySelector("#login"),
   logout: document.querySelector("#logout"),
   callAPI: document.querySelector("#call-api"),
+  devPanel: document.querySelector("#dev-panel"),
+  devEmail: document.querySelector("#dev-email"),
+  devLogin: document.querySelector("#dev-login"),
   profile: document.querySelector("#profile"),
   avatar: document.querySelector("#avatar"),
   name: document.querySelector("#name"),
@@ -31,6 +36,7 @@ async function jsonResponse(response) {
 }
 
 async function accessToken() {
+  if (devToken) return devToken;
   return authClient.getTokenSilently();
 }
 
@@ -76,12 +82,72 @@ async function logout() {
   } catch {
     // Local notification is best-effort; Auth0 logout must still run.
   }
+  if (devToken) {
+    // DEV-ONLY: no Auth0 session to end; just discard the local token and reset.
+    devToken = null;
+    elements.logout.disabled = false;
+    elements.logout.hidden = true;
+    elements.callAPI.hidden = true;
+    elements.profile.hidden = true;
+    elements.account.hidden = true;
+    elements.apiResult.hidden = true;
+    elements.devPanel.hidden = false;
+    setStatus("Signed out.");
+    return;
+  }
   authClient.logout({ logoutParams: { returnTo: window.location.origin } });
+}
+
+// DEV-ONLY: mint a token from the mock issuer and sign in without Auth0.
+async function devSignIn() {
+  const email = elements.devEmail.value.trim();
+  if (!email) {
+    setStatus("Enter an email to sign in.", "error");
+    return;
+  }
+  elements.devLogin.disabled = true;
+  setStatus("Minting a mock token…");
+  try {
+    const local = email.split("@")[0] || "devuser";
+    const params = new URLSearchParams({
+      sub: `auth0|${local}`,
+      email,
+      nickname: local,
+      name: local,
+    });
+    const minted = await jsonResponse(await fetch(`/dev/token?${params.toString()}`, { cache: "no-store" }));
+    devToken = minted.access_token;
+
+    elements.name.textContent = local;
+    elements.email.textContent = email;
+    elements.profile.hidden = false;
+    elements.devPanel.hidden = true;
+    elements.logout.hidden = false;
+    elements.callAPI.hidden = false;
+
+    setStatus("Provisioning your local account…");
+    const created = await provisionAccount();
+    setStatus(created ? "Signed in and local account created." : "Signed in and local account found.", "success");
+  } catch (error) {
+    devToken = null;
+    setStatus(error.message, "error");
+  } finally {
+    elements.devLogin.disabled = false;
+  }
+}
+
+async function initializeDev() {
+  elements.devPanel.hidden = false;
+  setStatus("Developer mode. Sign in with a mock NUS identity.");
 }
 
 async function initialize() {
   try {
     const config = await jsonResponse(await fetch("/api/auth/config", { cache: "no-store" }));
+    if (config.dev) {
+      await initializeDev();
+      return;
+    }
     authClient = await auth0.createAuth0Client({
       domain: config.domain,
       clientId: config.clientId,
@@ -136,5 +202,9 @@ elements.logout.addEventListener("click", () => {
   if (authClient) logout();
 });
 elements.callAPI.addEventListener("click", callProtectedAPI);
+elements.devLogin.addEventListener("click", devSignIn);
+elements.devEmail.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") devSignIn();
+});
 
 initialize();
