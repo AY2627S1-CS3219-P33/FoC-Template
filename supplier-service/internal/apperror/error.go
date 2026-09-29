@@ -28,3 +28,11 @@ type Error struct {
 }
 
 func (e *Error) Error() string { return e.Message }
+
+// ErrSupplierNameConflict is shared by persistence and use-case adapters so a
+// concurrent database uniqueness failure has the same stable outcome as any
+// other normalized-name conflict.
+var ErrSupplierNameConflict = &Error{
+	Code:    SupplierNameConflict,
+	Message: "a supplier with this normalized name already exists",
+}
