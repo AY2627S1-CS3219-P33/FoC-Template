@@ -1,0 +1,10 @@
+.env
+.env.local
+.env.*.local
+node_modules/
+bin/
+/supplier-service.exe
+coverage.out
+*.test
+*.log
+references/
