@@ -13,3 +13,6 @@ out/
 # OS
 .DS_Store
 Thumbs.db
+
+# Modules
+*/node_modules/
