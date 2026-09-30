@@ -16,7 +16,8 @@ import (
 
 const maximumPendingDeletionPage = 100
 
-func (r *Repository) CreateOrGetDeletion(ctx context.Context, operationID supplier.DeletionOperationID, supplierID supplier.SupplierID, maxAttempts int, now time.Time) (supplier.DeletionRecord, error) {
+func (r *Repository) CreateOrGetDeletion(ctx context.Context, operationID supplier.DeletionOperationID, supplierID supplier.SupplierID, maxAttempts int, now time.Time) (result supplier.DeletionRecord, err error) {
+	defer r.observe("create_or_get_deletion", time.Now(), &err)
 	boundedAttempts, err := boundedInt32(maxAttempts, "maxAttempts")
 	if err != nil {
 		return supplier.DeletionRecord{}, err
@@ -44,7 +45,8 @@ func (r *Repository) CreateOrGetDeletion(ctx context.Context, operationID suppli
 	), nil
 }
 
-func (r *Repository) GetDeletion(ctx context.Context, operationID supplier.DeletionOperationID) (supplier.DeletionRecord, error) {
+func (r *Repository) GetDeletion(ctx context.Context, operationID supplier.DeletionOperationID) (result supplier.DeletionRecord, err error) {
+	defer r.observe("get_deletion", time.Now(), &err)
 	row, err := r.queries.GetDeletionOperation(ctx, string(operationID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return supplier.DeletionRecord{}, deletionOperationNotFound()
@@ -59,7 +61,8 @@ func (r *Repository) GetDeletion(ctx context.Context, operationID supplier.Delet
 	), nil
 }
 
-func (r *Repository) ListClaimableDeletions(ctx context.Context, now time.Time, limit int) ([]supplier.DeletionRecord, error) {
+func (r *Repository) ListClaimableDeletions(ctx context.Context, now time.Time, limit int) (result []supplier.DeletionRecord, err error) {
+	defer r.observe("list_claimable_deletions", time.Now(), &err)
 	if limit <= 0 || limit > maximumPendingDeletionPage {
 		return nil, invalidArgument("limit must be between 1 and 100")
 	}
@@ -81,7 +84,8 @@ func (r *Repository) ListClaimableDeletions(ctx context.Context, now time.Time, 
 	return records, nil
 }
 
-func (r *Repository) ClaimDeletion(ctx context.Context, operationID supplier.DeletionOperationID, claimID supplier.DeletionClaimID, now, leaseExpiresAt time.Time) (supplier.DeletionRecord, bool, error) {
+func (r *Repository) ClaimDeletion(ctx context.Context, operationID supplier.DeletionOperationID, claimID supplier.DeletionClaimID, now, leaseExpiresAt time.Time) (result supplier.DeletionRecord, claimed bool, err error) {
+	defer r.observe("claim_deletion", time.Now(), &err)
 	if !leaseExpiresAt.After(now) {
 		return supplier.DeletionRecord{}, false, invalidArgument("lease expiry must be after claim time")
 	}
@@ -104,21 +108,24 @@ func (r *Repository) ClaimDeletion(ctx context.Context, operationID supplier.Del
 	), true, nil
 }
 
-func (r *Repository) MarkDeletionReleasePending(ctx context.Context, operationID supplier.DeletionOperationID, claimID supplier.DeletionClaimID, now time.Time) error {
+func (r *Repository) MarkDeletionReleasePending(ctx context.Context, operationID supplier.DeletionOperationID, claimID supplier.DeletionClaimID, now time.Time) (err error) {
+	defer r.observe("mark_deletion_release_pending", time.Now(), &err)
 	rows, err := r.queries.MarkDeletionReleasePending(ctx, db.MarkDeletionReleasePendingParams{
 		Now: timestamp(now), OperationID: string(operationID), ClaimID: string(claimID),
 	})
 	return r.transitionResult(ctx, rows, err, operationID, claimID, now, supplier.DeletionRequested)
 }
 
-func (r *Repository) MarkDeletionRejectedActiveErrands(ctx context.Context, operationID supplier.DeletionOperationID, claimID supplier.DeletionClaimID, now time.Time) error {
+func (r *Repository) MarkDeletionRejectedActiveErrands(ctx context.Context, operationID supplier.DeletionOperationID, claimID supplier.DeletionClaimID, now time.Time) (err error) {
+	defer r.observe("mark_deletion_rejected", time.Now(), &err)
 	rows, err := r.queries.MarkDeletionRejectedActiveErrands(ctx, db.MarkDeletionRejectedActiveErrandsParams{
 		Now: timestamp(now), OperationID: string(operationID), ClaimID: string(claimID),
 	})
 	return r.transitionResult(ctx, rows, err, operationID, claimID, now, supplier.DeletionReleasePending)
 }
 
-func (r *Repository) DeleteCurrentAndMarkCommitPending(ctx context.Context, supplierID supplier.SupplierID, operationID supplier.DeletionOperationID, claimID supplier.DeletionClaimID, now time.Time) error {
+func (r *Repository) DeleteCurrentAndMarkCommitPending(ctx context.Context, supplierID supplier.SupplierID, operationID supplier.DeletionOperationID, claimID supplier.DeletionClaimID, now time.Time) (err error) {
+	defer r.observe("delete_and_mark_commit_pending", time.Now(), &err)
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -150,14 +157,16 @@ func (r *Repository) DeleteCurrentAndMarkCommitPending(ctx context.Context, supp
 	return tx.Commit(ctx)
 }
 
-func (r *Repository) CompleteDeletion(ctx context.Context, operationID supplier.DeletionOperationID, claimID supplier.DeletionClaimID, now time.Time) error {
+func (r *Repository) CompleteDeletion(ctx context.Context, operationID supplier.DeletionOperationID, claimID supplier.DeletionClaimID, now time.Time) (err error) {
+	defer r.observe("complete_deletion", time.Now(), &err)
 	rows, err := r.queries.CompleteDeletionOperation(ctx, db.CompleteDeletionOperationParams{
 		Now: timestamp(now), OperationID: string(operationID), ClaimID: string(claimID),
 	})
 	return r.transitionResult(ctx, rows, err, operationID, claimID, now, supplier.DeletionCommitPending)
 }
 
-func (r *Repository) ScheduleDeletionRetry(ctx context.Context, operationID supplier.DeletionOperationID, claimID supplier.DeletionClaimID, failureCode supplier.DeletionFailureCode, nextAttemptAt *time.Time, now time.Time) error {
+func (r *Repository) ScheduleDeletionRetry(ctx context.Context, operationID supplier.DeletionOperationID, claimID supplier.DeletionClaimID, failureCode supplier.DeletionFailureCode, nextAttemptAt *time.Time, now time.Time) (err error) {
+	defer r.observe("schedule_deletion_retry", time.Now(), &err)
 	if !validFailureCode(failureCode) {
 		return invalidArgument("deletion failure code is invalid")
 	}

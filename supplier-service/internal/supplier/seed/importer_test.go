@@ -1,8 +1,10 @@
 package seed
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -167,6 +169,28 @@ Alpha Cafe,Food,COM 3,1,Atrium,1.294,103.773,0900hrs,1800hrs
 		require.NotContains(t, err.Error(), "database")
 		require.ErrorIs(t, err, persistenceError)
 	})
+}
+
+func TestImportLifecycleLogsAreStructuredAndRedacted(t *testing.T) {
+	path := writeSeedCSV(t, `Name,Type,Building,Floor,Location Description,Latitude,Longitude,StartingTime,ClosingTime
+Alpha Cafe,Food,COM 3,1,Atrium,1.294,103.773,0900hrs,1800hrs
+`)
+	secret := "postgresql://admin:secret@database/raw-record-payload"
+	store := &recordingStore{err: errors.New(secret)}
+	var output bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&output, nil))
+	importer, err := New(Config{CSVPath: path, DatasetNamespace: "template-v1"}, store, logger)
+	require.NoError(t, err)
+
+	_, err = importer.Import(context.Background())
+
+	require.Error(t, err)
+	require.Contains(t, output.String(), `"component":"supplier_seed"`)
+	require.Contains(t, output.String(), `"msg":"supplier seed import started"`)
+	require.Contains(t, output.String(), `"msg":"supplier seed import failed"`)
+	require.Contains(t, output.String(), `"error":"supplier seed import: seed rows could not be stored"`)
+	require.NotContains(t, output.String(), secret)
+	require.NotContains(t, output.String(), "admin:secret")
 }
 
 func TestNewRequiresExplicitDeploymentConfiguration(t *testing.T) {

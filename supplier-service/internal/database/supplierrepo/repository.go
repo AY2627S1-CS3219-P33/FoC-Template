@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"math"
 	"strings"
 	"time"
@@ -29,15 +30,24 @@ const normalizedNameConstraint = "suppliers_live_normalized_name_uidx"
 type Repository struct {
 	pool    *pgxpool.Pool
 	queries *db.Queries
+	logger  *slog.Logger
 }
 
-func New(pool *pgxpool.Pool) *Repository {
-	return &Repository{pool: pool, queries: db.New(pool)}
+func New(pool *pgxpool.Pool, loggers ...*slog.Logger) *Repository {
+	var logger *slog.Logger
+	if len(loggers) > 0 {
+		logger = loggers[0]
+	}
+	if logger != nil {
+		logger.Info("supplier repository initialized", "component", "supplier_repository")
+	}
+	return &Repository{pool: pool, queries: db.New(pool), logger: logger}
 }
 
 var _ supplier.Repository = (*Repository)(nil)
 
-func (r *Repository) Create(ctx context.Context, details supplier.Details, now time.Time) (supplier.Supplier, error) {
+func (r *Repository) Create(ctx context.Context, details supplier.Details, now time.Time) (result supplier.Supplier, err error) {
+	defer r.observe("create", time.Now(), &err)
 	if err := supplier.ValidateDetails(details); err != nil {
 		return supplier.Supplier{}, err
 	}
@@ -73,7 +83,8 @@ func (r *Repository) Create(ctx context.Context, details supplier.Details, now t
 	}, nil
 }
 
-func (r *Repository) Update(ctx context.Context, supplierID supplier.SupplierID, patch supplier.Patch, now time.Time) (supplier.Supplier, error) {
+func (r *Repository) Update(ctx context.Context, supplierID supplier.SupplierID, patch supplier.Patch, now time.Time) (result supplier.Supplier, err error) {
+	defer r.observe("update", time.Now(), &err)
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return supplier.Supplier{}, err
@@ -145,7 +156,8 @@ func (r *Repository) Update(ctx context.Context, supplierID supplier.SupplierID,
 	}, nil
 }
 
-func (r *Repository) GetCurrentAvailable(ctx context.Context, supplierID supplier.SupplierID) (supplier.Supplier, error) {
+func (r *Repository) GetCurrentAvailable(ctx context.Context, supplierID supplier.SupplierID) (result supplier.Supplier, err error) {
+	defer r.observe("get_current", time.Now(), &err)
 	row, err := r.queries.GetCurrentAvailableSupplier(ctx, string(supplierID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return supplier.Supplier{}, supplierNotFound()
@@ -174,7 +186,8 @@ func (r *Repository) GetCurrentAvailable(ctx context.Context, supplierID supplie
 	}, nil
 }
 
-func (r *Repository) GetVersion(ctx context.Context, versionID supplier.VersionID) (supplier.Version, error) {
+func (r *Repository) GetVersion(ctx context.Context, versionID supplier.VersionID) (result supplier.Version, err error) {
+	defer r.observe("get_version", time.Now(), &err)
 	row, err := r.queries.GetSupplierVersion(ctx, string(versionID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return supplier.Version{}, supplierVersionNotFound()
@@ -202,7 +215,8 @@ func (r *Repository) GetVersion(ctx context.Context, versionID supplier.VersionI
 	}, nil
 }
 
-func (r *Repository) ListAvailable(ctx context.Context, filter supplier.ListFilter) (supplier.Page, error) {
+func (r *Repository) ListAvailable(ctx context.Context, filter supplier.ListFilter) (result supplier.Page, err error) {
+	defer r.observe("list_available", time.Now(), &err)
 	if err := supplier.ValidateListFilter(filter); err != nil {
 		return supplier.Page{}, err
 	}
@@ -259,7 +273,8 @@ func (r *Repository) ListAvailable(ctx context.Context, filter supplier.ListFilt
 	return page, nil
 }
 
-func (r *Repository) NormalizedNameExists(ctx context.Context, name string, excluded *supplier.SupplierID) (bool, error) {
+func (r *Repository) NormalizedNameExists(ctx context.Context, name string, excluded *supplier.SupplierID) (exists bool, err error) {
+	defer r.observe("normalized_name_exists", time.Now(), &err)
 	excludedID := ""
 	if excluded != nil {
 		excludedID = string(*excluded)
