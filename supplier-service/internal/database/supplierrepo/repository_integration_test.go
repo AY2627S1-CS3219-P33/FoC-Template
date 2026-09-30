@@ -391,7 +391,7 @@ func validDetails(name string) supplier.Details {
 	}
 }
 
-func migratedRepository(t *testing.T) (*Repository, *pgxpool.Pool) {
+func migratedRepository(t testing.TB) (*Repository, *pgxpool.Pool) {
 	t.Helper()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
@@ -446,7 +446,7 @@ func migrationUp(migration string) (string, error) {
 	return migration[upAt+len(upMarker) : downAt], nil
 }
 
-func testUUID(t *testing.T) string {
+func testUUID(t testing.TB) string {
 	t.Helper()
 	value := make([]byte, 16)
 	_, err := rand.Read(value)

@@ -27,6 +27,7 @@ func TestApplicationStarts(t *testing.T) {
 			MinConnections: 0,
 			MaxConnections: 2,
 		},
+		SeedNamespace:   "template-v1",
 		LogLevel:        "error",
 		ShutdownTimeout: time.Second,
 	}

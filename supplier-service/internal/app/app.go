@@ -30,7 +30,7 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Applicat
 
 	handler := httpapi.NewRouter(
 		httpapi.Dependencies{Logger: logger},
-		readiness.NewHandler(pool),
+		readiness.NewHandler(readiness.NewPostgresChecker(pool, cfg.SeedNamespace)),
 	)
 
 	return &Application{

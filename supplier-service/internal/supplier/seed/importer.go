@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"regexp"
 	"strconv"
@@ -63,9 +64,10 @@ type Importer struct {
 	config Config
 	store  Store
 	now    func() time.Time
+	logger *slog.Logger
 }
 
-func New(config Config, store Store) (*Importer, error) {
+func New(config Config, store Store, loggers ...*slog.Logger) (*Importer, error) {
 	if strings.TrimSpace(config.CSVPath) == "" {
 		return nil, errors.New("supplier seed configuration: CSVPath is required")
 	}
@@ -82,17 +84,42 @@ func New(config Config, store Store) (*Importer, error) {
 	if store == nil {
 		return nil, errors.New("supplier seed configuration: store is required")
 	}
+	var logger *slog.Logger
+	if len(loggers) > 0 {
+		logger = loggers[0]
+	}
 	return &Importer{
 		config: config,
 		store:  store,
 		now:    func() time.Time { return time.Now().UTC() },
+		logger: logger,
 	}, nil
 }
 
 // Import reads and validates every row before asking the store to begin its
 // transaction. Any returned error is safe to log or expose as a startup
 // failure: paths, CSV values, database addresses, and credentials are omitted.
-func (i *Importer) Import(ctx context.Context) (Result, error) {
+func (i *Importer) Import(ctx context.Context) (result Result, err error) {
+	started := time.Now()
+	if i.logger != nil {
+		i.logger.Info("supplier seed import started", "component", "supplier_seed")
+		defer func() {
+			attributes := []any{
+				"component", "supplier_seed",
+				"duration_ms", time.Since(started).Milliseconds(),
+			}
+			if err != nil {
+				// Import errors deliberately expose only the importer's safe summary.
+				i.logger.Error("supplier seed import failed", append(attributes, "error", err.Error())...)
+				return
+			}
+			i.logger.Info(
+				"supplier seed import completed",
+				append(attributes, "rows", result.Rows, "inserted", result.Inserted, "existing", result.Existing)...,
+			)
+		}()
+	}
+
 	file, err := os.Open(i.config.CSVPath)
 	if err != nil {
 		return Result{}, newSafeError("configured seed CSV cannot be opened", err)

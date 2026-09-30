@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 type Environment string
@@ -37,6 +38,7 @@ type Config struct {
 	Environment     Environment
 	HTTP            HTTPConfig
 	Database        DatabaseConfig
+	SeedNamespace   string
 	LogLevel        string
 	ShutdownTimeout time.Duration
 }
@@ -92,6 +94,10 @@ func LoadFrom(lookup LookupEnv) (Config, error) {
 	if poolMin > poolMax {
 		problems = append(problems, "DATABASE_POOL_MIN must not exceed DATABASE_POOL_MAX")
 	}
+	seedNamespace := strings.TrimSpace(read(lookup, "SUPPLIER_SEED_DATASET_NAMESPACE", "template-v1"))
+	if utf8.RuneCountInString(seedNamespace) > 120 {
+		problems = append(problems, "SUPPLIER_SEED_DATASET_NAMESPACE must not exceed 120 characters")
+	}
 
 	if len(problems) > 0 {
 		return Config{}, &Error{problems: problems}
@@ -108,6 +114,7 @@ func LoadFrom(lookup LookupEnv) (Config, error) {
 			MinConnections: int32(poolMin),
 			MaxConnections: int32(poolMax),
 		},
+		SeedNamespace:   seedNamespace,
 		LogLevel:        logLevel,
 		ShutdownTimeout: shutdownTimeout,
 	}, nil
