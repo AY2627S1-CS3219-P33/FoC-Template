@@ -16,3 +16,6 @@ Thumbs.db
 
 # Modules
 */node_modules/
+
+# Supplier Service Plan
+commit-plan.md
