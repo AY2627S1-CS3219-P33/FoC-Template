@@ -9,3 +9,4 @@ coverage.out
 *.log
 references/
 /temp/
+/internal/database/generated/
