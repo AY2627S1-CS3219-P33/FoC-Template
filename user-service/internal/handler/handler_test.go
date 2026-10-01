@@ -55,8 +55,10 @@ func TestPublicRoutesAndProtectedRejection(t *testing.T) {
 		wantStatus int
 		contains   string
 	}{
-		{path: "/", wantStatus: http.StatusOK, contains: "Auth0 login test"},
-		{path: "/assets/app.js", wantStatus: http.StatusOK, contains: "loginWithRedirect"},
+		{path: "/", wantStatus: http.StatusNotFound},
+		{path: "/assets/app.js", wantStatus: http.StatusNotFound},
+		{path: "/assets/styles.css", wantStatus: http.StatusNotFound},
+		{path: "/dev/token", wantStatus: http.StatusNotFound},
 		{path: "/api/auth/config", wantStatus: http.StatusOK, contains: `"clientId":"client"`},
 		{path: "/health", wantStatus: http.StatusNoContent},
 		{path: "/missing", wantStatus: http.StatusNotFound},
