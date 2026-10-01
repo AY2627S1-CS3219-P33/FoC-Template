@@ -47,6 +47,10 @@ func (h Handler) get(response http.ResponseWriter, request *http.Request) {
 			writeError(response, http.StatusNotFound, applicationError.Code, applicationError.Message)
 			return
 		}
+		if errors.As(err, &applicationError) && applicationError.Code == apperror.DependencyUnavailable {
+			writeError(response, http.StatusServiceUnavailable, apperror.DependencyUnavailable, "a required dependency is unavailable")
+			return
+		}
 		writeError(response, http.StatusInternalServerError, apperror.Internal, "an unexpected internal error occurred")
 		return
 	}

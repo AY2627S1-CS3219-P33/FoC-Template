@@ -36,4 +36,14 @@ func TestReadinessRequiresSchemaConnectivityAndSeedProvenance(t *testing.T) {
 	`, created.SupplierID)
 	require.NoError(t, err)
 	require.NoError(t, checker.Check(context.Background()))
+
+	_, err = pool.Exec(context.Background(), `ALTER TABLE supplier_versions RENAME COLUMN latitude TO latitude_missing`)
+	require.NoError(t, err)
+	require.ErrorContains(t, checker.Check(context.Background()), "required database schema is incomplete")
+	_, err = pool.Exec(context.Background(), `ALTER TABLE supplier_versions RENAME COLUMN latitude_missing TO latitude`)
+	require.NoError(t, err)
+	require.NoError(t, checker.Check(context.Background()))
+
+	pool.Close()
+	require.ErrorContains(t, checker.Check(context.Background()), "database is unavailable")
 }

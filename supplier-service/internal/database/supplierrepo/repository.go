@@ -3,13 +3,10 @@
 package supplierrepo
 
 import (
-	"bytes"
 	"context"
-	"encoding/base64"
-	"encoding/json"
+	"crypto/cipher"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"math"
 	"strings"
@@ -28,9 +25,10 @@ import (
 const normalizedNameConstraint = "suppliers_live_normalized_name_uidx"
 
 type Repository struct {
-	pool    *pgxpool.Pool
-	queries *db.Queries
-	logger  *slog.Logger
+	pool         *pgxpool.Pool
+	queries      *db.Queries
+	logger       *slog.Logger
+	cursorCipher cipher.AEAD
 }
 
 func New(pool *pgxpool.Pool, loggers ...*slog.Logger) *Repository {
@@ -41,7 +39,7 @@ func New(pool *pgxpool.Pool, loggers ...*slog.Logger) *Repository {
 	if logger != nil {
 		logger.Info("supplier repository initialized", "component", "supplier_repository")
 	}
-	return &Repository{pool: pool, queries: db.New(pool), logger: logger}
+	return &Repository{pool: pool, queries: db.New(pool), logger: logger, cursorCipher: newCursorCipher()}
 }
 
 var _ supplier.Repository = (*Repository)(nil)
@@ -221,17 +219,29 @@ func (r *Repository) ListAvailable(ctx context.Context, filter supplier.ListFilt
 		return supplier.Page{}, err
 	}
 
-	cursor, err := decodeCursor(filter.Cursor)
-	if err != nil {
-		return supplier.Page{}, err
+	var cursorName, cursorSupplierID string
+	if filter.Cursor != "" {
+		versionID, err := r.decodeCursor(filter.Cursor, filter)
+		if err != nil {
+			return supplier.Page{}, err
+		}
+		anchor, err := r.GetVersion(ctx, versionID)
+		if err != nil {
+			var application *apperror.Error
+			if errors.As(err, &application) && application.Code == apperror.SupplierVersionNotFound {
+				return supplier.Page{}, invalidArgument("cursor is invalid")
+			}
+			return supplier.Page{}, err
+		}
+		cursorName, cursorSupplierID = supplier.NormalizeName(anchor.Details.Name), string(anchor.SupplierID)
 	}
 	pageSize := filter.PageSize()
 	rows, err := r.queries.ListAvailableSuppliers(ctx, db.ListAvailableSuppliersParams{
-		QueryText:        strings.TrimSpace(filter.Query),
-		SupplierType:     strings.TrimSpace(filter.Type),
+		QueryText:        supplier.NormalizeName(filter.Query),
+		SupplierType:     strings.ToLower(strings.TrimSpace(filter.Type)),
 		HasCursor:        filter.Cursor != "",
-		CursorName:       cursor.NormalizedName,
-		CursorSupplierID: cursor.SupplierID,
+		CursorName:       cursorName,
+		CursorSupplierID: cursorSupplierID,
 		PageLimit:        int32(pageSize + 1),
 	})
 	if err != nil {
@@ -262,13 +272,7 @@ func (r *Repository) ListAvailable(ctx context.Context, filter supplier.ListFilt
 	}
 	if len(rows) > pageSize {
 		last := rows[pageSize-1]
-		page.NextCursor, err = encodeCursor(listCursor{
-			NormalizedName: last.NormalizedName,
-			SupplierID:     last.SupplierID,
-		})
-		if err != nil {
-			return supplier.Page{}, err
-		}
+		page.NextCursor = r.encodeCursor(supplier.VersionID(last.VersionID), filter)
 	}
 	return page, nil
 }
@@ -357,43 +361,6 @@ func supplierVersionNotFound() error {
 
 func invalidArgument(message string) error {
 	return &apperror.Error{Code: apperror.InvalidArgument, Message: message}
-}
-
-type listCursor struct {
-	NormalizedName string `json:"name"`
-	SupplierID     string `json:"supplierId"`
-}
-
-func encodeCursor(cursor listCursor) (string, error) {
-	encoded, err := json.Marshal(cursor)
-	if err != nil {
-		return "", err
-	}
-	return base64.RawURLEncoding.EncodeToString(encoded), nil
-}
-
-func decodeCursor(value string) (listCursor, error) {
-	if value == "" {
-		return listCursor{}, nil
-	}
-	decoded, err := base64.RawURLEncoding.DecodeString(value)
-	if err != nil {
-		return listCursor{}, invalidArgument("cursor is invalid")
-	}
-	decoder := json.NewDecoder(bytes.NewReader(decoded))
-	decoder.DisallowUnknownFields()
-	var cursor listCursor
-	if err := decoder.Decode(&cursor); err != nil {
-		return listCursor{}, invalidArgument("cursor is invalid")
-	}
-	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		return listCursor{}, invalidArgument("cursor is invalid")
-	}
-	if cursor.NormalizedName == "" || cursor.NormalizedName != supplier.NormalizeName(cursor.NormalizedName) ||
-		!supplier.ValidSupplierID(supplier.SupplierID(cursor.SupplierID)) {
-		return listCursor{}, invalidArgument("cursor is invalid")
-	}
-	return cursor, nil
 }
 
 func boundedInt32(value int, field string) (int32, error) {
