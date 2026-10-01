@@ -3,7 +3,6 @@ package handler
 
 import (
 	"context"
-	"embed"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -13,16 +12,10 @@ import (
 	"user-service/internal/service"
 )
 
-//go:embed web/*
-var webAssets embed.FS
-
 type AuthConfig struct {
 	Domain   string `json:"domain"`
 	ClientID string `json:"clientId"`
 	Audience string `json:"audience"`
-	// Dev signals the browser page to use the local mock sign-in flow instead of
-	// the Auth0 SPA. DEV-ONLY: set true only when the mock issuer is active.
-	Dev bool `json:"dev,omitempty"`
 }
 
 type Provisioner interface {
@@ -39,9 +32,6 @@ type Handler struct {
 func New(authConfig AuthConfig, authentication *middleware.Auth0, provisioner Provisioner, userService *service.UserService) *Handler {
 	router := http.NewServeMux()
 	registerUserRoutes(router, authentication, provisioner, userService)
-	router.HandleFunc("GET /", serveIndex)
-	router.HandleFunc("GET /assets/app.js", serveAsset("web/app.js", "application/javascript; charset=utf-8"))
-	router.HandleFunc("GET /assets/styles.css", serveAsset("web/styles.css", "text/css; charset=utf-8"))
 	router.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
 	router.HandleFunc("GET /api/auth/config", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, authConfig)
@@ -79,41 +69,6 @@ func requireActiveAccount(authorizer Provisioner, next http.Handler) http.Handle
 			next.ServeHTTP(w, r)
 		}
 	})
-}
-
-// serveIndex serves the application page at the root path with security headers.
-func serveIndex(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/" {
-		http.NotFound(w, r)
-		return
-	}
-	setPageSecurityHeaders(w)
-	serveEmbedded(w, "web/index.html", "text/html; charset=utf-8")
-}
-
-// serveAsset returns a handler for an embedded asset with the given content type.
-func serveAsset(name, contentType string) http.HandlerFunc {
-	return func(w http.ResponseWriter, _ *http.Request) { serveEmbedded(w, name, contentType) }
-}
-
-// serveEmbedded writes an embedded asset and disables response caching.
-func serveEmbedded(w http.ResponseWriter, name, contentType string) {
-	contents, err := webAssets.ReadFile(name)
-	if err != nil {
-		http.Error(w, "asset unavailable", http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", contentType)
-	w.Header().Set("Cache-Control", "no-store")
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(contents)
-}
-
-// setPageSecurityHeaders sets the application page's content, referrer, and MIME policies.
-func setPageSecurityHeaders(w http.ResponseWriter) {
-	w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' https://cdn.auth0.com; style-src 'self'; img-src 'self' data: https:; connect-src 'self' https:; frame-src https:; base-uri 'none'; form-action 'self' https:; frame-ancestors 'none'")
-	w.Header().Set("Referrer-Policy", "no-referrer")
-	w.Header().Set("X-Content-Type-Options", "nosniff")
 }
 
 // private returns the authenticated subject for the protected example endpoint.
