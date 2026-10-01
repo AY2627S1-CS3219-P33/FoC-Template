@@ -2,7 +2,7 @@
 
 PostgreSQL-backed student-account service for the food-delivery platform. Auth0 owns registration, credentials, and sessions; this service validates access tokens, provisions local application accounts, and manages profile data. The browser application lives in [user-frontend](../user-frontend/README.md).
 
-Business-level deletion remains blocked until coordinated credit/errand checks and Auth0 session revocation are implemented. Role-based access enforcement, administrator/super-administrator management, and audit logging remain future work. Initial super-administrator bootstrap links a deployment-supplied Auth0 identity. The service never receives or stores passwords.
+Business-level deletion remains blocked until coordinated credit/errand checks and Auth0 session revocation are implemented. Auth0 RBAC now protects self-service profile routes; administrator/super-administrator management and audit logging remain future work. Initial super-administrator bootstrap links a deployment-supplied Auth0 identity. The service never receives or stores passwords.
 
 ## Structure
 
@@ -94,6 +94,24 @@ go test ./...
 go build ./...
 go run ./cmd/api
 ```
+
+### OpenAPI documentation
+
+Validate the API contract with:
+
+```sh
+npx --yes @redocly/cli@2.54.1 lint openapi.yaml
+```
+
+Preview the documentation locally with:
+
+```sh
+npx --yes @redocly/cli@1.34.5 preview-docs openapi.yaml
+```
+
+Open the URL printed by the command, typically `http://127.0.0.1:8080`.
+The preview watches `openapi.yaml` and refreshes when it changes. The preview
+command uses Redocly CLI v1 because it was removed from CLI v2.
 
 Copy `.env.example` to `.env`, fill in the values, and run `go run ./cmd/api`. The entry point connects to PostgreSQL and listens on `HTTP_ADDRESS` (default `:8080`). `repository.Open` parses the URL and pings PostgreSQL with the caller's context; its errors omit credentials and driver details. Do not log configuration, bearer tokens, or credential inputs.
 
