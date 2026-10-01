@@ -2,7 +2,7 @@
 
 PostgreSQL-backed student-account service for the food-delivery platform. Auth0 owns registration, credentials, and sessions; this service validates access tokens, provisions local application accounts, and manages profile data. The browser application lives in [user-frontend](../user-frontend/README.md).
 
-Business-level deletion remains blocked until coordinated credit/errand checks and Auth0 session revocation are implemented. Role-based access enforcement, administrator/super-administrator management, and audit logging remain future work. Initial super-administrator bootstrap links a deployment-supplied Auth0 identity. The service never receives or stores passwords.
+Business-level deletion remains blocked until coordinated credit/errand checks and Auth0 session revocation are implemented. Auth0 RBAC now protects self-service profile routes; administrator/super-administrator management and audit logging remain future work. Initial super-administrator bootstrap links a deployment-supplied Auth0 identity. The service never receives or stores passwords.
 
 ## Structure
 
