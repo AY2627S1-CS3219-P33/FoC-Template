@@ -40,7 +40,7 @@ func (f *fakeWriter) Update(context.Context, supplier.SupplierID, supplier.Patch
 }
 
 var (
-	testTime      = time.Date(2026, time.October, 1, 3, 0, 0, 0, time.UTC)
+	testTime       = time.Date(2026, time.October, 1, 3, 0, 0, 0, time.UTC)
 	testSupplierID = supplier.SupplierID("29e9aa8b-5651-4981-8828-3fbb1b21fcb1")
 	testVersionID  = supplier.VersionID("173fd7be-4f54-4f15-a8b1-58bd502344a0")
 )
@@ -101,14 +101,14 @@ func serveCreate(t *testing.T, writer supplier.Writer, payload any, principal *a
 func adminPrincipal() *auth.Principal {
 	return &auth.Principal{
 		Subject: "admin-user-1",
-		Roles:   []auth.Role{auth.RoleAdministrator},
+		Roles:   []auth.Role{auth.RoleAdministrator}, Permissions: []auth.Permission{auth.ReadSuppliers, auth.ManageSuppliers},
 	}
 }
 
 func normalPrincipal() *auth.Principal {
 	return &auth.Principal{
 		Subject: "normal-user-1",
-		Roles:   []auth.Role{auth.RoleUser},
+		Roles:   []auth.Role{auth.RoleUser}, Permissions: []auth.Permission{auth.ReadSuppliers},
 	}
 }
 

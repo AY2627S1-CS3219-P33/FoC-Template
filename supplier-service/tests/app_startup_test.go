@@ -12,11 +12,15 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/CS3219-AY2627S1/FoC-Template/supplier-service/internal/app"
+	"github.com/CS3219-AY2627S1/FoC-Template/supplier-service/internal/auth"
 	"github.com/CS3219-AY2627S1/FoC-Template/supplier-service/internal/config"
 )
 
 func TestApplicationStarts(t *testing.T) {
+	authConfig := auth.DefaultAuth0Config()
+	authConfig.Issuer = "https://tenant.example.com/"
 	cfg := config.Config{
+		Auth:        authConfig,
 		Environment: config.Test,
 		HTTP: config.HTTPConfig{
 			Host: "127.0.0.1",

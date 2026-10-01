@@ -27,10 +27,11 @@
 //     - Returns 403 FORBIDDEN ("insufficient permissions for this operation").
 //  9. Client identity or role tampering ignored:
 //     - Request payload, query parameters, or client-supplied headers claiming roles/identities are ignored.
-//     - Identity and roles are derived solely from the server-verified Port result.
+//     - Identity and permissions are derived solely from the server-verified Port result.
+//
 // 10. Successful authentication & authorization:
-//     - The trusted Principal is injected into the request context via WithPrincipal.
-//     - The request proceeds to the downstream handler via next.ServeHTTP.
+//   - The trusted Principal is injected into the request context via WithPrincipal.
+//   - The request proceeds to the downstream handler via next.ServeHTTP.
 package auth
 
 import (

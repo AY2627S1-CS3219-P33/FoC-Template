@@ -23,9 +23,12 @@ components:
     bearerAuth:
       type: http
       scheme: bearer
+      bearerFormat: JWT
       description: >-
-        Opaque credential verified through the authentication port. Request
-        payload identity or role fields are never trusted.
+        Auth0 RS256 access token for https://api.foc.local/supplier-service,
+        validated locally using cached JWKS. Reads require suppliers:read;
+        writes additionally require suppliers:manage in the permissions claim.
+        Request payload identity or role fields are never trusted.
 
   parameters:
     SupplierID:
@@ -349,7 +352,7 @@ components:
                     const: UNAUTHENTICATED
     Forbidden:
       description: >-
-        The authenticated identity lacks administrator permission or its
+        The authenticated identity lacks the required explicit permission or its
         authoritative account state denies access.
       content:
         application/json:

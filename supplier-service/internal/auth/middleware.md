@@ -22,3 +22,7 @@ This document specifies the authentication and authorization cases handled by th
 1. **Decoupled Verification**: The middleware depends strictly on the [`Port`](./port.go) interface. The concrete identity-provider / token adapter can be plugged in without changing middleware logic.
 2. **Context Propagation**: Downstream handlers retrieve the verified identity via [`auth.PrincipalFromContext(ctx)`](./context.go) rather than inspecting transport headers directly.
 3. **Fail-Closed and Secure**: Unknown errors never leak credential strings or internal provider tracebacks across the HTTP boundary.
+
+The production verifier is Auth0-backed; see [setup and acceptance](../../docs/auth0.md).
+Authorization uses explicit token permissions. Principal roles grant no access.
+Subject is the Auth0 sub, not a local account ID.

@@ -137,7 +137,7 @@ func serveVersion(t *testing.T, reader supplier.Reader, versionID supplier.Versi
 	NewHandler(reader).RegisterRoutes(router)
 	request := httptest.NewRequest(http.MethodGet, "/supplier-versions/"+string(versionID), nil)
 	if authenticated {
-		request = request.WithContext(auth.WithPrincipal(request.Context(), auth.Principal{Subject: "account-1"}))
+		request = request.WithContext(auth.WithPrincipal(request.Context(), auth.Principal{Subject: "account-1", Permissions: []auth.Permission{auth.ReadSuppliers}}))
 	}
 	response := httptest.NewRecorder()
 	router.ServeHTTP(response, request)

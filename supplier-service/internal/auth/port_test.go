@@ -8,9 +8,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestPrincipalPermissionsComeFromTrustedRoles(t *testing.T) {
-	user := Principal{Subject: "user-1", Roles: []Role{RoleUser}}
-	admin := Principal{Subject: "admin-1", Roles: []Role{RoleAdministrator}}
+func TestPrincipalPermissionsAreExplicit_NFR3_3(t *testing.T) {
+	user := Principal{Subject: "user-1", Roles: []Role{RoleUser}, Permissions: []Permission{ReadSuppliers}}
+	admin := Principal{Subject: "admin-1", Roles: []Role{RoleAdministrator}, Permissions: []Permission{ReadSuppliers, ManageSuppliers}}
 
 	require.True(t, user.Has(ReadSuppliers))
 	require.False(t, user.Has(ManageSuppliers))
@@ -20,7 +20,7 @@ func TestPrincipalPermissionsComeFromTrustedRoles(t *testing.T) {
 }
 
 func TestPrincipalContextRoundTrip(t *testing.T) {
-	principal := Principal{Subject: "admin-1", Roles: []Role{RoleAdministrator}}
+	principal := Principal{Subject: "admin-1", Roles: []Role{RoleAdministrator}, Permissions: []Permission{ReadSuppliers, ManageSuppliers}}
 	ctx := WithPrincipal(context.Background(), principal)
 
 	actual, ok := PrincipalFromContext(ctx)
@@ -40,4 +40,12 @@ func TestAuthenticationFailuresHaveStableKinds(t *testing.T) {
 		require.Equal(t, kind, authenticationError.Kind)
 		require.NotContains(t, err.Error(), "secret-token")
 	}
+}
+
+func TestRolesAndUnknownPermissionsNeverGrantAccess_NFR3_3(t *testing.T) {
+	roleOnly := Principal{Subject: "auth0|admin", Roles: []Role{RoleAdministrator}}
+	require.False(t, roleOnly.Has(ReadSuppliers))
+	require.False(t, roleOnly.Has(ManageSuppliers))
+	require.False(t, (Principal{Permissions: []Permission{ReadSuppliers}}).Has(ReadSuppliers))
+	require.False(t, (Principal{Subject: "user", Permissions: []Permission{"unknown"}}).Has("unknown"))
 }

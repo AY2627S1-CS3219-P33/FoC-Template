@@ -45,7 +45,7 @@ func TestListNormalizesSearchAndTypeAndDefaultsPageSize(t *testing.T) {
 	reader := &readerStub{page: supplier.Page{Items: []supplier.Supplier{catalogueItem()}, NextCursor: "opaque"}}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	page, err := NewService(reader).List(ctx, auth.Principal{Subject: "user-1"}, supplier.ListFilter{
+	page, err := NewService(reader).List(ctx, auth.Principal{Subject: "user-1", Permissions: []auth.Permission{auth.ReadSuppliers}}, supplier.ListFilter{
 		Query: "  COM\t  3 \n", Type: " FoOd ", Cursor: "previous",
 	})
 	require.NoError(t, err)
@@ -60,7 +60,7 @@ func TestListRejectsInvalidFiltersBeforeReading(t *testing.T) {
 		{Type: strings.Repeat("x", 65)}, {Cursor: strings.Repeat("x", 513)},
 	} {
 		reader := &readerStub{}
-		_, err := NewService(reader).List(context.Background(), auth.Principal{Subject: "user-1"}, filter)
+		_, err := NewService(reader).List(context.Background(), auth.Principal{Subject: "user-1", Permissions: []auth.Permission{auth.ReadSuppliers}}, filter)
 		var validation *supplier.ValidationError
 		require.ErrorAs(t, err, &validation)
 		require.Zero(t, reader.calls)
@@ -74,7 +74,7 @@ func TestCatalogueServicesRequireReadPermission(t *testing.T) {
 	var application *apperror.Error
 	require.ErrorAs(t, err, &application)
 	require.Equal(t, apperror.Unauthenticated, application.Code)
-	_, err = service.Current(context.Background(), auth.Principal{Roles: []auth.Role{auth.RoleAdministrator}}, testSupplierID)
+	_, err = service.Current(context.Background(), auth.Principal{Roles: []auth.Role{auth.RoleAdministrator}, Permissions: []auth.Permission{auth.ReadSuppliers, auth.ManageSuppliers}}, testSupplierID)
 	require.ErrorAs(t, err, &application)
 	require.Equal(t, apperror.Unauthenticated, application.Code)
 	require.Zero(t, reader.calls)
@@ -83,7 +83,7 @@ func TestCatalogueServicesRequireReadPermission(t *testing.T) {
 func TestCurrentUsesCurrentOnlyReadAndValidatesID(t *testing.T) {
 	reader := &readerStub{item: catalogueItem()}
 	service := NewService(reader)
-	principal := auth.Principal{Subject: "admin-1", Roles: []auth.Role{auth.RoleAdministrator}}
+	principal := auth.Principal{Subject: "admin-1", Roles: []auth.Role{auth.RoleAdministrator}, Permissions: []auth.Permission{auth.ReadSuppliers, auth.ManageSuppliers}}
 	ctx := context.Background()
 	item, err := service.Current(ctx, principal, testSupplierID)
 	require.NoError(t, err)
@@ -101,7 +101,7 @@ func TestCatalogueServicesPropagateRepositoryErrors(t *testing.T) {
 	for _, err := range []error{errors.New("storage failed"), &apperror.Error{Code: apperror.SupplierNotFound}} {
 		reader := &readerStub{err: err}
 		service := NewService(reader)
-		principal := auth.Principal{Subject: "user-1"}
+		principal := auth.Principal{Subject: "user-1", Permissions: []auth.Permission{auth.ReadSuppliers}}
 		_, actual := service.List(context.Background(), principal, supplier.ListFilter{})
 		require.ErrorIs(t, actual, err)
 		_, actual = service.Current(context.Background(), principal, testSupplierID)

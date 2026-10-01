@@ -154,11 +154,11 @@ func TestMiddlewareUnexpectedVerifierError(t *testing.T) {
 func TestMiddlewarePermissionsAndContextInjection(t *testing.T) {
 	userPrincipal := Principal{
 		Subject: "user-42",
-		Roles:   []Role{RoleUser},
+		Roles:   []Role{RoleUser}, Permissions: []Permission{ReadSuppliers},
 	}
 	adminPrincipal := Principal{
 		Subject: "admin-99",
-		Roles:   []Role{RoleAdministrator},
+		Roles:   []Role{RoleAdministrator}, Permissions: []Permission{ReadSuppliers, ManageSuppliers},
 	}
 
 	t.Run("normal user can access read endpoint and context receives principal", func(t *testing.T) {

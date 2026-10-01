@@ -29,8 +29,13 @@ func (h Handler) RegisterRoutes(router *http.ServeMux) {
 func (h Handler) get(response http.ResponseWriter, request *http.Request) {
 	response.Header().Set("Content-Type", "application/json")
 	principal, ok := auth.PrincipalFromContext(request.Context())
-	if !ok || !principal.Has(auth.ReadSuppliers) {
+	if !ok || principal.Subject == "" {
 		writeError(response, http.StatusUnauthorized, apperror.Unauthenticated, "authentication is required")
+		return
+	}
+
+	if !principal.Has(auth.ReadSuppliers) {
+		writeError(response, http.StatusForbidden, apperror.Forbidden, "insufficient permissions for this operation")
 		return
 	}
 

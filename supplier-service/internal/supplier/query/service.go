@@ -23,8 +23,8 @@ func NewService(reader supplier.Reader) Service {
 
 // List implements F2.1, F2.1.2 and F2.5.2 using the current-only repository read.
 func (s Service) List(ctx context.Context, principal auth.Principal, filter supplier.ListFilter) (supplier.Page, error) {
-	if !principal.Has(auth.ReadSuppliers) {
-		return supplier.Page{}, authenticationRequired()
+	if err := requireRead(principal); err != nil {
+		return supplier.Page{}, err
 	}
 	// OpenAPI length bounds apply before whitespace normalization.
 	var violations []supplier.FieldViolation
@@ -47,8 +47,8 @@ func (s Service) List(ctx context.Context, principal auth.Principal, filter supp
 }
 
 func (s Service) Current(ctx context.Context, principal auth.Principal, id supplier.SupplierID) (supplier.Supplier, error) {
-	if !principal.Has(auth.ReadSuppliers) {
-		return supplier.Supplier{}, authenticationRequired()
+	if err := requireRead(principal); err != nil {
+		return supplier.Supplier{}, err
 	}
 	if !supplier.ValidSupplierID(id) {
 		return supplier.Supplier{}, &apperror.Error{Code: apperror.InvalidArgument, Message: "supplierId must be a UUID"}
@@ -58,4 +58,14 @@ func (s Service) Current(ctx context.Context, principal auth.Principal, id suppl
 
 func authenticationRequired() error {
 	return &apperror.Error{Code: apperror.Unauthenticated, Message: "authentication is required"}
+}
+
+func requireRead(principal auth.Principal) error {
+	if principal.Subject == "" {
+		return authenticationRequired()
+	}
+	if !principal.Has(auth.ReadSuppliers) {
+		return &apperror.Error{Code: apperror.Forbidden, Message: "insufficient permissions for this operation"}
+	}
+	return nil
 }

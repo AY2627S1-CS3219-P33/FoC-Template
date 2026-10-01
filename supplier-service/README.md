@@ -4,11 +4,13 @@ Go service for supplier and pickup-location listing, search, administration,
 seed data, and immutable record versions. Planned scope and requirement IDs are
 defined in [docs/product-backlog.md](docs/product-backlog.md).
 
-This scaffold provides the application shell and development infrastructure.
+The runtime registers authenticated catalogue, immutable-version and create
+routes using local Auth0 JWT validation. Update and guarded-delete workflows
+remain planned. See [Auth0 setup and acceptance](docs/auth0.md) for C1.
 The frozen domain and HTTP decisions are documented in
 [docs/contracts.md](docs/contracts.md). [openapi.yaml](openapi.yaml) composes
 separate catalogue, administration, and common contract fragments; business
-operations are contracts only until their feature handlers are implemented.
+operations beyond that runtime slice remain contracts until implemented.
 
 ## Technology
 
@@ -71,7 +73,7 @@ locked modules from `supplier-service/`:
 go mod download
 ```
 
-`.env.example` contains placeholders only. The executable reads process
+`.env.example` documents settings and deployment placeholders. The executable reads process
 environment variables directly; it does not automatically load `.env`. Export
 the required values through your shell, IDE, container configuration, or secret
 manager before starting it.
@@ -81,6 +83,8 @@ At minimum, development requires:
 ```text
 APP_ENV=development
 DATABASE_URL=postgresql://<user>:<password>@<host>:<port>/<database>
+AUTH0_ISSUER=https://<your-auth0-domain>/
+AUTH0_AUDIENCE=https://api.foc.local/supplier-service
 ```
 
 Run the service with:
@@ -89,13 +93,17 @@ Run the service with:
 go run ./cmd/supplier-service
 ```
 
-The default address is `0.0.0.0:3002`. `/readyz` is implemented; the supplier
-routes are frozen in OpenAPI and will be registered by their feature packages.
+The default address is `0.0.0.0:3002`. `/readyz` is public. Catalogue and
+version reads require `suppliers:read`; create also requires `suppliers:manage`.
+Apply migrations and import the seed dataset before expecting readiness.
 
 ## Environment variables
 
 | Variable | Required | Purpose |
 | --- | --- | --- |
+| `AUTH0_ISSUER` | Yes | Exact HTTPS Auth0 issuer with trailing slash |
+| `AUTH0_AUDIENCE` | No | Defaults to `https://api.foc.local/supplier-service` |
+| `AUTH0_JWKS_*`, `AUTH0_CLOCK_SKEW` | No | [Cache, deadline, retry and breaker settings](docs/auth0.md) |
 | `APP_ENV` | No | `development`, `test`, or `production`; defaults to `development` |
 | `HTTP_HOST` | No | Server bind address; defaults to `0.0.0.0` |
 | `HTTP_PORT` | No | Server port; defaults to `3002` |
@@ -126,7 +134,8 @@ tests verify that `APP_ENV=test` selects `TEST_DATABASE_URL` and does not leak
 configuration values in errors.
 
 `/readyz` returns ready only when PostgreSQL is reachable, all supplier tables
-exist, and the configured seed namespace has provenance. The seed import is
+exist, the configured seed namespace has provenance, and Auth0 verification
+keys are cached within their lifetime or can be fetched. The seed import is
 atomic, so any provenance row for that namespace represents a completed import,
 not a partial dataset.
 
