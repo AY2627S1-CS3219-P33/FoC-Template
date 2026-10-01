@@ -15,10 +15,41 @@ import (
 	internalauth "user-service/internal/auth"
 )
 
-type CustomClaims struct{}
+type CustomClaims struct {
+	Permissions []string `json:"permissions"`
+}
 
 // Validate accepts custom claims without applying additional validation rules.
 func (*CustomClaims) Validate(context.Context) error { return nil }
+
+// HasPermission reports whether Auth0 granted the requested API permission.
+func HasPermission(ctx context.Context, required string) bool {
+	claims, err := jwtmiddleware.GetClaims[*validator.ValidatedClaims](ctx)
+	if err != nil {
+		return false
+	}
+	customClaims, ok := claims.CustomClaims.(*CustomClaims)
+	if !ok {
+		return false
+	}
+	for _, permission := range customClaims.Permissions {
+		if permission == required {
+			return true
+		}
+	}
+	return false
+}
+
+// RequirePermission rejects authenticated requests without an Auth0 API permission.
+func RequirePermission(permission string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !HasPermission(r.Context(), permission) {
+			writeJSONError(w, http.StatusForbidden, "insufficient_permissions", "You do not have permission to perform this action.")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
 
 // Auth0 validates RS256 access tokens issued for this API.
 type Auth0 struct {

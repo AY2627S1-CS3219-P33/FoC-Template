@@ -12,15 +12,15 @@ import (
 
 // registerUserRoutes registers authenticated profile and account deletion endpoints.
 func registerUserRoutes(router *http.ServeMux, authentication *middleware.Auth0, provisioner Provisioner, userService *service.UserService) {
-	router.Handle("GET /api/me", authentication.Authentication(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+	router.Handle("GET /api/me", authentication.Authentication(middleware.RequirePermission("users:read:self", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		getAccountInformation(w, req, provisioner, userService)
-	})))
-	router.Handle("PATCH /api/me", authentication.Authentication(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+	}))))
+	router.Handle("PATCH /api/me", authentication.Authentication(middleware.RequirePermission("users:update:self", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		updateAccountInformation(w, req, provisioner, userService)
-	})))
-	router.Handle("DELETE /api/me", authentication.Authentication(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+	}))))
+	router.Handle("DELETE /api/me", authentication.Authentication(middleware.RequirePermission("users:delete:self", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		deleteAccount(w, req, provisioner, userService)
-	})))
+	}))))
 }
 
 // getAccountInformation returns the profile for the authenticated active account.
