@@ -8,3 +8,5 @@ coverage.out
 *.test
 *.log
 references/
+/temp/
+/internal/database/generated/

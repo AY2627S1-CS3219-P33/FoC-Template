@@ -105,6 +105,7 @@ routes are frozen in OpenAPI and will be registered by their feature packages.
 | `TEST_DATABASE_URL` | Test | Isolated PostgreSQL test connection URL |
 | `DATABASE_POOL_MIN` | No | Minimum idle pool size; defaults to `1` |
 | `DATABASE_POOL_MAX` | No | Maximum pool size; defaults to `10` |
+| `SUPPLIER_SEED_DATASET_NAMESPACE` | No | Required seed provenance namespace; defaults to `template-v1` |
 
 Invalid configuration stops startup. Error messages identify invalid variable
 names but do not include their values, preventing credentials from entering
@@ -123,6 +124,11 @@ test constructs the complete application, exercises its HTTP handler, and
 closes it without opening a port or connecting to PostgreSQL. Configuration
 tests verify that `APP_ENV=test` selects `TEST_DATABASE_URL` and does not leak
 configuration values in errors.
+
+`/readyz` returns ready only when PostgreSQL is reachable, all supplier tables
+exist, and the configured seed namespace has provenance. The seed import is
+atomic, so any provenance row for that namespace represents a completed import,
+not a partial dataset.
 
 In CI environments with CGO and a C compiler available, also run the race
 detector:
@@ -177,13 +183,44 @@ APP_ENV=test
 TEST_DATABASE_URL=postgresql://supplier_test@127.0.0.1:5433/supplier_test
 ```
 
-The database binds only to the local machine, stores its data in memory, and
-uses trust authentication. It is strictly for automated local testing. Stop it
+The database binds only to the local machine, persists data in a named local
+Docker volume, and uses trust authentication. It is strictly for automated
+local testing. The named test volume allows the restart test to exercise a
+real PostgreSQL restart. Stop it
 with:
 
 ```sh
 docker compose -f supplier-service/compose.test.yaml down
 ```
+
+Remove the disposable data volume when a completely fresh database is needed:
+
+```sh
+docker compose -f supplier-service/compose.test.yaml down -v
+```
+
+With the test database running and `TEST_DATABASE_URL` set, repository, seed,
+readiness, and 1,000-record pagination integration tests run as part of
+`go test ./...`. Run the repeatable capacity benchmark from
+`supplier-service/` with:
+
+```sh
+go test -run '^$' -bench '^BenchmarkListSearchPagination1000$' ./internal/database/supplierrepo
+```
+
+This data-layer benchmark is a repeatable capacity check; the integrated
+100-user SLO workload and pass/fail decision remain part of I3.
+
+The database restart test is exclusive because it restarts the Compose test
+database. Run it without other database tests:
+
+```sh
+RUN_DATABASE_RESTART_TEST=1 go test -count=1 -run '^TestPersistenceSurvivesDatabaseAndServiceRestart$' ./internal/database/supplierrepo
+```
+
+The test creates two immutable supplier versions, seed provenance, and a
+pending deletion operation, restarts PostgreSQL, constructs a fresh connection
+pool and repository (the service restart), and verifies all three remain.
 
 ## Database tooling
 

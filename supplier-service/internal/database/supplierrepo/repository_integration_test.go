@@ -126,6 +126,66 @@ func TestConcurrentUpdatesValidateAgainstLatestLockedVersion(t *testing.T) {
 	require.Equal(t, 2, versions)
 }
 
+func TestStoredOrderVersionRemainsUnchangedAfterUpdateAndDeletion(t *testing.T) {
+	repository, _ := migratedRepository(t)
+	ctx := context.Background()
+	createdAt := time.Now().UTC()
+	originalDetails := validDetails("Order Pickup Supplier")
+	created, err := repository.Create(ctx, originalDetails, createdAt)
+	require.NoError(t, err)
+
+	// An order stores this immutable reference when it is created.
+	orderVersionID := created.VersionID
+	newLocation := "Level 2, beside the lift"
+	updated, err := repository.Update(ctx, created.SupplierID, supplier.Patch{
+		LocationDescription: &newLocation,
+	}, createdAt.Add(time.Minute))
+	require.NoError(t, err)
+	require.NotEqual(t, orderVersionID, updated.VersionID)
+
+	storedPickupAfterUpdate, err := repository.GetVersion(ctx, orderVersionID)
+	require.NoError(t, err)
+	require.Equal(t, originalDetails, storedPickupAfterUpdate.Details)
+	require.False(t, storedPickupAfterUpdate.Available)
+
+	operationID := supplier.DeletionOperationID(testUUID(t))
+	_, err = repository.CreateOrGetDeletion(ctx, operationID, created.SupplierID, 1, createdAt.Add(2*time.Minute))
+	require.NoError(t, err)
+	claimID := supplier.DeletionClaimID(testUUID(t))
+	_, claimed, err := repository.ClaimDeletion(
+		ctx,
+		operationID,
+		claimID,
+		createdAt.Add(2*time.Minute),
+		createdAt.Add(3*time.Minute),
+	)
+	require.NoError(t, err)
+	require.True(t, claimed)
+	require.NoError(t, repository.DeleteCurrentAndMarkCommitPending(
+		ctx,
+		created.SupplierID,
+		operationID,
+		claimID,
+		createdAt.Add(2*time.Minute),
+	))
+
+	storedPickupAfterDeletion, err := repository.GetVersion(ctx, orderVersionID)
+	require.NoError(t, err)
+	require.Equal(t, storedPickupAfterUpdate, storedPickupAfterDeletion)
+	require.Equal(t, originalDetails, storedPickupAfterDeletion.Details)
+
+	deletedCurrentVersion, err := repository.GetVersion(ctx, updated.VersionID)
+	require.NoError(t, err)
+	require.Equal(t, updated.Details, deletedCurrentVersion.Details)
+	require.False(t, deletedCurrentVersion.Available)
+
+	_, err = repository.GetCurrentAvailable(ctx, created.SupplierID)
+	requireApplicationCode(t, err, apperror.SupplierNotFound)
+	page, err := repository.ListAvailable(ctx, supplier.ListFilter{})
+	require.NoError(t, err)
+	require.Empty(t, page.Items)
+}
+
 func TestReplayedDeletionOperationIsCreatedClaimedAndCompletedOnce(t *testing.T) {
 	repository, pool := migratedRepository(t)
 	ctx := context.Background()
@@ -331,7 +391,7 @@ func validDetails(name string) supplier.Details {
 	}
 }
 
-func migratedRepository(t *testing.T) (*Repository, *pgxpool.Pool) {
+func migratedRepository(t testing.TB) (*Repository, *pgxpool.Pool) {
 	t.Helper()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
@@ -386,7 +446,7 @@ func migrationUp(migration string) (string, error) {
 	return migration[upAt+len(upMarker) : downAt], nil
 }
 
-func testUUID(t *testing.T) string {
+func testUUID(t testing.TB) string {
 	t.Helper()
 	value := make([]byte, 16)
 	_, err := rand.Read(value)

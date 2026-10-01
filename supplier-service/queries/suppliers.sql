@@ -136,10 +136,10 @@ JOIN supplier_versions AS v
 WHERE s.deleted_at IS NULL
   AND (
       sqlc.arg(query_text)::text = ''
-      OR s.current_normalized_name LIKE '%' || normalize_supplier_name(sqlc.arg(query_text)::text) || '%'
-      OR lower(v.building) LIKE '%' || lower(btrim(sqlc.arg(query_text)::text)) || '%'
-      OR lower(v.floor) LIKE '%' || lower(btrim(sqlc.arg(query_text)::text)) || '%'
-      OR lower(v.location_description) LIKE '%' || lower(btrim(sqlc.arg(query_text)::text)) || '%'
+      OR strpos(s.current_normalized_name, normalize_supplier_name(sqlc.arg(query_text)::text)) > 0
+      OR strpos(normalize_supplier_name(v.building), normalize_supplier_name(sqlc.arg(query_text)::text)) > 0
+      OR strpos(normalize_supplier_name(v.floor), normalize_supplier_name(sqlc.arg(query_text)::text)) > 0
+      OR strpos(normalize_supplier_name(v.location_description), normalize_supplier_name(sqlc.arg(query_text)::text)) > 0
   )
   AND (
       sqlc.arg(supplier_type)::text = ''

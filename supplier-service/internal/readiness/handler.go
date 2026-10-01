@@ -8,7 +8,7 @@ import (
 )
 
 type Checker interface {
-	Ping(context.Context) error
+	Check(context.Context) error
 }
 
 type Handler struct {
@@ -28,7 +28,7 @@ func (h Handler) RegisterRoutes(router *http.ServeMux) {
 
 func (h Handler) get(response http.ResponseWriter, request *http.Request) {
 	response.Header().Set("Content-Type", "application/json")
-	if err := h.checker.Ping(request.Context()); err != nil {
+	if err := h.checker.Check(request.Context()); err != nil {
 		response.WriteHeader(http.StatusServiceUnavailable)
 		_ = json.NewEncoder(response).Encode(map[string]string{"status": "not_ready"})
 		return

@@ -3,13 +3,11 @@
 package supplierrepo
 
 import (
-	"bytes"
 	"context"
-	"encoding/base64"
-	"encoding/json"
+	"crypto/cipher"
 	"errors"
 	"fmt"
-	"io"
+	"log/slog"
 	"math"
 	"strings"
 	"time"
@@ -27,17 +25,27 @@ import (
 const normalizedNameConstraint = "suppliers_live_normalized_name_uidx"
 
 type Repository struct {
-	pool    *pgxpool.Pool
-	queries *db.Queries
+	pool         *pgxpool.Pool
+	queries      *db.Queries
+	logger       *slog.Logger
+	cursorCipher cipher.AEAD
 }
 
-func New(pool *pgxpool.Pool) *Repository {
-	return &Repository{pool: pool, queries: db.New(pool)}
+func New(pool *pgxpool.Pool, loggers ...*slog.Logger) *Repository {
+	var logger *slog.Logger
+	if len(loggers) > 0 {
+		logger = loggers[0]
+	}
+	if logger != nil {
+		logger.Info("supplier repository initialized", "component", "supplier_repository")
+	}
+	return &Repository{pool: pool, queries: db.New(pool), logger: logger, cursorCipher: newCursorCipher()}
 }
 
 var _ supplier.Repository = (*Repository)(nil)
 
-func (r *Repository) Create(ctx context.Context, details supplier.Details, now time.Time) (supplier.Supplier, error) {
+func (r *Repository) Create(ctx context.Context, details supplier.Details, now time.Time) (result supplier.Supplier, err error) {
+	defer r.observe("create", time.Now(), &err)
 	if err := supplier.ValidateDetails(details); err != nil {
 		return supplier.Supplier{}, err
 	}
@@ -73,7 +81,8 @@ func (r *Repository) Create(ctx context.Context, details supplier.Details, now t
 	}, nil
 }
 
-func (r *Repository) Update(ctx context.Context, supplierID supplier.SupplierID, patch supplier.Patch, now time.Time) (supplier.Supplier, error) {
+func (r *Repository) Update(ctx context.Context, supplierID supplier.SupplierID, patch supplier.Patch, now time.Time) (result supplier.Supplier, err error) {
+	defer r.observe("update", time.Now(), &err)
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return supplier.Supplier{}, err
@@ -145,7 +154,8 @@ func (r *Repository) Update(ctx context.Context, supplierID supplier.SupplierID,
 	}, nil
 }
 
-func (r *Repository) GetCurrentAvailable(ctx context.Context, supplierID supplier.SupplierID) (supplier.Supplier, error) {
+func (r *Repository) GetCurrentAvailable(ctx context.Context, supplierID supplier.SupplierID) (result supplier.Supplier, err error) {
+	defer r.observe("get_current", time.Now(), &err)
 	row, err := r.queries.GetCurrentAvailableSupplier(ctx, string(supplierID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return supplier.Supplier{}, supplierNotFound()
@@ -174,7 +184,8 @@ func (r *Repository) GetCurrentAvailable(ctx context.Context, supplierID supplie
 	}, nil
 }
 
-func (r *Repository) GetVersion(ctx context.Context, versionID supplier.VersionID) (supplier.Version, error) {
+func (r *Repository) GetVersion(ctx context.Context, versionID supplier.VersionID) (result supplier.Version, err error) {
+	defer r.observe("get_version", time.Now(), &err)
 	row, err := r.queries.GetSupplierVersion(ctx, string(versionID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return supplier.Version{}, supplierVersionNotFound()
@@ -202,22 +213,35 @@ func (r *Repository) GetVersion(ctx context.Context, versionID supplier.VersionI
 	}, nil
 }
 
-func (r *Repository) ListAvailable(ctx context.Context, filter supplier.ListFilter) (supplier.Page, error) {
+func (r *Repository) ListAvailable(ctx context.Context, filter supplier.ListFilter) (result supplier.Page, err error) {
+	defer r.observe("list_available", time.Now(), &err)
 	if err := supplier.ValidateListFilter(filter); err != nil {
 		return supplier.Page{}, err
 	}
 
-	cursor, err := decodeCursor(filter.Cursor)
-	if err != nil {
-		return supplier.Page{}, err
+	var cursorName, cursorSupplierID string
+	if filter.Cursor != "" {
+		versionID, err := r.decodeCursor(filter.Cursor, filter)
+		if err != nil {
+			return supplier.Page{}, err
+		}
+		anchor, err := r.GetVersion(ctx, versionID)
+		if err != nil {
+			var application *apperror.Error
+			if errors.As(err, &application) && application.Code == apperror.SupplierVersionNotFound {
+				return supplier.Page{}, invalidArgument("cursor is invalid")
+			}
+			return supplier.Page{}, err
+		}
+		cursorName, cursorSupplierID = supplier.NormalizeName(anchor.Details.Name), string(anchor.SupplierID)
 	}
 	pageSize := filter.PageSize()
 	rows, err := r.queries.ListAvailableSuppliers(ctx, db.ListAvailableSuppliersParams{
-		QueryText:        strings.TrimSpace(filter.Query),
-		SupplierType:     strings.TrimSpace(filter.Type),
+		QueryText:        supplier.NormalizeName(filter.Query),
+		SupplierType:     strings.ToLower(strings.TrimSpace(filter.Type)),
 		HasCursor:        filter.Cursor != "",
-		CursorName:       cursor.NormalizedName,
-		CursorSupplierID: cursor.SupplierID,
+		CursorName:       cursorName,
+		CursorSupplierID: cursorSupplierID,
 		PageLimit:        int32(pageSize + 1),
 	})
 	if err != nil {
@@ -248,18 +272,13 @@ func (r *Repository) ListAvailable(ctx context.Context, filter supplier.ListFilt
 	}
 	if len(rows) > pageSize {
 		last := rows[pageSize-1]
-		page.NextCursor, err = encodeCursor(listCursor{
-			NormalizedName: last.NormalizedName,
-			SupplierID:     last.SupplierID,
-		})
-		if err != nil {
-			return supplier.Page{}, err
-		}
+		page.NextCursor = r.encodeCursor(supplier.VersionID(last.VersionID), filter)
 	}
 	return page, nil
 }
 
-func (r *Repository) NormalizedNameExists(ctx context.Context, name string, excluded *supplier.SupplierID) (bool, error) {
+func (r *Repository) NormalizedNameExists(ctx context.Context, name string, excluded *supplier.SupplierID) (exists bool, err error) {
+	defer r.observe("normalized_name_exists", time.Now(), &err)
 	excludedID := ""
 	if excluded != nil {
 		excludedID = string(*excluded)
@@ -342,43 +361,6 @@ func supplierVersionNotFound() error {
 
 func invalidArgument(message string) error {
 	return &apperror.Error{Code: apperror.InvalidArgument, Message: message}
-}
-
-type listCursor struct {
-	NormalizedName string `json:"name"`
-	SupplierID     string `json:"supplierId"`
-}
-
-func encodeCursor(cursor listCursor) (string, error) {
-	encoded, err := json.Marshal(cursor)
-	if err != nil {
-		return "", err
-	}
-	return base64.RawURLEncoding.EncodeToString(encoded), nil
-}
-
-func decodeCursor(value string) (listCursor, error) {
-	if value == "" {
-		return listCursor{}, nil
-	}
-	decoded, err := base64.RawURLEncoding.DecodeString(value)
-	if err != nil {
-		return listCursor{}, invalidArgument("cursor is invalid")
-	}
-	decoder := json.NewDecoder(bytes.NewReader(decoded))
-	decoder.DisallowUnknownFields()
-	var cursor listCursor
-	if err := decoder.Decode(&cursor); err != nil {
-		return listCursor{}, invalidArgument("cursor is invalid")
-	}
-	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		return listCursor{}, invalidArgument("cursor is invalid")
-	}
-	if cursor.NormalizedName == "" || cursor.NormalizedName != supplier.NormalizeName(cursor.NormalizedName) ||
-		!supplier.ValidSupplierID(supplier.SupplierID(cursor.SupplierID)) {
-		return listCursor{}, invalidArgument("cursor is invalid")
-	}
-	return cursor, nil
 }
 
 func boundedInt32(value int, field string) (int32, error) {

@@ -20,7 +20,21 @@ func TestConfigurationUsesIsolatedTestDatabase(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, config.Test, cfg.Environment)
 	require.Equal(t, testDatabaseURL, cfg.Database.URL)
+	require.Equal(t, "template-v1", cfg.SeedNamespace)
 	require.Equal(t, 3002, cfg.HTTP.Port)
+}
+
+func TestConfigurationAcceptsSeedDatasetNamespace(t *testing.T) {
+	values := map[string]string{
+		"APP_ENV":                         "test",
+		"TEST_DATABASE_URL":               "postgresql://supplier_test@127.0.0.1:5433/supplier_test",
+		"SUPPLIER_SEED_DATASET_NAMESPACE": "deployment-v2",
+	}
+
+	cfg, err := config.LoadFrom(mapLookup(values))
+
+	require.NoError(t, err)
+	require.Equal(t, "deployment-v2", cfg.SeedNamespace)
 }
 
 func TestConfigurationRejectsMissingTestDatabaseWithoutLeakingValues(t *testing.T) {
