@@ -8,7 +8,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { createAuth0Client, type Auth0Client } from "@auth0/auth0-spa-js";
+import { EmbeddedAuth } from "./embeddedAuth";
 import {
   getConfig,
   getProfile,
@@ -27,7 +27,11 @@ interface AuthContextValue {
   error: string | null;
   signInDev: (identifier: string, remember: boolean) => Promise<void>;
   signUpDev: (username: string, email: string, remember: boolean) => Promise<void>;
-  signInAuth0: () => Promise<void>;
+  signInAuth0: (email: string, password: string) => Promise<void>;
+  signUpAuth0: (name: string, email: string, password: string) => Promise<void>;
+  resetPassword: (email: string) => Promise<void>;
+  hostedLogin: (signup?: boolean) => void;
+  getAccessToken: () => Promise<string>;
   signOut: () => Promise<void>;
   setProfile: (profile: Profile) => void;
 }
@@ -69,7 +73,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [config, setConfig] = useState<AuthConfig | null>(null);
   const [profile, setProfileState] = useState<Profile | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const auth0Ref = useRef<Auth0Client | null>(null);
+  const auth0Ref = useRef<EmbeddedAuth | null>(null);
+  const initialization = useRef<Promise<void> | null>(null);
 
   // Establish a session from a bearer token: provision (idempotent) then hold
   // the returned profile. Any failure clears the persisted token.
@@ -81,42 +86,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const bootstrapAuth0 = useCallback(async (cfg: AuthConfig) => {
-    const client = await createAuth0Client({
-      domain: cfg.domain,
-      clientId: cfg.clientId,
-      cacheLocation: "localstorage",
-      authorizationParams: {
-        redirect_uri: window.location.origin,
-        audience: cfg.audience,
-        scope: "openid profile email",
-      },
-    });
+    const client = new EmbeddedAuth(cfg);
     auth0Ref.current = client;
-
-    const query = new URLSearchParams(window.location.search);
-    if ((query.has("code") || query.has("error")) && query.has("state")) {
-      try {
-        await client.handleRedirectCallback();
-      } finally {
-        window.history.replaceState({}, document.title, window.location.pathname);
-      }
-    }
-    if (await client.isAuthenticated()) {
-      const token = await client.getTokenSilently();
-      if (token) {
-        await establish(token);
-        return;
-      }
-    }
-    setStatus("signedOut");
+    const token = await client.initialize();
+    if (token) await establish(token);
+    else setStatus("signedOut");
   }, [establish]);
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      try {
+    if (!initialization.current) {
+      initialization.current = (async () => {
         const cfg = await getConfig();
-        if (cancelled) return;
         setConfig(cfg);
 
         if (cfg.dev) {
@@ -136,13 +117,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
 
         await bootstrapAuth0(cfg);
-      } catch (err) {
-        if (!cancelled) {
-          setError(err instanceof Error ? err.message : "Failed to initialize.");
-          setStatus("signedOut");
-        }
+      })();
+    }
+    initialization.current.catch((err) => {
+      if (!cancelled) {
+        setError(err instanceof Error ? err.message : "Failed to initialize.");
+        setStatus("signedOut");
       }
-    })();
+    });
     return () => {
       cancelled = true;
     };
@@ -194,29 +176,59 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  const signInAuth0 = useCallback(async () => {
+  const getAccessToken = useCallback(async () => {
+    if (config?.dev) {
+      const token = readToken();
+      if (!token) throw new Error("Please sign in again.");
+      return token;
+    }
     if (!auth0Ref.current) throw new Error("Auth0 is not configured.");
-    await auth0Ref.current.loginWithRedirect();
+    try {
+      return await auth0Ref.current.getAccessToken();
+    } catch {
+      setProfileState(null);
+      setStatus("signedOut");
+      setError("Your login could not be renewed. Please sign in again.");
+      throw new Error("Your login could not be renewed. Please sign in again.");
+    }
+  }, [config]);
+
+  const signInAuth0 = useCallback(async (email: string, password: string) => {
+    if (!auth0Ref.current) throw new Error("Auth0 is not configured.");
+    setError(null);
+    await auth0Ref.current.login(email, password);
+  }, []);
+
+  const signUpAuth0 = useCallback(async (name: string, email: string, password: string) => {
+    if (!auth0Ref.current) throw new Error("Auth0 is not configured.");
+    setError(null);
+    await auth0Ref.current.signup(name, email, password);
+  }, []);
+
+  const resetPassword = useCallback(async (email: string) => {
+    if (config?.dev) throw new Error("Email delivery is unavailable in developer mode.");
+    if (!auth0Ref.current) throw new Error("Auth0 is not configured.");
+    await auth0Ref.current.resetPassword(email);
+  }, [config]);
+
+  const hostedLogin = useCallback((signup = false) => {
+    if (!auth0Ref.current) throw new Error("Auth0 is not configured.");
+    auth0Ref.current.hostedLogin(signup);
   }, []);
 
   const signOut = useCallback(async () => {
-    const token = readToken();
-    if (token) {
-      try {
-        await apiLogout(token);
-      } catch {
-        // Best-effort notification to the service.
-      }
+    try {
+      const token = await getAccessToken();
+      await apiLogout(token);
+    } catch {
+      // Best-effort notification must not prevent logout.
     }
     clearToken();
     setProfileState(null);
+    setError(null);
     setStatus("signedOut");
-    if (auth0Ref.current && !config?.dev) {
-      await auth0Ref.current.logout({
-        logoutParams: { returnTo: window.location.origin },
-      });
-    }
-  }, [config]);
+    if (auth0Ref.current && !config?.dev) auth0Ref.current.logout();
+  }, [config, getAccessToken]);
 
   const value = useMemo<AuthContextValue>(
     () => ({
@@ -227,10 +239,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       signInDev,
       signUpDev,
       signInAuth0,
+      signUpAuth0,
+      resetPassword,
+      hostedLogin,
+      getAccessToken,
       signOut,
       setProfile: setProfileState,
     }),
-    [status, config, profile, error, signInDev, signUpDev, signInAuth0, signOut],
+    [status, config, profile, error, signInDev, signUpDev, signInAuth0, signUpAuth0, resetPassword, hostedLogin, getAccessToken, signOut],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
