@@ -53,11 +53,22 @@ func (c *PostgresChecker) Check(ctx context.Context) error {
 	if _, err := c.pool.Exec(ctx, `
 		SELECT s.supplier_id,
 		       s.current_version_id,
+		       s.current_normalized_name,
+		       s.created_at, s.updated_at, s.deleted_at,
 		       v.version_id,
+		       v.supplier_id, v.name, v.normalized_name, v.supplier_type,
+		       v.building, v.floor, v.location_description,
+		       v.latitude, v.longitude, v.opening_time, v.closing_time,
+		       v.image_url, v.created_at,
+		       normalize_supplier_name(v.name),
 		       d.operation_id,
 		       d.state,
+		       d.supplier_id, d.attempt_count, d.max_attempts,
+		       d.next_attempt_at, d.last_failure_code,
+		       d.claim_id, d.lease_expires_at,
+		       d.requested_at, d.updated_at, d.deleted_at, d.completed_at,
 		       p.dataset_namespace,
-		       p.source_key
+		       p.source_key, p.supplier_id, p.seeded_at
 		FROM suppliers AS s
 		LEFT JOIN supplier_versions AS v ON false
 		LEFT JOIN supplier_deletion_operations AS d ON false

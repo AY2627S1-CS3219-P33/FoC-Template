@@ -124,6 +124,13 @@ func TestVersionLookupDoesNotExposeRepositoryErrors(t *testing.T) {
 	require.JSONEq(t, `{"code":"INTERNAL","message":"an unexpected internal error occurred"}`, response.Body.String())
 }
 
+func TestVersionLookupMapsDependencyUnavailableWithoutLeakingDetails(t *testing.T) {
+	reader := &readerStub{err: &apperror.Error{Code: apperror.DependencyUnavailable, Message: "database password is secret"}}
+	response := serveVersion(t, reader, testVersionID, true)
+	require.Equal(t, http.StatusServiceUnavailable, response.Code)
+	require.JSONEq(t, `{"code":"DEPENDENCY_UNAVAILABLE","message":"a required dependency is unavailable"}`, response.Body.String())
+}
+
 func serveVersion(t *testing.T, reader supplier.Reader, versionID supplier.VersionID, authenticated bool) *httptest.ResponseRecorder {
 	t.Helper()
 	router := http.NewServeMux()
