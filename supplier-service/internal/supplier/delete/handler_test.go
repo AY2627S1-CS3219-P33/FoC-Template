@@ -228,14 +228,14 @@ func (f *fakeOrderDeletionFence) Release(_ context.Context, opID supplier.Deleti
 func adminPrincipal() *auth.Principal {
 	return &auth.Principal{
 		Subject: "admin-subject",
-		Roles:   []auth.Role{auth.RoleAdministrator},
+		Roles:   []auth.Role{auth.RoleAdministrator}, Permissions: []auth.Permission{auth.ReadSuppliers, auth.ManageSuppliers},
 	}
 }
 
 func userPrincipal() *auth.Principal {
 	return &auth.Principal{
 		Subject: "user-subject",
-		Roles:   []auth.Role{auth.RoleUser},
+		Roles:   []auth.Role{auth.RoleUser}, Permissions: []auth.Permission{auth.ReadSuppliers},
 	}
 }
 
@@ -253,7 +253,7 @@ func serveDelete(t *testing.T, store supplier.DeletionStore, fence OrderDeletion
 		req.Header.Set("Idempotency-Key", idempotencyKey)
 	}
 	if principal != nil {
-		req = req.WithContext(auth.ContextWithPrincipal(req.Context(), *principal))
+		req = req.WithContext(auth.WithPrincipal(req.Context(), *principal))
 	}
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
