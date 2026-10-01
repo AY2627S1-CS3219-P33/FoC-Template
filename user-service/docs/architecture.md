@@ -29,36 +29,7 @@ flowchart LR
 Each service owns its own database. Services coordinate through APIs or events,
 not by querying another service's database directly.
 
-## 2. Component Level diagram
-
-```mermaid
-flowchart TB
-    Request["User Requests<br/>Bearer token and request data"]
-    Middleware["<b>Middleware</b><br/>────────────────────<br/>Validate JWT<br/>Check permissions"]
-    Handler["<b>Handler</b><br/>────────────────────<br/>Route requests<br/>Validate request bodies<br/>Format responses"]
-    Service["<b>Service</b><br/>────────────────────<br/>Provision accounts<br/>Check account status<br/>Read and update profiles<br/>Handle account deletion"]
-    Auth["<b>Auth</b><br/>────────────────────<br/>Retrieve Auth0 user profiles"]
-    Repository["<b>Repository</b><br/>────────────────────<br/>Find and create accounts<br/>Update profiles<br/>Soft-delete accounts"]
-    Auth0["Auth0"]
-    Database[("User PostgreSQL Database")]
-    Response["Results<br/>Profile, confirmation or error"]
-    Request --> Middleware
-    Auth0 -->|"Signing keys"| Middleware
-    Middleware -->|"Authenticated request"| Handler
-    Handler --> Service
-    Service --> Auth
-    Auth0 -->|"Identity profile"| Auth
-    Service <-->|"Account operations"| Repository
-    Repository <-->|"SQL"| Database
-    Service -->|"Result"| Handler
-    Handler --> Response
-    classDef component fill:#fff,stroke:#2196f3,stroke-width:2px,color:#000;
-    class Request,Middleware,Handler,Service,Auth,Repository,Auth0,Database,Response component;
-```
-
-
-
-## 3. Auth0 login and access-token flow
+## 2. Auth0 login and access-token flow
 
 ```mermaid
 sequenceDiagram
@@ -79,7 +50,7 @@ sequenceDiagram
 The API verifies the JWT locally. The token is not decrypted, and the Auth0
 private signing key is never shared with the services.
 
-## 4. RBAC authorization flow
+## 3. RBAC authorization flow
 
 ```mermaid
 flowchart LR
@@ -106,7 +77,7 @@ The current administrator role receives the broad user-management permissions.
 Local `ADMIN` and `SUPER_ADMIN` accounts have the same API functionality for
 now; the local distinction remains available for future policy changes.
 
-## 5. User provisioning sequence
+## 4. User provisioning sequence
 
 ```mermaid
 sequenceDiagram
@@ -133,7 +104,7 @@ sequenceDiagram
 Provisioning never links an existing account by email. The Auth0 subject is the
 authoritative external identity key.
 
-## 6. Self-service account flow
+## 5. Self-service account flow
 
 ```mermaid
 sequenceDiagram
@@ -166,54 +137,7 @@ The client never supplies the target account ID. The account is selected from
 the validated Auth0 `sub`, so `/api/me` can only operate on the caller's own
 local account.
 
-## 7. Super Admin Boostrapping
-
-```mermaid
-sequenceDiagram
-    participant Main as Application Startup
-    participant Config
-    participant Service
-    participant Repository
-    participant DB as PostgreSQL
-    Main->>Config: Load bootstrap configuration
-    Config-->>Main: Auth0 subject, username and email
-    Main->>Service: BootstrapSuperAdmin(configuration)
-    Service->>Repository: WithBootstrapLock()
-    Repository->>DB: Begin transaction
-    Repository->>DB: Lock bootstrap coordination row
-    Note over Repository,DB: Concurrent instances wait for this lock
-    Service->>Repository: Read bootstrap state
-    Repository->>DB: Check completion and SUPER_ADMIN existence
-    DB-->>Repository: Current state
-    Repository-->>Service: Completed? Administrator exists?
-    alt Bootstrap completed and administrator exists
-        Note over Service: No changes required
-    else Bootstrap incomplete and administrator exists
-        Service->>Repository: MarkCompleted()
-        Repository->>DB: Record completion timestamp
-    else Bootstrap incomplete and no administrator exists
-        Service->>Service: Validate bootstrap configuration
-        Service->>Repository: CreateSuperAdmin()
-        Repository->>DB: Insert active SUPER_ADMIN
-        Service->>Repository: MarkCompleted()
-        Repository->>DB: Record completion timestamp
-    else Bootstrap completed but administrator missing
-        Service-->>Repository: Recovery required error
-    end
-    alt Workflow succeeds
-        Repository->>DB: Commit transaction
-        Repository-->>Service: Success
-        Service-->>Main: Bootstrap complete
-        Main->>Main: Start HTTP server
-    else Validation, database or recovery error
-        Repository->>DB: Roll back transaction
-        Repository-->>Service: Error
-        Service-->>Main: Bootstrap failed
-        Main->>Main: Stop startup
-    end
-```
-
-## 8. Database schema
+## 6. Database schema
 
 ```mermaid
 erDiagram
