@@ -56,18 +56,18 @@ func (h Handler) RegisterRoutes(router *http.ServeMux) {
 }
 
 type updateRequest struct {
-	SupplierID          *string          `json:"supplierId"`
-	VersionID           *string          `json:"versionId"`
-	Name                *string          `json:"name"`
-	Type                *string          `json:"type"`
-	Building            *string          `json:"building"`
-	Floor               *string          `json:"floor"`
-	LocationDescription *string          `json:"locationDescription"`
-	Latitude            *float64         `json:"latitude"`
-	Longitude           *float64         `json:"longitude"`
-	OpeningTime         *string          `json:"openingTime"`
-	ClosingTime         *string          `json:"closingTime"`
-	ImageURL            *json.RawMessage `json:"imageUrl"`
+	SupplierID          *string         `json:"supplierId"`
+	VersionID           *string         `json:"versionId"`
+	Name                *string         `json:"name"`
+	Type                *string         `json:"type"`
+	Building            *string         `json:"building"`
+	Floor               *string         `json:"floor"`
+	LocationDescription *string         `json:"locationDescription"`
+	Latitude            *float64        `json:"latitude"`
+	Longitude           *float64        `json:"longitude"`
+	OpeningTime         *string         `json:"openingTime"`
+	ClosingTime         *string         `json:"closingTime"`
+	ImageURL            json.RawMessage `json:"imageUrl"`
 }
 
 type supplierResponse struct {
@@ -236,12 +236,12 @@ func (h Handler) update(response http.ResponseWriter, request *http.Request) {
 
 	if req.ImageURL != nil {
 		patch.ImageURLSet = true
-		rawStr := string(*req.ImageURL)
+		rawStr := string(req.ImageURL)
 		if rawStr == "null" {
 			patch.ImageURL = nil
 		} else {
 			var urlStr string
-			if err := json.Unmarshal(*req.ImageURL, &urlStr); err != nil {
+			if err := json.Unmarshal(req.ImageURL, &urlStr); err != nil {
 				violations = append(violations, apperror.Field{Field: "imageUrl", Message: "must be a string or null"})
 			} else {
 				if utf8.RuneCountInString(urlStr) > 2048 {

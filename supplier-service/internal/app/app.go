@@ -10,9 +10,10 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/CS3219-AY2627S1/FoC-Template/supplier-service/internal/auth"
 	"github.com/CS3219-AY2627S1/FoC-Template/supplier-service/internal/config"
 	"github.com/CS3219-AY2627S1/FoC-Template/supplier-service/internal/database"
-	"github.com/CS3219-AY2627S1/FoC-Template/supplier-service/internal/httpapi"
+	"github.com/CS3219-AY2627S1/FoC-Template/supplier-service/internal/database/supplierrepo"
 	"github.com/CS3219-AY2627S1/FoC-Template/supplier-service/internal/readiness"
 )
 
@@ -23,15 +24,19 @@ type Application struct {
 }
 
 func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Application, error) {
+	verifier, err := auth.NewAuth0(cfg.Auth, logger)
+	if err != nil {
+		return nil, err
+	}
 	pool, err := database.NewPool(ctx, cfg.Database)
 	if err != nil {
 		return nil, err
 	}
 
-	handler := httpapi.NewRouter(
-		httpapi.Dependencies{Logger: logger},
-		readiness.NewHandler(readiness.NewPostgresChecker(pool, cfg.SeedNamespace)),
-	)
+	repository := supplierrepo.New(pool, logger)
+	handler := NewHandler(logger, verifier, allReady{
+		readiness.NewPostgresChecker(pool, cfg.SeedNamespace), verifier,
+	}, repository, repository)
 
 	return &Application{
 		database: pool,

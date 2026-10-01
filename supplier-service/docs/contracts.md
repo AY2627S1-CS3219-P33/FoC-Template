@@ -54,11 +54,15 @@ before applying the cursor. Clients must not parse or construct cursors.
 
 ## Authorization and errors
 
-All supplier and version endpoints require authentication. Create, patch, and
-delete additionally require `suppliers:manage`, currently granted to the
-`administrator` role. `/readyz` is unauthenticated. Supplier use cases consume
-the trusted `auth.Principal`; an `auth.Port` adapter owns token, session, or
-user-service verification. Middleware stores verified principals with
+All supplier and version endpoints require a verified Auth0 access token for
+`https://api.foc.local/supplier-service` and explicit `suppliers:read`. Create,
+patch, and delete additionally require `suppliers:manage`. Auth0 administrator
+assignments must grant both permissions. `/readyz` is unauthenticated.
+Supplier use cases consume the trusted `auth.Principal`: Subject is Auth0
+`sub`, Permissions comes from the validated token, and Roles grants no access.
+The `auth.Port` adapter performs local RS256/issuer/audience/time validation
+using cached Auth0 public keys; see [Auth0 setup](auth0.md), including the
+account-lifecycle freshness gate. Middleware stores verified principals with
 `auth.WithPrincipal`; handlers retrieve them with `auth.PrincipalFromContext`.
 These helpers are transport-neutral, and payload identity and role values are
 ignored.

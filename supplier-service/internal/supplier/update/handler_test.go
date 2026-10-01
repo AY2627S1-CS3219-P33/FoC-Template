@@ -92,14 +92,14 @@ func serveUpdate(t *testing.T, writer supplier.Writer, supplierID string, payloa
 func adminPrincipal() *auth.Principal {
 	return &auth.Principal{
 		Subject: "admin-user-1",
-		Roles:   []auth.Role{auth.RoleAdministrator},
+		Roles:   []auth.Role{auth.RoleAdministrator}, Permissions: []auth.Permission{auth.ReadSuppliers, auth.ManageSuppliers},
 	}
 }
 
 func normalPrincipal() *auth.Principal {
 	return &auth.Principal{
 		Subject: "normal-user-1",
-		Roles:   []auth.Role{auth.RoleUser},
+		Roles:   []auth.Role{auth.RoleUser}, Permissions: []auth.Permission{auth.ReadSuppliers},
 	}
 }
 
