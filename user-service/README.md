@@ -95,6 +95,24 @@ go build ./...
 go run ./cmd/api
 ```
 
+### OpenAPI documentation
+
+Validate the API contract with:
+
+```sh
+npx --yes @redocly/cli@2.54.1 lint openapi.yaml
+```
+
+Preview the documentation locally with:
+
+```sh
+npx --yes @redocly/cli@1.34.5 preview-docs openapi.yaml
+```
+
+Open the URL printed by the command, typically `http://127.0.0.1:8080`.
+The preview watches `openapi.yaml` and refreshes when it changes. The preview
+command uses Redocly CLI v1 because it was removed from CLI v2.
+
 Copy `.env.example` to `.env`, fill in the values, and run `go run ./cmd/api`. The entry point connects to PostgreSQL and listens on `HTTP_ADDRESS` (default `:8080`). `repository.Open` parses the URL and pings PostgreSQL with the caller's context; its errors omit credentials and driver details. Do not log configuration, bearer tokens, or credential inputs.
 
 Create an Auth0 API named `FoC User Service API` with identifier `https://api.foc.local/user-service` and RS256 signing. Configure its Single Page Application for the frontend origin (locally `http://localhost:5173`), following the [frontend setup instructions](../user-frontend/README.md). Put its tenant domain and client ID in `.env`; no client secret is used by the SPA.

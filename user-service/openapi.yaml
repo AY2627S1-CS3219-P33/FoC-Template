@@ -1,0 +1,343 @@
+openapi: 3.1.0
+info:
+  title: FoC User Service API
+  version: 1.0.0
+  description: User accounts, profiles, provisioning, and Auth0-backed authentication.
+
+servers:
+  - url: http://localhost:8080
+    description: Local development
+
+tags:
+  - name: Health
+  - name: Authentication
+  - name: Profile
+
+paths:
+  /health:
+    get:
+      tags: [Health]
+      summary: Check service health
+      security: []
+      responses:
+        '204':
+          description: Service is running.
+
+  /api/auth/config:
+    get:
+      tags: [Authentication]
+      summary: Get browser authentication configuration
+      security: []
+      responses:
+        '200':
+          description: Public Auth0 configuration for the frontend.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthConfig'
+
+  /api/auth/provision:
+    post:
+      tags: [Authentication]
+      summary: Provision the authenticated Auth0 identity
+      description: >-
+        Creates or retrieves the local account linked to the authenticated Auth0
+        subject. This endpoint requires a valid access token but does not require
+        users:create because ordinary users provision themselves.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Existing local account returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Profile'
+        '201':
+          description: Local account created and returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Profile'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          description: Auth0 identity is unverified, ineligible, or inactive.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Local account identity conflicts with an existing account.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '502':
+          description: Auth0 profile could not be retrieved.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/auth/logout:
+    post:
+      tags: [Authentication]
+      summary: Acknowledge logout for the authenticated identity
+      description: >-
+        Validates the access token before the frontend clears its Auth0 session.
+        The service does not revoke already-issued stateless access tokens.
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: Logout request accepted.
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+
+  /api/private:
+    get:
+      tags: [Authentication]
+      summary: Test an authenticated active-account request
+      description: Development endpoint that returns the validated Auth0 subject.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Authenticated request succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PrivateResponse'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          $ref: '#/components/responses/AccountForbidden'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/me:
+    get:
+      tags: [Profile]
+      summary: Get the authenticated user profile
+      description: Requires the Auth0 permission users:read:self.
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Authenticated active-user profile.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Profile'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          description: Missing users:read:self permission or account is unavailable to the user.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+    patch:
+      tags: [Profile]
+      summary: Update the authenticated user profile
+      description: Requires the Auth0 permission users:update:self.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProfileUpdate'
+      responses:
+        '200':
+          description: Updated authenticated user profile.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Profile'
+        '400':
+          description: Invalid JSON, unsupported fields, or invalid profile values.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          description: Missing users:update:self permission or account is unavailable to the user.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '413':
+          description: Request body exceeds 4096 bytes.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+    delete:
+      tags: [Profile]
+      summary: Delete the authenticated user account
+      description: Requires the Auth0 permission users:delete:self.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeleteAccountRequest'
+      responses:
+        '200':
+          description: Account deleted.
+          content:
+            application/json:
+              schema:
+                type: 'null'
+        '400':
+          description: Invalid JSON or deletion confirmation was not provided.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          description: Missing users:delete:self permission or account is unavailable to the user.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '413':
+          description: Request body exceeds 4096 bytes.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Auth0 access token issued for the FoC User Service API.
+
+  responses:
+    Unauthenticated:
+      description: A valid Auth0 access token is required.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    AccountForbidden:
+      description: The Auth0 identity is not linked to an active local account.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    ServiceUnavailable:
+      description: A required account or provisioning dependency is unavailable.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+  schemas:
+    AuthConfig:
+      type: object
+      required: [domain, clientId, audience]
+      properties:
+        domain:
+          type: string
+          description: Auth0 tenant domain without a scheme or path.
+        clientId:
+          type: string
+        audience:
+          type: string
+
+    Profile:
+      type: object
+      required:
+        - id
+        - username
+        - email
+        - role
+        - active
+        - display_name
+        - mobile_number
+        - credit_balance
+      properties:
+        id:
+          type: string
+        username:
+          type: string
+        email:
+          type: string
+          format: email
+        role:
+          type: string
+          enum: [USER, ADMIN, SUPER_ADMIN]
+        active:
+          type: boolean
+        display_name:
+          type: string
+          maxLength: 100
+        mobile_number:
+          type: string
+          maxLength: 32
+        credit_balance:
+          type: [string, 'null']
+          description: Credit balance when the optional credit integration is available; otherwise null.
+
+    ProfileUpdate:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      maxProperties: 2
+      properties:
+        display_name:
+          type: string
+          maxLength: 100
+        mobile_number:
+          type: string
+          maxLength: 32
+
+    DeleteAccountRequest:
+      type: object
+      additionalProperties: false
+      required: [delete_confirmation]
+      properties:
+        delete_confirmation:
+          type: boolean
+          const: true
+
+    PrivateResponse:
+      type: object
+      required: [message, subject]
+      properties:
+        message:
+          type: string
+        subject:
+          type: string
+
+    Error:
+      type: object
+      required: [error, message]
+      properties:
+        error:
+          type: string
+        message:
+          type: string
