@@ -3,21 +3,22 @@ import { useAuth } from "../auth/AuthContext";
 import { Profile } from "../pages/Profile";
 import { Settings } from "../pages/Settings";
 import { Placeholder } from "../pages/Placeholder";
+import { SuppliersPage } from "../pages/suppliers/SuppliersPage";
 import type { Profile as ProfileData } from "../api/types";
 
-type Page = "home" | "errands" | "chat" | "profile" | "settings";
+type Page = "suppliers" | "errands" | "chat" | "profile" | "settings";
 
 interface NavDef {
   key: Page;
   label: string;
   icon: string;
-  // Only Profile and Settings belong to the User Service; the rest are shown to
-  // reproduce the wireframe shell but are owned by other services.
+  // Suppliers (User + Supplier services), Profile and Settings are implemented
+  // here; the rest reproduce the wireframe shell but are owned by other services.
   owned: boolean;
 }
 
 const NAV: NavDef[] = [
-  { key: "home", label: "Home", icon: "⌂", owned: false },
+  { key: "suppliers", label: "Suppliers", icon: "⌂", owned: true },
   { key: "errands", label: "Errands", icon: "☰", owned: false },
   { key: "chat", label: "Chat", icon: "💬", owned: false },
   { key: "profile", label: "Profile", icon: "◑", owned: true },
@@ -36,10 +37,12 @@ function initial(account: ProfileData): string {
 export function AppShell() {
   const { profile, signOut } = useAuth();
   const account = profile as ProfileData;
-  const [page, setPage] = useState<Page>("profile");
+  const [page, setPage] = useState<Page>("suppliers");
 
   function render() {
     switch (page) {
+      case "suppliers":
+        return <SuppliersPage />;
       case "profile":
         return <Profile />;
       case "settings":

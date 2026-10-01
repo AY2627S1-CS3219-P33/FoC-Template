@@ -12,6 +12,13 @@ export default defineConfig({
       "/api": "http://localhost:8080",
       "/dev": "http://localhost:8080",
       "/health": "http://localhost:8080",
+      // Supplier service (documented gateway route /supplier-service). The Go
+      // service serves routes without that prefix, so strip it when forwarding.
+      "/supplier-service": {
+        target: "http://localhost:3002",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/supplier-service/, ""),
+      },
     },
   },
 });
