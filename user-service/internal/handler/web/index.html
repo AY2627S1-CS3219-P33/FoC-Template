@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>FoC Auth0 Login</title>
+    <link rel="stylesheet" href="/assets/styles.css">
+    <script defer src="https://cdn.auth0.com/js/auth0-spa-js/2.27/auth0-spa-js.production.js"></script>
+    <script defer src="/assets/app.js"></script>
+  </head>
+  <body>
+    <main class="shell">
+      <section class="card">
+        <p class="eyebrow">Friend on Campus</p>
+        <h1>Auth0 login test</h1>
+        <p class="intro">Sign in through Auth0, provision your local NUS account, and call the protected user-service endpoint.</p>
+
+        <div id="status" class="status" role="status" aria-live="polite">Initializing…</div>
+
+        <div class="actions">
+          <button id="login" type="button" hidden>Log in</button>
+          <button id="logout" class="secondary" type="button" hidden>Log out</button>
+          <button id="call-api" class="secondary" type="button" hidden>Call protected API</button>
+        </div>
+
+        <section id="profile" class="profile" hidden>
+          <img id="avatar" alt="" hidden>
+          <div>
+            <h2 id="name">Signed in</h2>
+            <p id="email"></p>
+          </div>
+        </section>
+
+        <section id="account" class="result" hidden>
+          <h2>Local account</h2>
+          <pre id="account-output"></pre>
+        </section>
+
+        <section id="api-result" class="result" hidden>
+          <h2>Protected API response</h2>
+          <pre id="api-output"></pre>
+        </section>
+      </section>
+    </main>
+  </body>
+</html>
