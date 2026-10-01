@@ -46,7 +46,7 @@ export function checkPassword(value: string): PasswordChecks {
     uppercase: /[A-Z]/.test(value),
     lowercase: /[a-z]/.test(value),
     number: /[0-9]/.test(value),
-    symbol: /[^A-Za-z0-9]/.test(value),
+    symbol: /[^A-Za-z0-9\s]/.test(value),
   };
 }
 

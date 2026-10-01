@@ -10,24 +10,12 @@ import {
   validateMobile,
 } from "../validation";
 
-function readToken(): string {
-  try {
-    return (
-      localStorage.getItem("foc.user.token") ??
-      sessionStorage.getItem("foc.user.token") ??
-      ""
-    );
-  } catch {
-    return "";
-  }
-}
-
 function creditLabel(balance: number | null): string {
   return balance === null ? "Not available" : `${balance} credits`;
 }
 
 export function Profile() {
-  const { profile, setProfile } = useAuth();
+  const { profile, setProfile, getAccessToken } = useAuth();
   const account = profile as ProfileData;
 
   const [displayName, setDisplayName] = useState(account.display_name);
@@ -49,7 +37,7 @@ export function Profile() {
     setSaving(true);
     setMessage(null);
     try {
-      const updated = await updateProfile(readToken(), {
+      const updated = await updateProfile(await getAccessToken(), {
         display_name: displayName !== account.display_name ? displayName : undefined,
         mobile_number: mobile !== account.mobile_number ? mobile : undefined,
       });

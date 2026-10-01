@@ -7,14 +7,16 @@ import { ResetPassword } from "./auth/ResetPassword";
 type Mode = "login" | "create" | "reset";
 
 export function AuthScreen() {
-  const { config } = useAuth();
+  const { config, error } = useAuth();
   const [mode, setMode] = useState<Mode>("login");
+  const [loginEmail, setLoginEmail] = useState("");
   const dev = config?.dev === true;
 
   return (
     <main className="auth-shell">
       <div className="auth-stack">
         <div className="brand-logo">logo</div>
+        {error && <div className="banner banner-error" role="alert">{error}</div>}
 
         {mode === "reset" ? (
           <ResetPassword onBack={() => setMode("login")} />
@@ -47,9 +49,9 @@ export function AuthScreen() {
                 </div>
               )}
               {mode === "login" ? (
-                <LoginForm onForgot={() => setMode("reset")} dev={dev} />
+                <LoginForm onForgot={() => setMode("reset")} dev={dev} initialEmail={loginEmail} />
               ) : (
-                <CreateAccountForm dev={dev} />
+                <CreateAccountForm dev={dev} onLogin={(email) => { setLoginEmail(email); setMode("login"); }} />
               )}
             </div>
           </div>

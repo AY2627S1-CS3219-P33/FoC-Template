@@ -1,16 +1,31 @@
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
+import { useAuth } from "../../auth/AuthContext";
 
 // Matches wireframe image15 (reset password + "check your inbox" state).
-// Production password reset is delegated to Auth0; this screen reproduces the
-// flow and the deliberately non-revealing confirmation message (NFR3.1.6).
+// Request a real Auth0 password-reset email without revealing account existence.
 export function ResetPassword({ onBack }: { onBack: () => void }) {
+  const { resetPassword } = useAuth();
   const [email, setEmail] = useState("");
   const [sent, setSent] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const submitting = useRef(false);
 
-  function onSubmit(event: FormEvent) {
+  async function onSubmit(event: FormEvent) {
     event.preventDefault();
-    if (!email.trim()) return;
-    setSent(true);
+    if (!email.trim() || submitting.current) return;
+    submitting.current = true;
+    setBusy(true);
+    setError(null);
+    try {
+      await resetPassword(email);
+      setSent(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not request a reset email.");
+    } finally {
+      submitting.current = false;
+      setBusy(false);
+    }
   }
 
   if (sent) {
@@ -21,7 +36,7 @@ export function ResetPassword({ onBack }: { onBack: () => void }) {
           <h1 style={{ fontSize: "1.3rem" }}>Check your inbox</h1>
           <p className="lead" style={{ marginTop: "0.8rem" }}>
             If an account exists for that email, a reset link is on its way. The
-            link expires in 30 minutes.
+            link's expiry is configured by Auth0.
           </p>
           <p className="muted" style={{ fontSize: "0.9rem" }}>
             Didn&apos;t get it?{" "}
@@ -44,6 +59,7 @@ export function ResetPassword({ onBack }: { onBack: () => void }) {
         Enter the email on your account and we&apos;ll send a reset link.
       </p>
       <form onSubmit={onSubmit}>
+        {error && <div className="banner banner-error" role="alert">{error}</div>}
         <div className="field">
           <label htmlFor="reset-email">Email</label>
           <input
@@ -56,8 +72,8 @@ export function ResetPassword({ onBack }: { onBack: () => void }) {
             required
           />
         </div>
-        <button type="submit" className="btn">
-          Send reset link
+        <button type="submit" className="btn" disabled={busy}>
+          {busy ? "Sending…" : "Send reset link"}
         </button>
       </form>
       <p className="center mt">

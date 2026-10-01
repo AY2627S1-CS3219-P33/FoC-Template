@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useMemo, useRef, useState, type FormEvent } from "react";
 import { useAuth } from "../../auth/AuthContext";
 import { checkPassword, isNusEmail, passwordSatisfied } from "../../validation";
 
@@ -11,8 +11,8 @@ const CHECK_LABELS: Record<string, string> = {
 };
 
 // Matches wireframe image16 (create account).
-export function CreateAccountForm({ dev }: { dev: boolean }) {
-  const { signUpDev, signInAuth0 } = useAuth();
+export function CreateAccountForm({ dev, onLogin }: { dev: boolean; onLogin: (email: string) => void }) {
+  const { signUpDev, signUpAuth0, hostedLogin } = useAuth();
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -20,6 +20,8 @@ export function CreateAccountForm({ dev }: { dev: boolean }) {
   const [agree, setAgree] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [created, setCreated] = useState(false);
+  const submitting = useRef(false);
 
   const checks = useMemo(() => checkPassword(password), [password]);
   const pwOk = passwordSatisfied(checks);
@@ -36,20 +38,35 @@ export function CreateAccountForm({ dev }: { dev: boolean }) {
 
   async function onSubmit(event: FormEvent) {
     event.preventDefault();
-    if (!canSubmit) return;
+    if (!canSubmit || submitting.current) return;
+    submitting.current = true;
     setError(null);
     setBusy(true);
     try {
       if (dev) {
         await signUpDev(username, email, false);
       } else {
-        // Production account creation is handled by Auth0 Universal Login.
-        await signInAuth0();
+        await signUpAuth0(username, email, password);
+        setCreated(true);
+        setPassword("");
+        setConfirm("");
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not create account.");
+    } finally {
+      submitting.current = false;
       setBusy(false);
     }
+  }
+
+  if (created) {
+    return (
+      <div role="status">
+        <h2>Account created</h2>
+        <p>Check your email for the verification link. Verify your email before signing in to use your account.</p>
+        <button type="button" className="btn" onClick={() => onLogin(email.trim())}>Go to log in</button>
+      </div>
+    );
   }
 
   return (
@@ -82,13 +99,12 @@ export function CreateAccountForm({ dev }: { dev: boolean }) {
             className="input"
             type="email"
             autoComplete="email"
-            placeholder="username"
+            placeholder="you@u.nus.edu"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             aria-invalid={!emailOk ? true : undefined}
             required
           />
-          <span className="suffix">@u.nus.edu</span>
         </div>
         {!emailOk && (
           <p className="hint error">Use your NUS email ending in @u.nus.edu.</p>
@@ -152,6 +168,13 @@ export function CreateAccountForm({ dev }: { dev: boolean }) {
       <button type="submit" className="btn" disabled={!canSubmit}>
         {busy ? "Creating…" : "Create account"}
       </button>
+      {!dev && error && (
+        <button type="button" className="link-btn mt" disabled={busy} onClick={() => {
+          try { hostedLogin(true); } catch (err) { setError(err instanceof Error ? err.message : "Auth0 is unavailable."); }
+        }}>
+          Continue on the Auth0 page
+        </button>
+      )}
     </form>
   );
 }
