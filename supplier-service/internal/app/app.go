@@ -53,9 +53,11 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger, authOption
 	}
 
 	repository := supplierrepo.New(pool, logger)
+	// PLACEHOLDER: Using AllowAllDeletionFence instead of UnavailableDeletionFence
+	// to allow supplier deletion while the order-service fence is not yet implemented.
 	handler := NewHandler(logger, verifier, allReady{
 		readiness.NewPostgresChecker(pool, cfg.SeedNamespace), verifier,
-	}, repository, repository, repository, UnavailableDeletionFence{})
+	}, repository, repository, repository, AllowAllDeletionFence{})
 
 	return &Application{
 		database: pool,
