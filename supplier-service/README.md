@@ -135,11 +135,15 @@ logs.
 
 ## Tests
 
-Run all mandatory tests with:
+From `supplier-service/`, generate the database query code and run all mandatory tests:
 
 ```sh
+go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1 generate
 go test ./...
 ```
+
+The generated package is excluded from Git. Run generation after a fresh checkout
+and whenever migrations or SQL queries change; `go test` does not generate it.
 
 The command exits nonzero when any test fails, satisfying NFR6.2. Signed-token
 route tests use a local TLS JWKS fixture. Startup and HTTP/database integration
