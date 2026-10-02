@@ -114,6 +114,28 @@ public connection name defaults to
 `Username-Password-Authentication`; override it through `VITE_AUTH0_CONNECTION`
 in the frontend environment if needed. Never put secrets in `VITE_` variables.
 
+### HTTPS local testing with ngrok
+
+Auth0 may require an interactive consent step when the SPA runs on `localhost`.
+To test the supplier audience through an HTTPS origin, start the frontend and
+then expose it with ngrok:
+
+```sh
+npm run dev
+ngrok http 5173
+```
+
+Add the generated URL, for example `https://abc123.ngrok-free.app`, to the
+Auth0 application's:
+
+- Allowed Callback URLs: `https://abc123.ngrok-free.app/`
+- Allowed Logout URLs: `https://abc123.ngrok-free.app/`
+- Allowed Web Origins: `https://abc123.ngrok-free.app`
+
+Open the generated HTTPS URL and sign in again. The Vite proxy still forwards
+`/api` to the user-service and `/supplier-service` to the supplier-service.
+The ngrok URL changes between sessions unless a reserved domain is used.
+
 ## Scripts
 
 - `npm run dev` — dev server with API proxy
@@ -126,7 +148,7 @@ in the frontend environment if needed. Never put secrets in `VITE_` variables.
 ```text
 src/
   api/          HTTP client and response types (mirrors the service contract)
-  auth/         Auth context: embedded Auth0 + existing dev-token sign-in
+  auth/         Auth context and embedded Auth0 integration
   components/   AppShell (nav + header) and RoleBadge
   pages/        AuthScreen, Profile, Settings, Placeholder
     auth/       LoginForm, CreateAccountForm, ResetPassword
