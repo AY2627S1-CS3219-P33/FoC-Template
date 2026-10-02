@@ -19,5 +19,6 @@ export default defineConfig({
         rewrite: (path) => path.replace(/^\/supplier-service/, ""),
       },
     },
+    allowedHosts: ["russell-unjumbled-unputatively.ngrok-free.dev"],
   },
 });

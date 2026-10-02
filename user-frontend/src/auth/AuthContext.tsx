@@ -18,6 +18,11 @@ import type { AuthConfig, Profile } from "../api/types";
 
 type Status = "loading" | "signedOut" | "signedIn";
 
+export interface AccessTokenOptions {
+  audience?: string;
+  scope?: string;
+}
+
 interface AuthContextValue {
   status: Status;
   profile: Profile | null;
@@ -26,7 +31,7 @@ interface AuthContextValue {
   signUpAuth0: (name: string, email: string, password: string) => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
   hostedLogin: (signup?: boolean) => void;
-  getAccessToken: () => Promise<string>;
+  getAccessToken: (options?: AccessTokenOptions) => Promise<string>;
   signOut: () => Promise<void>;
   setProfile: (profile: Profile) => void;
 }
@@ -76,11 +81,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [establish, bootstrapAuth0]);
 
-  const getAccessToken = useCallback(async () => {
+  const getAccessToken = useCallback(async (options?: AccessTokenOptions) => {
     if (!auth0Ref.current) throw new Error("Auth0 is not configured.");
     try {
-      return await auth0Ref.current.getAccessToken();
-    } catch {
+      return await auth0Ref.current.getAccessToken(options);
+    } catch (error) {
+      if (options?.audience) throw error;
       setProfileState(null);
       setStatus("signedOut");
       setError("Your login could not be renewed. Please sign in again.");
