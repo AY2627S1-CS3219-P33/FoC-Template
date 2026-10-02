@@ -26,9 +26,9 @@ func (h Handler) RegisterRoutes(router *http.ServeMux) {
 }
 
 func (h Handler) list(response http.ResponseWriter, request *http.Request) {
-	principal, ok := auth.PrincipalFromContext(request.Context())
-	if !ok || !principal.Has(auth.ReadSuppliers) {
-		writeError(response, authenticationRequired())
+	principal, _ := auth.PrincipalFromContext(request.Context())
+	if err := requireRead(principal); err != nil {
+		writeError(response, err)
 		return
 	}
 	parameters := request.URL.Query()
@@ -122,6 +122,8 @@ func writeError(response http.ResponseWriter, err error) {
 			status, result = http.StatusBadRequest, *application
 		case apperror.Unauthenticated:
 			status, result = http.StatusUnauthorized, *application
+		case apperror.Forbidden:
+			status, result = http.StatusForbidden, *application
 		case apperror.SupplierNotFound:
 			status, result = http.StatusNotFound, *application
 		case apperror.DependencyUnavailable:

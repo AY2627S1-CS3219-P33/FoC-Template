@@ -19,8 +19,11 @@ const (
 // Principal is trusted authentication output. Supplier use cases accept this
 // value and never accept account IDs or roles from request payloads.
 type Principal struct {
+	// Subject is Auth0 sub within the configured issuer, not a local account ID.
 	Subject string
-	Roles   []Role
+	// Roles is retained for compatibility and never grants access.
+	Roles       []Role
+	Permissions []Permission
 }
 
 // FailureKind is a stable authentication outcome that middleware can map to
@@ -44,17 +47,12 @@ func (e *AuthenticationError) Error() string {
 }
 
 func (p Principal) Has(permission Permission) bool {
-	if p.Subject == "" {
+	if p.Subject == "" || (permission != ReadSuppliers && permission != ManageSuppliers) {
 		return false
 	}
-	if permission == ReadSuppliers {
-		return true
-	}
-	if permission == ManageSuppliers {
-		for _, role := range p.Roles {
-			if role == RoleAdministrator {
-				return true
-			}
+	for _, granted := range p.Permissions {
+		if granted == permission {
+			return true
 		}
 	}
 	return false

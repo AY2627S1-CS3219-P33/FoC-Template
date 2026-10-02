@@ -10,10 +10,12 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/CS3219-AY2627S1/FoC-Template/supplier-service/internal/auth"
 	"github.com/CS3219-AY2627S1/FoC-Template/supplier-service/internal/config"
 	"github.com/CS3219-AY2627S1/FoC-Template/supplier-service/internal/database"
-	"github.com/CS3219-AY2627S1/FoC-Template/supplier-service/internal/httpapi"
+	"github.com/CS3219-AY2627S1/FoC-Template/supplier-service/internal/database/supplierrepo"
 	"github.com/CS3219-AY2627S1/FoC-Template/supplier-service/internal/readiness"
+	"github.com/CS3219-AY2627S1/FoC-Template/supplier-service/internal/supplier/seed"
 )
 
 type Application struct {
@@ -22,16 +24,38 @@ type Application struct {
 	shutdownTimeout time.Duration
 }
 
-func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Application, error) {
+// New initializes seed data and composes the service. Auth options allow a
+// deployment-controlled trust store, including the TLS JWKS fixture in tests.
+func New(ctx context.Context, cfg config.Config, logger *slog.Logger, authOptions ...auth.Auth0Option) (*Application, error) {
+	verifier, err := auth.NewAuth0(cfg.Auth, logger, authOptions...)
+	if err != nil {
+		return nil, err
+	}
 	pool, err := database.NewPool(ctx, cfg.Database)
 	if err != nil {
 		return nil, err
 	}
 
-	handler := httpapi.NewRouter(
-		httpapi.Dependencies{Logger: logger},
-		readiness.NewHandler(readiness.NewPostgresChecker(pool, cfg.SeedNamespace)),
-	)
+	// Migrations are applied by deployment before starting the process. Import
+	// the entire seed dataset before exposing HTTP or reporting readiness.
+	importer, err := seed.New(seed.Config{
+		CSVPath: cfg.SeedCSVPath, DatasetNamespace: cfg.SeedNamespace,
+	}, seed.NewPostgresStore(pool), logger)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
+	startupCtx, cancel := context.WithTimeout(ctx, cfg.StartupTimeout)
+	defer cancel()
+	if _, err := importer.Import(startupCtx); err != nil {
+		pool.Close()
+		return nil, err
+	}
+
+	repository := supplierrepo.New(pool, logger)
+	handler := NewHandler(logger, verifier, allReady{
+		readiness.NewPostgresChecker(pool, cfg.SeedNamespace), verifier,
+	}, repository, repository, repository, UnavailableDeletionFence{})
 
 	return &Application{
 		database: pool,

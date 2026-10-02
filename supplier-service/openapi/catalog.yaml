@@ -9,6 +9,7 @@ operations:
       location description. type is an exact case-insensitive filter. Results
       are ordered by normalized name and then supplierId, both ascending;
       cursor values are opaque.
+    x-required-permissions: [suppliers:read]
     security:
       - bearerAuth: []
     parameters:
@@ -27,6 +28,8 @@ operations:
         $ref: ./common.yaml#/components/responses/InvalidArgument
       "401":
         $ref: ./common.yaml#/components/responses/Unauthenticated
+      "403":
+        $ref: ./common.yaml#/components/responses/Forbidden
       "503":
         $ref: ./common.yaml#/components/responses/DependencyUnavailable
       "500":
@@ -37,6 +40,7 @@ operations:
     tags: [Catalog]
     summary: Get the current available supplier version
     description: A deleted supplier is treated as not found by this endpoint.
+    x-required-permissions: [suppliers:read]
     security:
       - bearerAuth: []
     parameters:
@@ -52,6 +56,8 @@ operations:
         $ref: ./common.yaml#/components/responses/InvalidArgument
       "401":
         $ref: ./common.yaml#/components/responses/Unauthenticated
+      "403":
+        $ref: ./common.yaml#/components/responses/Forbidden
       "404":
         $ref: ./common.yaml#/components/responses/SupplierNotFound
       "500":
@@ -67,6 +73,7 @@ operations:
       Historical versions remain readable after they are superseded or their
       supplier is deleted. available is true only for the current version of a
       non-deleted supplier.
+    x-required-permissions: [suppliers:read]
     security:
       - bearerAuth: []
     parameters:
@@ -82,6 +89,8 @@ operations:
         $ref: ./common.yaml#/components/responses/InvalidArgument
       "401":
         $ref: ./common.yaml#/components/responses/Unauthenticated
+      "403":
+        $ref: ./common.yaml#/components/responses/Forbidden
       "404":
         $ref: ./common.yaml#/components/responses/SupplierVersionNotFound
       "500":

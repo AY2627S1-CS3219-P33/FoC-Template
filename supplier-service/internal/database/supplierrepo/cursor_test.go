@@ -56,7 +56,7 @@ func TestInvalidAndTamperedCursorsFailBeforeDatabaseAccessAndReturn400(t *testin
 			router := http.NewServeMux()
 			query.NewHandler(r).RegisterRoutes(router)
 			request := httptest.NewRequest(http.MethodGet, "/suppliers?cursor="+url.QueryEscape(value), nil)
-			request = request.WithContext(auth.WithPrincipal(request.Context(), auth.Principal{Subject: "user-1"}))
+			request = request.WithContext(auth.WithPrincipal(request.Context(), auth.Principal{Subject: "user-1", Permissions: []auth.Permission{auth.ReadSuppliers}}))
 			response := httptest.NewRecorder()
 			router.ServeHTTP(response, request)
 			require.Equal(t, http.StatusBadRequest, response.Code)

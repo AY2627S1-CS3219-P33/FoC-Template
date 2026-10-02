@@ -4,11 +4,14 @@ Go service for supplier and pickup-location listing, search, administration,
 seed data, and immutable record versions. Planned scope and requirement IDs are
 defined in [docs/product-backlog.md](docs/product-backlog.md).
 
-This scaffold provides the application shell and development infrastructure.
+The runtime registers catalogue, immutable-version, create, update, and delete
+routes using local Auth0 JWT validation. DELETE is wired to the durable B5
+workflow but returns `503 DELETION_FENCE_UNAVAILABLE` while the B4 order-service
+fence is absent; suppliers remain available. The B6 background reconciler is
+not yet implemented. See [Auth0 setup and acceptance](docs/auth0.md) for C1.
 The frozen domain and HTTP decisions are documented in
 [docs/contracts.md](docs/contracts.md). [openapi.yaml](openapi.yaml) composes
-separate catalogue, administration, and common contract fragments; business
-operations are contracts only until their feature handlers are implemented.
+separate catalogue, administration, and common contract fragments.
 
 ## Technology
 
@@ -71,7 +74,7 @@ locked modules from `supplier-service/`:
 go mod download
 ```
 
-`.env.example` contains placeholders only. The executable reads process
+`.env.example` documents settings and deployment placeholders. The executable reads process
 environment variables directly; it does not automatically load `.env`. Export
 the required values through your shell, IDE, container configuration, or secret
 manager before starting it.
@@ -81,31 +84,50 @@ At minimum, development requires:
 ```text
 APP_ENV=development
 DATABASE_URL=postgresql://<user>:<password>@<host>:<port>/<database>
+AUTH0_ISSUER=https://<your-auth0-domain>/
+AUTH0_AUDIENCE=https://api.foc.local/supplier-service
+SUPPLIER_SEED_CSV_PATH=../data/csv/supplier-seed-data.csv
 ```
 
-Run the service with:
+Deployment/startup order (run from `supplier-service/`): apply the Goose
+migrations, then start the service. Supply `GOOSE_DRIVER=postgres` and
+`GOOSE_DBSTRING` through the environment, using the same database as
+`DATABASE_URL` (or `TEST_DATABASE_URL` for `APP_ENV=test`). Stop deployment if
+the migration command fails.
 
 ```sh
+go run github.com/pressly/goose/v3/cmd/goose@v3.28.0 -dir migrations up
 go run ./cmd/supplier-service
 ```
 
-The default address is `0.0.0.0:3002`. `/readyz` is implemented; the supplier
-routes are frozen in OpenAPI and will be registered by their feature packages.
+Startup imports the configured CSV atomically before opening HTTP. Repeated
+starts skip existing seed provenance and preserve administrator edits and
+deletions. Missing schema, unreadable/invalid CSV, and import failures stop
+startup with a sanitized error. `STARTUP_TIMEOUT` bounds the import.
+
+The default address is `0.0.0.0:3002`. `/readyz` is public. Catalogue and
+version reads require `suppliers:read`; create, update, and delete additionally
+require `suppliers:manage`. DELETE requires a UUID `Idempotency-Key` header.
 
 ## Environment variables
 
 | Variable | Required | Purpose |
 | --- | --- | --- |
+| `AUTH0_ISSUER` | Yes | Exact HTTPS Auth0 issuer with trailing slash |
+| `AUTH0_AUDIENCE` | No | Defaults to `https://api.foc.local/supplier-service` |
+| `AUTH0_JWKS_*`, `AUTH0_CLOCK_SKEW` | No | [Cache, deadline, retry and breaker settings](docs/auth0.md) |
 | `APP_ENV` | No | `development`, `test`, or `production`; defaults to `development` |
 | `HTTP_HOST` | No | Server bind address; defaults to `0.0.0.0` |
 | `HTTP_PORT` | No | Server port; defaults to `3002` |
 | `LOG_LEVEL` | No | `debug`, `info`, `warn`, or `error`; defaults to `info` |
 | `SHUTDOWN_TIMEOUT` | No | Graceful shutdown duration; defaults to `10s` |
+| `STARTUP_TIMEOUT` | No | Seed initialization deadline; defaults to `30s` |
 | `DATABASE_URL` | Development/production | PostgreSQL connection URL |
 | `TEST_DATABASE_URL` | Test | Isolated PostgreSQL test connection URL |
 | `DATABASE_POOL_MIN` | No | Minimum idle pool size; defaults to `1` |
 | `DATABASE_POOL_MAX` | No | Maximum pool size; defaults to `10` |
 | `SUPPLIER_SEED_DATASET_NAMESPACE` | No | Required seed provenance namespace; defaults to `template-v1` |
+| `SUPPLIER_SEED_CSV_PATH` | Yes | Deployment-provided CSV path; relative to the working directory or absolute |
 
 Invalid configuration stops startup. Error messages identify invalid variable
 names but do not include their values, preventing credentials from entering
@@ -113,22 +135,31 @@ logs.
 
 ## Tests
 
-Run all mandatory tests with:
+From `supplier-service/`, generate the database query code and run all mandatory tests:
 
 ```sh
+go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1 generate
 go test ./...
 ```
 
-The command exits nonzero when any test fails, satisfying NFR6.2. The startup
-test constructs the complete application, exercises its HTTP handler, and
-closes it without opening a port or connecting to PostgreSQL. Configuration
+The generated package is excluded from Git. Run generation after a fresh checkout
+and whenever migrations or SQL queries change; `go test` does not generate it.
+
+The command exits nonzero when any test fails, satisfying NFR6.2. Signed-token
+route tests use a local TLS JWKS fixture. Startup and HTTP/database integration
+tests run when `TEST_DATABASE_URL` is set, each in its own disposable schema;
+they verify seed initialization, repeat startup, and composed endpoints. Configuration
 tests verify that `APP_ENV=test` selects `TEST_DATABASE_URL` and does not leak
 configuration values in errors.
 
 `/readyz` returns ready only when PostgreSQL is reachable, all supplier tables
-exist, and the configured seed namespace has provenance. The seed import is
+exist, the configured seed namespace has provenance, and Auth0 verification
+keys are cached within their lifetime or can be fetched. The seed import is
 atomic, so any provenance row for that namespace represents a completed import,
 not a partial dataset.
+
+Readiness currently covers database/seed state and Auth0 keys. It does not
+claim deletion availability while B4/B6 are outstanding.
 
 In CI environments with CGO and a C compiler available, also run the race
 detector:
@@ -250,6 +281,10 @@ docker build -t foc-supplier-service supplier-service
 
 Inject runtime configuration when starting the container. The image runs as an
 unprivileged user and contains no `.env` files or build toolchain.
+Apply migrations as the deployment step above before launching the container.
+Mount `data/csv/supplier-seed-data.csv` read-only and set
+`SUPPLIER_SEED_CSV_PATH` to its absolute container path. The CSV is not bundled
+in the service image because the build context is `supplier-service/`.
 
 ## Incremental API workflow
 

@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/CS3219-AY2627S1/FoC-Template/supplier-service/internal/auth"
 )
 
 type Environment string
@@ -35,10 +37,13 @@ type DatabaseConfig struct {
 }
 
 type Config struct {
+	Auth            auth.Auth0Config
 	Environment     Environment
 	HTTP            HTTPConfig
 	Database        DatabaseConfig
 	SeedNamespace   string
+	SeedCSVPath     string
+	StartupTimeout  time.Duration
 	LogLevel        string
 	ShutdownTimeout time.Duration
 }
@@ -95,8 +100,29 @@ func LoadFrom(lookup LookupEnv) (Config, error) {
 		problems = append(problems, "DATABASE_POOL_MIN must not exceed DATABASE_POOL_MAX")
 	}
 	seedNamespace := strings.TrimSpace(read(lookup, "SUPPLIER_SEED_DATASET_NAMESPACE", "template-v1"))
+	seedCSVPath := strings.TrimSpace(required(lookup, "SUPPLIER_SEED_CSV_PATH", &problems))
+	startupTimeout := readDuration(lookup, "STARTUP_TIMEOUT", 30*time.Second, &problems)
 	if utf8.RuneCountInString(seedNamespace) > 120 {
 		problems = append(problems, "SUPPLIER_SEED_DATASET_NAMESPACE must not exceed 120 characters")
+	}
+
+	authConfig := auth.DefaultAuth0Config()
+	authConfig.Issuer = strings.TrimSpace(required(lookup, "AUTH0_ISSUER", &problems))
+	authConfig.Audience = read(lookup, "AUTH0_AUDIENCE", authConfig.Audience)
+	skew, err := time.ParseDuration(read(lookup, "AUTH0_CLOCK_SKEW", authConfig.ClockSkew.String()))
+	if err != nil {
+		problems = append(problems, "AUTH0_CLOCK_SKEW must be a duration")
+	} else {
+		authConfig.ClockSkew = skew
+	}
+	authConfig.CacheTTL = readDuration(lookup, "AUTH0_JWKS_CACHE_TTL", authConfig.CacheTTL, &problems)
+	authConfig.FetchTimeout = readDuration(lookup, "AUTH0_JWKS_FETCH_TIMEOUT", authConfig.FetchTimeout, &problems)
+	authConfig.RefreshInterval = readDuration(lookup, "AUTH0_JWKS_REFRESH_INTERVAL", authConfig.RefreshInterval, &problems)
+	authConfig.FetchAttempts = readInt(lookup, "AUTH0_JWKS_FETCH_ATTEMPTS", authConfig.FetchAttempts, 1, 3, &problems)
+	authConfig.BreakerThreshold = readInt(lookup, "AUTH0_JWKS_BREAKER_THRESHOLD", authConfig.BreakerThreshold, 1, 100, &problems)
+	authConfig.BreakerCooldown = readDuration(lookup, "AUTH0_JWKS_BREAKER_COOLDOWN", authConfig.BreakerCooldown, &problems)
+	if err := authConfig.Validate(); err != nil {
+		problems = append(problems, err.Error())
 	}
 
 	if len(problems) > 0 {
@@ -104,6 +130,7 @@ func LoadFrom(lookup LookupEnv) (Config, error) {
 	}
 
 	return Config{
+		Auth:        authConfig,
 		Environment: environment,
 		HTTP: HTTPConfig{
 			Host: host,
@@ -115,6 +142,8 @@ func LoadFrom(lookup LookupEnv) (Config, error) {
 			MaxConnections: int32(poolMax),
 		},
 		SeedNamespace:   seedNamespace,
+		SeedCSVPath:     seedCSVPath,
+		StartupTimeout:  startupTimeout,
 		LogLevel:        logLevel,
 		ShutdownTimeout: shutdownTimeout,
 	}, nil

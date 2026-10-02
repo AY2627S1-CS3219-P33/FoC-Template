@@ -82,7 +82,7 @@ func TestCatalogueHandlersRejectClientIdentityWithoutTrustedContext(t *testing.T
 	router := http.NewServeMux()
 	NewHandler(reader).RegisterRoutes(router)
 	request := httptest.NewRequest(http.MethodGet, "/suppliers", nil)
-	request = request.WithContext(auth.WithPrincipal(request.Context(), auth.Principal{Roles: []auth.Role{auth.RoleAdministrator}}))
+	request = request.WithContext(auth.WithPrincipal(request.Context(), auth.Principal{Roles: []auth.Role{auth.RoleAdministrator}, Permissions: []auth.Permission{auth.ReadSuppliers, auth.ManageSuppliers}}))
 	response := httptest.NewRecorder()
 	router.ServeHTTP(response, request)
 	require.Equal(t, http.StatusUnauthorized, response.Code)
@@ -148,7 +148,7 @@ func serveCatalogue(reader supplier.Reader, target string, authenticated bool) *
 	request := httptest.NewRequest(http.MethodGet, target, nil)
 	request.Header.Set("Authorization", "Bearer client-supplied-token")
 	if authenticated {
-		request = request.WithContext(auth.WithPrincipal(request.Context(), auth.Principal{Subject: "user-1"}))
+		request = request.WithContext(auth.WithPrincipal(request.Context(), auth.Principal{Subject: "user-1", Permissions: []auth.Permission{auth.ReadSuppliers}}))
 	}
 	response := httptest.NewRecorder()
 	router.ServeHTTP(response, request)

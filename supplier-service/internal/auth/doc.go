@@ -1,3 +1,2 @@
-// Package auth defines the boundary between supplier features and whichever
-// credential or user-service integration is selected later.
+// Package auth verifies Auth0 access tokens and enforces explicit supplier permissions.
 package auth
