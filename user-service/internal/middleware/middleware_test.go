@@ -46,6 +46,26 @@ func TestSubjectAndBearerToken(t *testing.T) {
 	}
 }
 
+func TestHasPermissionAndRequirePermission(t *testing.T) {
+	claims := &validator.ValidatedClaims{CustomClaims: &CustomClaims{Permissions: []string{"users:read:self"}}}
+	ctx := core.SetClaims(context.Background(), claims)
+	if !HasPermission(ctx, "users:read:self") {
+		t.Fatal("expected granted permission")
+	}
+	if HasPermission(ctx, "users:delete:self") {
+		t.Fatal("unexpected permission")
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/", nil).WithContext(ctx)
+	response := httptest.NewRecorder()
+	RequirePermission("users:delete:self", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})).ServeHTTP(response, request)
+	if response.Code != http.StatusForbidden || !strings.Contains(response.Body.String(), "insufficient_permissions") {
+		t.Fatalf("status=%d body=%q", response.Code, response.Body.String())
+	}
+}
+
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {

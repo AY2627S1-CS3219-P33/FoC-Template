@@ -1,19 +1,18 @@
 # User service
 
-PostgreSQL-backed student-account service for the food-delivery platform. Auth0 Universal Login owns registration, credentials, and sessions; this service validates access tokens, provisions local application accounts, and manages profile data. A small browser page exercises the login and protected API.
+PostgreSQL-backed student-account service for the food-delivery platform. Auth0 owns registration, credentials, and sessions; this service validates access tokens, provisions local application accounts, and manages profile data. The browser application lives in [user-frontend](../user-frontend/README.md).
 
-Business-level deletion remains blocked until coordinated credit/errand checks and Auth0 session revocation are implemented. Role-based access enforcement, administrator/super-administrator management, and audit logging remain future work. Initial super-administrator bootstrap links a deployment-supplied Auth0 identity. The service never receives or stores passwords.
+Business-level deletion remains blocked until coordinated credit/errand checks and Auth0 session revocation are implemented. Auth0 RBAC now protects self-service profile routes; administrator/super-administrator management and audit logging remain future work. Initial super-administrator bootstrap links a deployment-supplied Auth0 identity. The service never receives or stores passwords.
 
 ## Structure
 
 ```text
 cmd/api/main.go          Application entry point
 internal/config/        Environment configuration
-internal/handler/       HTTP handlers and embedded login test page
+internal/handler/       HTTP handlers
 internal/service/       Internal student-account operations and future integrations
 internal/repository/    Persistence contracts and PostgreSQL adapter
 internal/auth/          Auth0 user-profile client
-internal/email/         Email sender contract
 internal/middleware/    Auth0 JWT authentication
 migrations/             Versioned account schema SQL
 Dockerfile              Multi-stage image build
@@ -53,7 +52,6 @@ These documents allocate the full requirements across folders; their status note
 | [internal/service](internal/service/README.md) | Business workflows and cross-service coordination | F1.1–F1.10 |
 | [internal/repository](internal/repository/README.md) | User-owned persistence, transactions, and audit records | F1.1–F1.4, F1.6–F1.10 |
 | [internal/auth](internal/auth/README.md) | Auth0 identity retrieval | F1.1–F1.3, F1.7–F1.10 |
-| [internal/email](internal/email/README.md) | Verification, reset, and activation email delivery | F1.1.4, F1.7, F1.9.3 |
 | [internal/middleware](internal/middleware/README.md) | Request authentication and access enforcement | F1.3, F1.6, F1.9.2, F1.10.5 |
 | [migrations](migrations/README.md) | Future schema evolution and bootstrap migration coordination | F1.1.1, F1.6.7, F1.8, F1.9–F1.10 |
 
@@ -97,15 +95,32 @@ go build ./...
 go run ./cmd/api
 ```
 
+### OpenAPI documentation
+
+Validate the API contract with:
+
+```sh
+npx --yes @redocly/cli@2.54.1 lint openapi.yaml
+```
+
+Preview the documentation locally with:
+
+```sh
+npx --yes @redocly/cli@1.34.5 preview-docs openapi.yaml
+```
+
+Open the URL printed by the command, typically `http://127.0.0.1:8080`.
+The preview watches `openapi.yaml` and refreshes when it changes. The preview
+command uses Redocly CLI v1 because it was removed from CLI v2.
+
 Copy `.env.example` to `.env`, fill in the values, and run `go run ./cmd/api`. The entry point connects to PostgreSQL and listens on `HTTP_ADDRESS` (default `:8080`). `repository.Open` parses the URL and pings PostgreSQL with the caller's context; its errors omit credentials and driver details. Do not log configuration, bearer tokens, or credential inputs.
 
-Create an Auth0 API named `FoC User Service API` with identifier `https://api.foc.local/user-service` and RS256 signing. Create a Single Page Application named `FoC Login Test`, then set its Allowed Callback URLs, Allowed Logout URLs, and Allowed Web Origins to `http://localhost:8080`. Put its tenant domain and client ID in `.env`; no client secret is used by the SPA.
+Create an Auth0 API named `FoC User Service API` with identifier `https://api.foc.local/user-service` and RS256 signing. Configure its Single Page Application for the frontend origin (locally `http://localhost:5173`), following the [frontend setup instructions](../user-frontend/README.md). Put its tenant domain and client ID in `.env`; no client secret is used by the SPA.
 
 Set the API's **Token Expiration** to `600` seconds. Logout clears the SPA's in-memory state and Auth0 browser session, but an issued stateless JWT remains valid until it expires. The service deliberately has no local session table or token denylist.
 
 The local endpoints are:
 
-- `GET /` — embedded Auth0 login test page.
 - `GET /health` and `GET /api/auth/config` — public service/configuration endpoints.
 - `POST /api/auth/provision` — requires an access token and creates an active local USER from a matching, verified NUS Auth0 profile.
 - `POST /api/auth/logout` — validates the current access token before the SPA ends its Auth0 browser session; returns `204 No Content`.
