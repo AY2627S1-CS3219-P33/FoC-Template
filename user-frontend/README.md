@@ -23,7 +23,7 @@ Built to the D1 presentation wireframes (User Service screens only):
 | Requirement | Where |
 | --- | --- |
 | F1.1 Auth0 account creation; F1.1.2/F1.1.5 browser checks (server policy required) | `CreateAccountForm.tsx`, `validation.ts` |
-| F1.3 authenticate + session; "Remember me" only in mock mode | `AuthContext.tsx`, `LoginForm.tsx` |
+| F1.3 authenticate + session | `AuthContext.tsx`, `LoginForm.tsx` |
 | F1.4.1 view username, email, role, credit balance | `Profile.tsx` (Account panel) |
 | F1.4.2 update display name + mobile number | `Profile.tsx` (Edit form) |
 | F1.4.3 protected fields not editable | role / credit / id shown read-only and locked |
@@ -56,11 +56,6 @@ Production login and signup use **Auth0.js v10** from the existing forms:
 - Logout clears local state and redirects to Auth0 logout. Issued access tokens
   remain valid until expiry. The hosted Auth0 login remains available as a
   fallback when embedded login cannot complete.
-- **Existing local dev (`DEV_FAKE_AUTH=1`):** the pre-existing mock flow remains
-  separate; passwords are not checked, tokens may be persisted, and the existing
-  remember option applies only to this mode. Disable this mode to exercise Auth0.
-  Real password-reset email is unavailable in mock mode.
-
 The username/display-name redesign is deferred. The signup label `Username`
 currently maps to Auth0's profile nickname/name for compatibility with existing
 provisioning. It is **not** an Auth0 login identifier and Auth0 does not enforce
@@ -106,7 +101,7 @@ References: [Auth0.js](https://auth0.com/docs/libraries/auth0js),
 ## Running locally
 
 The frontend expects the user-service running on `http://localhost:8080`. The Vite
-dev server proxies `/api`, `/dev`, and `/health` to it, so browser calls stay
+dev server proxies `/api` and `/health` to it, so browser calls stay
 same-origin.
 
 ```sh
@@ -114,9 +109,8 @@ npm install
 npm run dev          # http://localhost:5173
 ```
 
-With the service in dev mode (`DEV_FAKE_AUTH=1`), sign in with any `@u.nus.edu`
-email — no Auth0 account needed. Otherwise the forms use real Auth0 credentials
-and require the tenant settings above. The public connection name defaults to
+The forms use real Auth0 credentials and require the tenant settings above. The
+public connection name defaults to
 `Username-Password-Authentication`; override it through `VITE_AUTH0_CONNECTION`
 in the frontend environment if needed. Never put secrets in `VITE_` variables.
 

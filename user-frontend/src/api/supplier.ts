@@ -2,10 +2,7 @@
 // (supplier-service/openapi). The service is reached at /supplier-service (its
 // documented gateway route); in dev the Vite proxy forwards there.
 //
-// The live supplier backend currently wires only readiness, so a dev in-memory
-// repository (seeded from data/csv/supplier-seed-data.csv) backs the UI when the
-// app runs in developer mode. The real HTTP path is the default and is used as
-// soon as the backend serves the suppliers routes.
+// The Vite development proxy forwards this path to the supplier service.
 
 const BASE = "/supplier-service";
 
@@ -74,13 +71,6 @@ export interface ListParams {
   type?: string;
   limit?: number;
   cursor?: string;
-}
-
-// ---- dev mode switch ---------------------------------------------------------
-
-let devMode = false;
-export function setSupplierDevMode(on: boolean): void {
-  devMode = on;
 }
 
 // ---- HTTP implementation -----------------------------------------------------
@@ -153,24 +143,20 @@ async function httpDelete(token: string, id: string): Promise<void> {
   await parse<unknown>(response);
 }
 
-// ---- public API (routes to dev repo or HTTP) --------------------------------
+// ---- public API ---------------------------------------------------------------
 
 export function listSuppliers(token: string, params: ListParams): Promise<SupplierPage> {
-  return devMode ? devRepo.list(params) : httpList(token, params);
+  return httpList(token, params);
 }
 export function getSupplier(token: string, id: string): Promise<Supplier> {
-  return devMode ? devRepo.get(id) : httpGet(token, id);
+  return httpGet(token, id);
 }
 export function createSupplier(token: string, body: SupplierWrite): Promise<Supplier> {
-  return devMode ? devRepo.create(body) : httpCreate(token, body);
+  return httpCreate(token, body);
 }
 export function updateSupplier(token: string, id: string, patch: SupplierPatch): Promise<Supplier> {
-  return devMode ? devRepo.update(id, patch) : httpUpdate(token, id, patch);
+  return httpUpdate(token, id, patch);
 }
 export function deleteSupplier(token: string, id: string): Promise<void> {
-  return devMode ? devRepo.remove(id) : httpDelete(token, id);
+  return httpDelete(token, id);
 }
-
-// ---- dev in-memory repository (seeded from the template CSV) -----------------
-
-import { devRepo } from "./supplierDevRepo";

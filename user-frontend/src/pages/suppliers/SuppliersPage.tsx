@@ -5,7 +5,6 @@ import {
   createSupplier,
   deleteSupplier,
   listSuppliers,
-  setSupplierDevMode,
   updateSupplier,
   type Supplier,
   type SupplierWrite,
@@ -25,7 +24,7 @@ type View =
 const PAGE_SIZE = 12;
 
 export function SuppliersPage() {
-  const { profile, config, getAccessToken } = useAuth();
+  const { profile, getAccessToken } = useAuth();
   const account = profile as Profile;
   const isAdmin = account.role === "ADMIN" || account.role === "SUPER_ADMIN";
 
@@ -65,11 +64,6 @@ export function SuppliersPage() {
     },
     [getAccessToken],
   );
-
-  // Use the dev in-memory repository only while the app runs in developer mode.
-  useEffect(() => {
-    setSupplierDevMode(config?.dev === true);
-  }, [config]);
 
   // Debounced reload when search or filter changes (and on first mount).
   useEffect(() => {
@@ -131,12 +125,6 @@ export function SuppliersPage() {
 
   return (
     <>
-      {config?.dev && (
-        <div className="banner banner-dev" role="note">
-          Developer data — suppliers are served from an in-memory sample seeded from
-          the template dataset. The live service API is used in production.
-        </div>
-      )}
       <SupplierList
         items={items}
         loading={loading}
