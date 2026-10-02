@@ -11,9 +11,10 @@ import (
 func TestConfigurationUsesIsolatedTestDatabase(t *testing.T) {
 	testDatabaseURL := "postgresql://supplier_test@127.0.0.1:5433/supplier_test"
 	values := map[string]string{
-		"AUTH0_ISSUER":      "https://tenant.example.com/",
-		"APP_ENV":           "test",
-		"TEST_DATABASE_URL": testDatabaseURL,
+		"SUPPLIER_SEED_CSV_PATH": "../data/csv/supplier-seed-data.csv",
+		"AUTH0_ISSUER":           "https://tenant.example.com/",
+		"APP_ENV":                "test",
+		"TEST_DATABASE_URL":      testDatabaseURL,
 	}
 
 	cfg, err := config.LoadFrom(mapLookup(values))
@@ -22,11 +23,13 @@ func TestConfigurationUsesIsolatedTestDatabase(t *testing.T) {
 	require.Equal(t, config.Test, cfg.Environment)
 	require.Equal(t, testDatabaseURL, cfg.Database.URL)
 	require.Equal(t, "template-v1", cfg.SeedNamespace)
+	require.Equal(t, "../data/csv/supplier-seed-data.csv", cfg.SeedCSVPath)
 	require.Equal(t, 3002, cfg.HTTP.Port)
 }
 
 func TestConfigurationAcceptsSeedDatasetNamespace(t *testing.T) {
 	values := map[string]string{
+		"SUPPLIER_SEED_CSV_PATH":          "/deployment/suppliers.csv",
 		"AUTH0_ISSUER":                    "https://tenant.example.com/",
 		"APP_ENV":                         "test",
 		"TEST_DATABASE_URL":               "postgresql://supplier_test@127.0.0.1:5433/supplier_test",
@@ -61,7 +64,7 @@ func mapLookup(values map[string]string) config.LookupEnv {
 }
 
 func TestAuth0Configuration_NFR3_4(t *testing.T) {
-	base := map[string]string{"APP_ENV": "test", "TEST_DATABASE_URL": "postgresql://test@localhost/test", "AUTH0_ISSUER": "https://tenant.example.com/"}
+	base := map[string]string{"APP_ENV": "test", "TEST_DATABASE_URL": "postgresql://test@localhost/test", "AUTH0_ISSUER": "https://tenant.example.com/", "SUPPLIER_SEED_CSV_PATH": "/deployment/suppliers.csv"}
 	cfg, err := config.LoadFrom(mapLookup(base))
 	require.NoError(t, err)
 	require.Equal(t, "https://api.foc.local/supplier-service", cfg.Auth.Audience)
@@ -74,6 +77,8 @@ func TestAuth0Configuration_NFR3_4(t *testing.T) {
 		{"AUTH0_JWKS_FETCH_TIMEOUT", "11s"}, {"AUTH0_JWKS_REFRESH_INTERVAL", "6m"},
 		{"AUTH0_JWKS_FETCH_ATTEMPTS", "4"}, {"AUTH0_JWKS_BREAKER_THRESHOLD", "0"},
 		{"AUTH0_JWKS_BREAKER_COOLDOWN", "-1s"}, {"AUTH0_AUDIENCE", "https://api.foc.local/supplier-service,"},
+		{"SUPPLIER_SEED_CSV_PATH", ""}, {"SUPPLIER_SEED_CSV_PATH", "   "},
+		{"STARTUP_TIMEOUT", "0s"}, {"STARTUP_TIMEOUT", "invalid"},
 	} {
 		t.Run(tt.key+" "+tt.value, func(t *testing.T) {
 			values := map[string]string{}

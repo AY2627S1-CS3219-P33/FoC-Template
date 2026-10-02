@@ -42,6 +42,8 @@ type Config struct {
 	HTTP            HTTPConfig
 	Database        DatabaseConfig
 	SeedNamespace   string
+	SeedCSVPath     string
+	StartupTimeout  time.Duration
 	LogLevel        string
 	ShutdownTimeout time.Duration
 }
@@ -98,6 +100,8 @@ func LoadFrom(lookup LookupEnv) (Config, error) {
 		problems = append(problems, "DATABASE_POOL_MIN must not exceed DATABASE_POOL_MAX")
 	}
 	seedNamespace := strings.TrimSpace(read(lookup, "SUPPLIER_SEED_DATASET_NAMESPACE", "template-v1"))
+	seedCSVPath := strings.TrimSpace(required(lookup, "SUPPLIER_SEED_CSV_PATH", &problems))
+	startupTimeout := readDuration(lookup, "STARTUP_TIMEOUT", 30*time.Second, &problems)
 	if utf8.RuneCountInString(seedNamespace) > 120 {
 		problems = append(problems, "SUPPLIER_SEED_DATASET_NAMESPACE must not exceed 120 characters")
 	}
@@ -138,6 +142,8 @@ func LoadFrom(lookup LookupEnv) (Config, error) {
 			MaxConnections: int32(poolMax),
 		},
 		SeedNamespace:   seedNamespace,
+		SeedCSVPath:     seedCSVPath,
+		StartupTimeout:  startupTimeout,
 		LogLevel:        logLevel,
 		ShutdownTimeout: shutdownTimeout,
 	}, nil
