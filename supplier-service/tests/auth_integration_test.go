@@ -2,7 +2,6 @@ package tests
 
 import (
 	"context"
-	"errors"
 	"io"
 	"log/slog"
 	"net/http/httptest"
@@ -18,7 +17,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type authRouteStore struct{ reads, writes int }
+type authRouteStore struct {
+	supplier.DeletionStore                   // Unexpected deletion calls panic in these focused tests.
+	reads, writes, deletionRequests, retries int
+}
 
 func (s *authRouteStore) ListAvailable(context.Context, supplier.ListFilter) (supplier.Page, error) {
 	s.reads++
@@ -37,7 +39,22 @@ func (s *authRouteStore) Create(_ context.Context, d supplier.Details, now time.
 	return supplier.Supplier{SupplierID: "00000000-0000-4000-8000-000000000001", VersionID: "00000000-0000-4000-8000-000000000002", Details: d, Available: true, CreatedAt: now, UpdatedAt: now}, nil
 }
 func (s *authRouteStore) Update(context.Context, supplier.SupplierID, supplier.Patch, time.Time) (supplier.Supplier, error) {
-	return supplier.Supplier{}, errors.New("not used")
+	s.writes++
+	return supplier.Supplier{}, nil
+}
+
+func (s *authRouteStore) CreateOrGetDeletion(_ context.Context, op supplier.DeletionOperationID, id supplier.SupplierID, max int, now time.Time) (supplier.DeletionRecord, error) {
+	s.deletionRequests++
+	return supplier.DeletionRecord{OperationID: op, SupplierID: id, State: supplier.DeletionRequested, MaxAttempts: max}, nil
+}
+
+func (s *authRouteStore) ClaimDeletion(context.Context, supplier.DeletionOperationID, supplier.DeletionClaimID, time.Time, time.Time) (supplier.DeletionRecord, bool, error) {
+	return supplier.DeletionRecord{State: supplier.DeletionRequested, AttemptCount: 1, MaxAttempts: 5}, true, nil
+}
+
+func (s *authRouteStore) ScheduleDeletionRetry(context.Context, supplier.DeletionOperationID, supplier.DeletionClaimID, supplier.DeletionFailureCode, *time.Time, time.Time) error {
+	s.retries++
+	return nil
 }
 
 type readyFunc func(context.Context) error
@@ -54,7 +71,7 @@ func TestComposedAuth0Routes_F2_1_F2_2_NFR3_3(t *testing.T) {
 	verifier, err := auth.NewAuth0(cfg, logger, auth.WithHTTPClient(f.Server.Client()))
 	require.NoError(t, err)
 	store := &authRouteStore{}
-	handler := app.NewHandler(logger, verifier, readyFunc(func(context.Context) error { return nil }), store, store)
+	handler := app.NewHandler(logger, verifier, readyFunc(func(context.Context) error { return nil }), store, store, store, app.UnavailableDeletionFence{})
 	read := f.Token(t, f.Claims(auth.SupplierAudience, []string{"suppliers:read"}), "one")
 	admin := f.Token(t, f.Claims(auth.SupplierAudience, []string{"suppliers:read", "suppliers:manage"}), "one")
 	noPermissions := f.Token(t, f.Claims(auth.SupplierAudience, nil), "one")
@@ -75,6 +92,13 @@ func TestComposedAuth0Routes_F2_1_F2_2_NFR3_3(t *testing.T) {
 		{"read cannot write", "POST", "/suppliers?role=administrator", read, createBody, 403},
 		{"manage also needs router read permission", "POST", "/suppliers", manageOnly, createBody, 403},
 		{"admin creates", "POST", "/suppliers", admin, createBody, 201},
+		{"update needs login", "PATCH", "/suppliers/00000000-0000-4000-8000-000000000001", "", `{"name":"Updated"}`, 401},
+		{"read cannot update", "PATCH", "/suppliers/00000000-0000-4000-8000-000000000001", read, `{"name":"Updated"}`, 403},
+		{"admin updates", "PATCH", "/suppliers/00000000-0000-4000-8000-000000000001", admin, `{"name":"Updated"}`, 200},
+		{"empty update rejected", "PATCH", "/suppliers/00000000-0000-4000-8000-000000000001", admin, `{}`, 400},
+		{"delete needs login", "DELETE", "/suppliers/00000000-0000-4000-8000-000000000001", "", "", 401},
+		{"read cannot delete", "DELETE", "/suppliers/00000000-0000-4000-8000-000000000001", read, "", 403},
+		{"admin delete fails closed without fence", "DELETE", "/suppliers/00000000-0000-4000-8000-000000000001", admin, "", 503},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			req := httptest.NewRequest(tt.method, tt.path, strings.NewReader(tt.body))
@@ -82,23 +106,29 @@ func TestComposedAuth0Routes_F2_1_F2_2_NFR3_3(t *testing.T) {
 				req.Header.Set("Authorization", "Bearer "+tt.token)
 			}
 			req.Header.Set("X-Role", "administrator")
+			req.Header.Set("Idempotency-Key", "00000000-0000-4000-8000-000000000003")
 			rec := httptest.NewRecorder()
 			handler.ServeHTTP(rec, req)
 			require.Equal(t, tt.status, rec.Code, rec.Body.String())
+			if tt.method == "DELETE" && tt.status == 503 {
+				require.Contains(t, rec.Body.String(), "DELETION_FENCE_UNAVAILABLE")
+			}
 			if tt.token != "" {
 				require.NotContains(t, rec.Body.String(), tt.token)
 			}
 		})
 	}
 	require.Equal(t, 3, store.reads)
-	require.Equal(t, 1, store.writes)
+	require.Equal(t, 2, store.writes)
+	require.Equal(t, 1, store.deletionRequests)
+	require.Equal(t, 1, store.retries)
 	require.EqualValues(t, 1, f.Hits.Load())
 
 	// A fresh verifier cannot authorize through an unavailable key endpoint.
 	f.Response(503, []byte("private-provider-error"), 0, "")
 	fresh, err := auth.NewAuth0(cfg, logger, auth.WithHTTPClient(f.Server.Client()))
 	require.NoError(t, err)
-	unavailable := app.NewHandler(logger, fresh, readyFunc(fresh.Check), store, store)
+	unavailable := app.NewHandler(logger, fresh, readyFunc(fresh.Check), store, store, store, app.UnavailableDeletionFence{})
 	req := httptest.NewRequest("GET", "/suppliers", nil)
 	req.Header.Set("Authorization", "Bearer "+read)
 	rec := httptest.NewRecorder()
