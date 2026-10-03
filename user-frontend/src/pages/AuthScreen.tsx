@@ -7,10 +7,9 @@ import { ResetPassword } from "./auth/ResetPassword";
 type Mode = "login" | "create" | "reset";
 
 export function AuthScreen() {
-  const { config, error } = useAuth();
+  const { error } = useAuth();
   const [mode, setMode] = useState<Mode>("login");
   const [loginEmail, setLoginEmail] = useState("");
-  const dev = config?.dev === true;
 
   return (
     <main className="auth-shell">
@@ -41,17 +40,10 @@ export function AuthScreen() {
               </button>
             </div>
             <div className="tab-body" role="tabpanel">
-              {dev && (
-                <div className="dev-note">
-                  Developer mode — Auth0 owns real credentials in production. Here,
-                  sign-in mints a local token so the demo works. Use an{" "}
-                  <code>@u.nus.edu</code> email (password is not checked).
-                </div>
-              )}
               {mode === "login" ? (
-                <LoginForm onForgot={() => setMode("reset")} dev={dev} initialEmail={loginEmail} />
+                <LoginForm onForgot={() => setMode("reset")} initialEmail={loginEmail} />
               ) : (
-                <CreateAccountForm dev={dev} onLogin={(email) => { setLoginEmail(email); setMode("login"); }} />
+                <CreateAccountForm onLogin={(email) => { setLoginEmail(email); setMode("login"); }} />
               )}
             </div>
           </div>

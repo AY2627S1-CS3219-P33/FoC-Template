@@ -5,7 +5,6 @@ import {
   createSupplier,
   deleteSupplier,
   listSuppliers,
-  setSupplierDevMode,
   updateSupplier,
   type Supplier,
   type SupplierWrite,
@@ -23,11 +22,23 @@ type View =
   | { kind: "edit"; supplier: Supplier };
 
 const PAGE_SIZE = 12;
+const SUPPLIER_AUDIENCE =
+  import.meta.env.VITE_SUPPLIER_AUDIENCE || "https://api.foc.local/supplier-service";
 
 export function SuppliersPage() {
-  const { profile, config, getAccessToken } = useAuth();
+  const { profile, getAccessToken } = useAuth();
   const account = profile as Profile;
   const isAdmin = account.role === "ADMIN" || account.role === "SUPER_ADMIN";
+
+  const getSupplierToken = useCallback(
+    (manage = false) => getAccessToken({
+      audience: SUPPLIER_AUDIENCE,
+      scope: manage
+        ? "openid profile email suppliers:read suppliers:manage"
+        : "openid profile email suppliers:read",
+    }),
+    [getAccessToken],
+  );
 
   const [view, setView] = useState<View>({ kind: "list" });
 
@@ -46,7 +57,7 @@ export function SuppliersPage() {
       setLoading(true);
       setError(null);
       try {
-        const token = await getAccessToken();
+        const token = await getSupplierToken();
         const page = await listSuppliers(token, {
           q: q || undefined,
           type: t || undefined,
@@ -63,13 +74,8 @@ export function SuppliersPage() {
         if (id === requestId.current) setLoading(false);
       }
     },
-    [getAccessToken],
+    [getSupplierToken],
   );
-
-  // Use the dev in-memory repository only while the app runs in developer mode.
-  useEffect(() => {
-    setSupplierDevMode(config?.dev === true);
-  }, [config]);
 
   // Debounced reload when search or filter changes (and on first mount).
   useEffect(() => {
@@ -78,21 +84,21 @@ export function SuppliersPage() {
   }, [query, type, load]);
 
   async function onCreate(body: SupplierWrite): Promise<void> {
-    const token = await getAccessToken();
+    const token = await getSupplierToken(true);
     await createSupplier(token, body);
     setView({ kind: "list" });
     await load(query, type);
   }
 
   async function onUpdate(id: string, patch: SupplierPatch): Promise<void> {
-    const token = await getAccessToken();
+    const token = await getSupplierToken(true);
     const updated = await updateSupplier(token, id, patch);
     setView({ kind: "detail", supplier: updated });
     await load(query, type);
   }
 
   async function onDelete(supplier: Supplier): Promise<void> {
-    const token = await getAccessToken();
+    const token = await getSupplierToken(true);
     await deleteSupplier(token, supplier.supplierId);
     setView({ kind: "list" });
     await load(query, type);
@@ -131,12 +137,6 @@ export function SuppliersPage() {
 
   return (
     <>
-      {config?.dev && (
-        <div className="banner banner-dev" role="note">
-          Developer data — suppliers are served from an in-memory sample seeded from
-          the template dataset. The live service API is used in production.
-        </div>
-      )}
       <SupplierList
         items={items}
         loading={loading}
