@@ -67,7 +67,9 @@ components:
     Type:
       name: type
       in: query
-      description: Exact, case-insensitive supplier type.
+      description: >-
+        Supplier type, matched by lookup key: case, spaces, and punctuation
+        are ignored, so "Food/Coffee" and "food coffee" are the same type.
       schema:
         type: string
         maxLength: 64
@@ -76,10 +78,10 @@ components:
       in: query
       description: >-
         Result ordering, applied before the cursor. name (default) orders by
-        normalized name then supplierId. type orders by trimmed,
-        case-insensitive type, then normalized name, then supplierId.
-        building orders by normalized building (whitespace-collapsed,
-        case-insensitive), then normalized name, then supplierId. These are
+        normalized name then supplierId. type orders by the type's lookup key
+        (lower case, letters and digits only), then normalized name, then
+        supplierId. building orders by the building's lookup key, then
+        normalized name, then supplierId. These are
         ascending; the "-" prefixed values reverse every key, giving the same
         sequence backwards. A cursor is valid only with the sort that
         produced it.
@@ -228,7 +230,7 @@ components:
       allOf:
         - $ref: "#/components/schemas/SupplierFields"
         - type: object
-          required: [supplierId, versionId, available, createdAt, updatedAt]
+          required: [supplierId, versionId, buildingId, typeId, available, createdAt, updatedAt]
           properties:
             supplierId:
               type: string
@@ -237,6 +239,19 @@ components:
             versionId:
               type: string
               format: uuid
+              readOnly: true
+            buildingId:
+              type: string
+              format: uuid
+              description: >-
+                The building lookup row. building is its canonical name;
+                lookup names never change, so historical versions keep the
+                name they were created with.
+              readOnly: true
+            typeId:
+              type: string
+              format: uuid
+              description: The supplier-type lookup row; type is its canonical name.
               readOnly: true
             available:
               type: boolean
@@ -256,7 +271,7 @@ components:
       allOf:
         - $ref: "#/components/schemas/SupplierFields"
         - type: object
-          required: [supplierId, versionId, available, createdAt]
+          required: [supplierId, versionId, buildingId, typeId, available, createdAt]
           properties:
             supplierId:
               type: string
@@ -265,6 +280,19 @@ components:
             versionId:
               type: string
               format: uuid
+              readOnly: true
+            buildingId:
+              type: string
+              format: uuid
+              description: >-
+                The building lookup row. building is its canonical name;
+                lookup names never change, so historical versions keep the
+                name they were created with.
+              readOnly: true
+            typeId:
+              type: string
+              format: uuid
+              description: The supplier-type lookup row; type is its canonical name.
               readOnly: true
             available:
               type: boolean

@@ -39,6 +39,8 @@ func TestCommonContractContainsBothIdentifiersAndBoundedPagination(t *testing.T)
 		schema := mapping(t, schemas, schemaName)
 		require.Contains(t, marshalYAML(t, schema), "supplierId")
 		require.Contains(t, marshalYAML(t, schema), "versionId")
+		require.Contains(t, marshalYAML(t, schema), "buildingId")
+		require.Contains(t, marshalYAML(t, schema), "typeId")
 	}
 
 	parameters := mapping(t, components, "parameters")

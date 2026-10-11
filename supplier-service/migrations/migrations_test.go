@@ -3,10 +3,8 @@ package migrations
 import (
 	"context"
 	"crypto/rand"
-	_ "embed"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -17,8 +15,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-//go:embed 00001_create_versioned_suppliers.sql
-var versionedSuppliersMigration string
+const (
+	versionedSuppliersMigration = "00001_create_versioned_suppliers.sql"
+	lookupsMigration            = "00002_add_building_and_type_lookups.sql"
+)
 
 func TestVersionedSuppliersMigrationUp(t *testing.T) {
 	conn := migratedDatabase(t)
@@ -126,7 +126,7 @@ func TestVersionedSuppliersMigrationConstraints(t *testing.T) {
 		_, versionID := insertSupplier(t, conn, "Immutable Supplier")
 
 		_, err := conn.Exec(ctx, `
-			UPDATE supplier_versions SET building = 'Changed' WHERE version_id = $1
+			UPDATE supplier_versions SET floor = 'Changed' WHERE version_id = $1
 		`, versionID)
 		requirePostgresCode(t, err, "55000")
 		_, err = conn.Exec(ctx, `DELETE FROM supplier_versions WHERE version_id = $1`, versionID)
@@ -222,25 +222,29 @@ func TestVersionedSuppliersMigrationConstraints(t *testing.T) {
 func TestVersionedSuppliersMigrationDown(t *testing.T) {
 	conn := migratedDatabase(t)
 	ctx := context.Background()
-	require.NoError(t, applyMigrationSection(ctx, conn, "Down"))
+	down, err := Down()
+	require.NoError(t, err)
+	_, err = conn.Exec(ctx, down)
+	require.NoError(t, err)
 
 	for _, relation := range []string{
 		"suppliers",
 		"supplier_versions",
 		"supplier_deletion_operations",
 		"supplier_seed_provenance",
+		"buildings",
+		"supplier_types",
 	} {
 		var found *string
 		require.NoError(t, conn.QueryRow(ctx, `SELECT to_regclass($1)::text`, relation).Scan(&found))
 		require.Nilf(t, found, "%s remains after rollback", relation)
 	}
 
-	var functionFound *string
-	require.NoError(t, conn.QueryRow(
-		ctx,
-		`SELECT to_regprocedure('normalize_supplier_name(text)')::text`,
-	).Scan(&functionFound))
-	require.Nil(t, functionFound)
+	for _, function := range []string{"normalize_supplier_name(text)", "normalize_lookup_key(text)"} {
+		var functionFound *string
+		require.NoError(t, conn.QueryRow(ctx, `SELECT to_regprocedure($1)::text`, function).Scan(&functionFound))
+		require.Nilf(t, functionFound, "%s remains after rollback", function)
+	}
 }
 
 const versionInsertSQL = `
@@ -248,16 +252,18 @@ const versionInsertSQL = `
 		version_id,
 		supplier_id,
 		name,
-		supplier_type,
-		building,
+		supplier_type_id,
+		building_id,
 		floor,
 		location_description,
 		latitude,
 		longitude,
 		opening_time,
 		closing_time
-	) VALUES ($1, $2, $3, 'shopping', 'Central Library', '1', 'Lobby',
-		1.2966, 103.7764, '09:00', '18:00')
+	) VALUES ($1, $2, $3,
+		(SELECT id FROM supplier_types WHERE lookup_key = 'shopping' AND retired_at IS NULL),
+		(SELECT id FROM buildings WHERE lookup_key = 'centrallibrary' AND retired_at IS NULL),
+		'1', 'Lobby', 1.2966, 103.7764, '09:00', '18:00')
 `
 
 func insertSupplier(t *testing.T, conn *pgx.Conn, name string) (string, string) {
@@ -287,7 +293,26 @@ func insertSupplier(t *testing.T, conn *pgx.Conn, name string) (string, string) 
 	return supplierID, versionID
 }
 
+// migratedDatabase applies every migration and creates the lookups that
+// versionInsertSQL references.
 func migratedDatabase(t *testing.T) *pgx.Conn {
+	t.Helper()
+	conn := emptyDatabase(t)
+	ctx := context.Background()
+	up, err := Up()
+	require.NoError(t, err)
+	_, err = conn.Exec(ctx, up)
+	require.NoError(t, err)
+	_, err = conn.Exec(ctx, `
+		INSERT INTO buildings (name) VALUES ('Central Library');
+		INSERT INTO supplier_types (name) VALUES ('shopping');
+	`)
+	require.NoError(t, err)
+	return conn
+}
+
+// emptyDatabase returns a connection whose search path is a new, empty schema.
+func emptyDatabase(t *testing.T) *pgx.Conn {
 	t.Helper()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
 	if databaseURL == "" {
@@ -313,30 +338,20 @@ func migratedDatabase(t *testing.T) *pgx.Conn {
 		_ = conn.Close(cleanupCtx)
 	})
 
-	require.NoError(t, applyMigrationSection(ctx, conn, "Up"))
 	return conn
 }
 
-func applyMigrationSection(ctx context.Context, conn *pgx.Conn, section string) error {
-	upMarker := "-- +goose Up"
-	downMarker := "-- +goose Down"
-	upAt := strings.Index(versionedSuppliersMigration, upMarker)
-	downAt := strings.Index(versionedSuppliersMigration, downMarker)
-	if upAt < 0 || downAt < 0 || downAt <= upAt {
-		return fmt.Errorf("migration is missing ordered Goose Up and Down markers")
+// applyMigrationSection runs one section of one migration in a transaction,
+// as Goose does.
+func applyMigrationSection(ctx context.Context, conn *pgx.Conn, name, section string) error {
+	sql, err := Section(name, section)
+	if err != nil {
+		return err
 	}
-
-	var sql string
-	switch section {
-	case "Up":
-		sql = versionedSuppliersMigration[upAt+len(upMarker) : downAt]
-	case "Down":
-		sql = versionedSuppliersMigration[downAt+len(downMarker):]
-	default:
-		return fmt.Errorf("unknown migration section %q", section)
-	}
-	_, err := conn.Exec(ctx, sql)
-	return err
+	return pgx.BeginFunc(ctx, conn, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, sql)
+		return err
+	})
 }
 
 func requirePostgresCode(t *testing.T, err error, code string) {

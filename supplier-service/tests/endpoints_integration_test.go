@@ -48,6 +48,8 @@ func TestApplicationEndpoints_F2_1_F2_2_F2_3_F2_4_F2_5(t *testing.T) {
 	request("GET", "/suppliers?limit=1&cursor="+page["nextCursor"].(string), "", 200)
 	created := request("POST", "/suppliers", createBody, 201)
 	id, version := created["supplierId"].(string), created["versionId"].(string)
+	require.Regexp(t, uuidPattern, created["buildingId"])
+	require.Regexp(t, uuidPattern, created["typeId"])
 	request("POST", "/suppliers", strings.Replace(createBody, "Fixture supplier", "  FIXTURE   supplier  ", 1), 409)
 	current := request("GET", "/suppliers/"+id, "", 200)
 	require.Equal(t, created, current)
@@ -58,6 +60,9 @@ func TestApplicationEndpoints_F2_1_F2_2_F2_3_F2_4_F2_5(t *testing.T) {
 	request("PATCH", "/suppliers/"+id, `{"supplierId":"00000000-0000-4000-8000-000000000099"}`, 400)
 	old := request("GET", "/supplier-versions/"+version, "", 200)
 	require.Equal(t, created["name"], old["name"])
+	require.Equal(t, created["buildingId"], old["buildingId"])
+	require.Equal(t, created["typeId"], old["typeId"])
+	require.Equal(t, created["buildingId"], updated["buildingId"], "an unpatched building keeps its lookup")
 	require.Equal(t, false, old["available"])
 	current = request("GET", "/suppliers/"+id, "", 200)
 	require.Equal(t, updated["versionId"], current["versionId"])
@@ -79,3 +84,5 @@ func TestApplicationEndpoints_F2_1_F2_2_F2_3_F2_4_F2_5(t *testing.T) {
 	require.Equal(t, "requested", state)
 	require.Equal(t, "acquire_unavailable", failure)
 }
+
+const uuidPattern = `^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`

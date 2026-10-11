@@ -5,7 +5,6 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"encoding/base64"
-	"strings"
 
 	"github.com/CS3219-AY2627S1/FoC-Template/supplier-service/internal/supplier"
 )
@@ -31,7 +30,7 @@ func newCursorCipher() cipher.AEAD {
 }
 
 func cursorFilters(filter supplier.ListFilter) []byte {
-	return []byte(supplier.NormalizeName(filter.Query) + "\x00" + strings.ToLower(strings.TrimSpace(filter.Type)) + "\x00" + string(filter.SortOrder()))
+	return []byte(supplier.NormalizeName(filter.Query) + "\x00" + supplier.LookupKey(filter.Type) + "\x00" + string(filter.SortOrder()))
 }
 
 func (r *Repository) encodeCursor(versionID supplier.VersionID, filter supplier.ListFilter) string {

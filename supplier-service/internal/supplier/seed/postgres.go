@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	db "github.com/CS3219-AY2627S1/FoC-Template/supplier-service/internal/database/generated"
+	"github.com/CS3219-AY2627S1/FoC-Template/supplier-service/internal/database/supplierrepo"
 	"github.com/CS3219-AY2627S1/FoC-Template/supplier-service/internal/supplier"
 )
 
@@ -65,6 +66,15 @@ func (s *PostgresStore) Apply(
 			continue
 		}
 
+		// The trusted seed CSV always finds or creates its buildings and
+		// types, so spelling variants such as "Com 2" and "Com2" share one
+		// lookup row and the canonical name is stored once.
+		details := record.Details
+		details.BuildingID, details.TypeID = "", ""
+		details, err = supplierrepo.FindOrCreateLookups(ctx, queries, details, seededAt)
+		if err != nil {
+			return ApplyResult{}, err
+		}
 		identity, err := queries.InsertSupplierIdentity(ctx, db.InsertSupplierIdentityParams{
 			NormalizedName: supplier.NormalizeName(record.Details.Name),
 			Now:            seedTimestamp(seededAt),
@@ -75,7 +85,7 @@ func (s *PostgresStore) Apply(
 		if err := queries.InsertSupplierVersion(ctx, seedVersionParams(
 			identity.VersionID,
 			identity.SupplierID,
-			record.Details,
+			details,
 			seededAt,
 		)); err != nil {
 			return ApplyResult{}, err
@@ -126,8 +136,8 @@ func seedVersionParams(versionID, supplierID string, details supplier.Details, s
 		VersionID:           versionID,
 		SupplierID:          supplierID,
 		Name:                details.Name,
-		SupplierType:        details.Type,
-		Building:            details.Building,
+		SupplierTypeID:      details.TypeID,
+		BuildingID:          details.BuildingID,
 		Floor:               details.Floor,
 		LocationDescription: details.LocationDescription,
 		Latitude:            details.Latitude,

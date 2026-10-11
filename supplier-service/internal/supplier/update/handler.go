@@ -75,7 +75,9 @@ type supplierResponse struct {
 	VersionID           supplier.VersionID  `json:"versionId"`
 	Name                string              `json:"name"`
 	Type                string              `json:"type"`
+	TypeID              string              `json:"typeId"`
 	Building            string              `json:"building"`
+	BuildingID          string              `json:"buildingId"`
 	Floor               string              `json:"floor"`
 	LocationDescription string              `json:"locationDescription"`
 	Latitude            float64             `json:"latitude"`
@@ -304,7 +306,9 @@ func (h Handler) update(response http.ResponseWriter, request *http.Request) {
 		VersionID:           updated.VersionID,
 		Name:                updated.Details.Name,
 		Type:                updated.Details.Type,
+		TypeID:              updated.Details.TypeID,
 		Building:            updated.Details.Building,
+		BuildingID:          updated.Details.BuildingID,
 		Floor:               updated.Details.Floor,
 		LocationDescription: updated.Details.LocationDescription,
 		Latitude:            updated.Details.Latitude,
