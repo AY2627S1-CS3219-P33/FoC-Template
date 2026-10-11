@@ -21,7 +21,8 @@ func NewService(reader supplier.Reader) Service {
 	return Service{reader: reader}
 }
 
-// List implements F2.1, F2.1.2 and F2.5.2 using the current-only repository read.
+// List implements F2.1, F2.1.2 and F2.5.2 using the current-only repository
+// read. Ordering is server-side so cursor pages are slices of one sequence.
 func (s Service) List(ctx context.Context, principal auth.Principal, filter supplier.ListFilter) (supplier.Page, error) {
 	if err := requireRead(principal); err != nil {
 		return supplier.Page{}, err
@@ -42,6 +43,7 @@ func (s Service) List(ctx context.Context, principal auth.Principal, filter supp
 	}
 	filter.Query = supplier.NormalizeName(filter.Query)
 	filter.Type = strings.ToLower(strings.TrimSpace(filter.Type))
+	filter.Sort = filter.SortOrder()
 	filter.Limit = filter.PageSize()
 	return s.reader.ListAvailable(ctx, filter)
 }

@@ -1,6 +1,9 @@
 package supplier
 
-import "time"
+import (
+	"slices"
+	"time"
+)
 
 const (
 	DefaultPageSize = 25
@@ -137,13 +140,42 @@ func (p Patch) Apply(existing Details) Details {
 	return updated
 }
 
+// ListSort selects the catalogue ordering. Every ordering ends with
+// SupplierID so keyset pagination has a total order.
+type ListSort string
+
+const (
+	// SortName orders by normalized name, then SupplierID, both ascending.
+	SortName ListSort = "name"
+	// SortNameDesc orders by normalized name, then SupplierID, both descending.
+	SortNameDesc ListSort = "-name"
+	// SortType orders by trimmed lower-case type, then normalized name, then
+	// SupplierID, all ascending.
+	SortType ListSort = "type"
+	// SortTypeDesc is SortType with every key descending.
+	SortTypeDesc ListSort = "-type"
+	// SortBuilding orders by normalized building, then normalized name, then
+	// SupplierID, all ascending.
+	SortBuilding ListSort = "building"
+	// SortBuildingDesc is SortBuilding with every key descending.
+	SortBuildingDesc ListSort = "-building"
+)
+
+// ListSorts lists every accepted sort in contract order.
+var ListSorts = []ListSort{SortName, SortNameDesc, SortType, SortTypeDesc, SortBuilding, SortBuildingDesc}
+
+func (s ListSort) Valid() bool {
+	return slices.Contains(ListSorts, s)
+}
+
 // ListFilter is the shared query contract. Cursor is opaque to callers. Query
 // matches normalized name, building, floor, or location description. Type is
-// an exact, case-insensitive match. Repositories order by normalized name and
-// then SupplierID, both ascending, before applying the cursor.
+// an exact, case-insensitive match. Repositories order by Sort (SortName when
+// empty) before applying the cursor.
 type ListFilter struct {
 	Query  string
 	Type   string
+	Sort   ListSort
 	Limit  int
 	Cursor string
 }
@@ -153,6 +185,13 @@ func (f ListFilter) PageSize() int {
 		return DefaultPageSize
 	}
 	return f.Limit
+}
+
+func (f ListFilter) SortOrder() ListSort {
+	if f.Sort == "" {
+		return SortName
+	}
+	return f.Sort
 }
 
 type Page struct {

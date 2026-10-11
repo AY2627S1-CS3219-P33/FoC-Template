@@ -50,7 +50,40 @@ func TestCatalogueHandlersReturnAllF211FieldsAndBothIdentifiers(t *testing.T) {
 	response = serveCatalogue(reader, "/suppliers?q=++ARTS+++LINK++&type=FOOD&limit=100&cursor=previous", true)
 	require.Equal(t, http.StatusOK, response.Code)
 	require.JSONEq(t, `{"items":[`+itemJSON+`],"nextCursor":"opaque"}`, response.Body.String())
-	require.Equal(t, supplier.ListFilter{Query: "arts link", Type: "food", Limit: 100, Cursor: "previous"}, reader.filter)
+	require.Equal(t, supplier.ListFilter{Query: "arts link", Type: "food", Sort: supplier.SortName, Limit: 100, Cursor: "previous"}, reader.filter)
+}
+
+func TestListPassesSortAndDefaultsToName(t *testing.T) {
+	for target, expected := range map[string]supplier.ListSort{
+		"/suppliers":                supplier.SortName,
+		"/suppliers?sort=name":      supplier.SortName,
+		"/suppliers?sort=-name":     supplier.SortNameDesc,
+		"/suppliers?sort=type":      supplier.SortType,
+		"/suppliers?sort=-type":     supplier.SortTypeDesc,
+		"/suppliers?sort=building":  supplier.SortBuilding,
+		"/suppliers?sort=-building": supplier.SortBuildingDesc,
+	} {
+		reader := &readerStub{}
+		response := serveCatalogue(reader, target, true)
+		require.Equal(t, http.StatusOK, response.Code, target)
+		require.Equal(t, expected, reader.filter.Sort, target)
+	}
+}
+
+func TestListRejectsInvalidSortWithSortField(t *testing.T) {
+	for _, target := range []string{
+		"/suppliers?sort=", "/suppliers?sort=NAME", "/suppliers?sort=%2Bname",
+		"/suppliers?sort=-createdAt", "/suppliers?sort=BUILDING", "/suppliers?sort=createdAt",
+	} {
+		reader := &readerStub{}
+		response := serveCatalogue(reader, target, true)
+		require.Equal(t, http.StatusBadRequest, response.Code, target)
+		var result apperror.Error
+		require.NoError(t, json.Unmarshal(response.Body.Bytes(), &result))
+		require.Equal(t, apperror.InvalidArgument, result.Code)
+		require.Equal(t, []apperror.Field{{Field: "sort", Message: "must be one of name, -name, type, -type, building, -building"}}, result.Fields, target)
+		require.Zero(t, reader.calls)
+	}
 }
 
 func TestListReturnsEmptyArrayAndOmitsFinalCursor(t *testing.T) {

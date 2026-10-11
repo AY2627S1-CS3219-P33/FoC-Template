@@ -124,6 +124,15 @@ func ValidateDetails(details Details) error {
 	return nil
 }
 
+// InvalidSortViolation names every accepted sort value.
+func InvalidSortViolation() FieldViolation {
+	values := make([]string, len(ListSorts))
+	for i, sort := range ListSorts {
+		values[i] = string(sort)
+	}
+	return FieldViolation{Field: "sort", Message: "must be one of " + strings.Join(values, ", ")}
+}
+
 func ValidateListFilter(filter ListFilter) error {
 	violations := make([]FieldViolation, 0)
 	if filter.Limit < 0 || filter.Limit > MaximumPageSize {
@@ -134,6 +143,9 @@ func ValidateListFilter(filter ListFilter) error {
 	}
 	if utf8.RuneCountInString(strings.TrimSpace(filter.Type)) > 64 {
 		violations = append(violations, FieldViolation{Field: "type", Message: "is too long"})
+	}
+	if filter.Sort != "" && !filter.Sort.Valid() {
+		violations = append(violations, InvalidSortViolation())
 	}
 	if utf8.RuneCountInString(filter.Cursor) > 512 {
 		violations = append(violations, FieldViolation{Field: "cursor", Message: "is too long"})

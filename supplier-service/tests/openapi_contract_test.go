@@ -46,6 +46,16 @@ func TestCommonContractContainsBothIdentifiersAndBoundedPagination(t *testing.T)
 	limitSchema := mapping(t, limit, "schema")
 	require.Equal(t, "25", scalar(t, limitSchema, "default"))
 	require.Equal(t, "100", scalar(t, limitSchema, "maximum"))
+
+	sort := mapping(t, parameters, "Sort")
+	require.Equal(t, "sort", scalar(t, sort, "name"))
+	sortSchema := mapping(t, sort, "schema")
+	require.Equal(t, "name", scalar(t, sortSchema, "default"))
+	require.Equal(t, "[name -name type -type building -building]", scalar(t, sortSchema, "enum"))
+
+	catalog := readYAML(t, "../openapi/catalog.yaml")
+	listSuppliers := mapping(t, mapping(t, catalog, "operations"), "listSuppliers")
+	require.Contains(t, marshalYAML(t, listSuppliers), "./common.yaml#/components/parameters/Sort")
 }
 
 func TestOpenAPIContainsEverySharedErrorCode(t *testing.T) {

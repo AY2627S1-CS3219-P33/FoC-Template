@@ -106,6 +106,11 @@ func TestValidateListFilterAppliesPageBounds(t *testing.T) {
 	require.Error(t, ValidateListFilter(ListFilter{Limit: MaximumPageSize + 1}))
 	require.Error(t, ValidateListFilter(ListFilter{Limit: -1}))
 	require.Error(t, ValidateListFilter(ListFilter{Query: strings.Repeat("x", 121)}))
+	for _, sort := range append([]ListSort{""}, ListSorts...) {
+		require.NoError(t, ValidateListFilter(ListFilter{Sort: sort}))
+	}
+	require.Error(t, ValidateListFilter(ListFilter{Sort: "created"}))
+	require.Equal(t, SortName, (ListFilter{}).SortOrder())
 }
 
 func TestIdentifierValidationUsesUUIDs(t *testing.T) {
