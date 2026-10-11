@@ -65,7 +65,9 @@ func (h Handler) get(response http.ResponseWriter, request *http.Request) {
 		VersionID:           version.VersionID,
 		Name:                version.Details.Name,
 		Type:                version.Details.Type,
+		TypeID:              version.Details.TypeID,
 		Building:            version.Details.Building,
+		BuildingID:          version.Details.BuildingID,
 		Floor:               version.Details.Floor,
 		LocationDescription: version.Details.LocationDescription,
 		Latitude:            version.Details.Latitude,
@@ -83,7 +85,9 @@ type versionResponse struct {
 	VersionID           supplier.VersionID  `json:"versionId"`
 	Name                string              `json:"name"`
 	Type                string              `json:"type"`
+	TypeID              string              `json:"typeId"`
 	Building            string              `json:"building"`
+	BuildingID          string              `json:"buildingId"`
 	Floor               string              `json:"floor"`
 	LocationDescription string              `json:"locationDescription"`
 	Latitude            float64             `json:"latitude"`

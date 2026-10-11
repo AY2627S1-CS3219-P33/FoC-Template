@@ -6,8 +6,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"os"
-	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -19,6 +17,7 @@ import (
 
 	"github.com/CS3219-AY2627S1/FoC-Template/supplier-service/internal/apperror"
 	"github.com/CS3219-AY2627S1/FoC-Template/supplier-service/internal/supplier"
+	"github.com/CS3219-AY2627S1/FoC-Template/supplier-service/migrations"
 )
 
 func TestConcurrentDuplicateCreatesUseDatabaseUniqueness(t *testing.T) {
@@ -133,6 +132,7 @@ func TestStoredOrderVersionRemainsUnchangedAfterUpdateAndDeletion(t *testing.T) 
 	originalDetails := validDetails("Order Pickup Supplier")
 	created, err := repository.Create(ctx, originalDetails, createdAt)
 	require.NoError(t, err)
+	require.Equal(t, originalDetails, withoutLookupIDs(t, created.Details))
 
 	// An order stores this immutable reference when it is created.
 	orderVersionID := created.VersionID
@@ -145,7 +145,7 @@ func TestStoredOrderVersionRemainsUnchangedAfterUpdateAndDeletion(t *testing.T) 
 
 	storedPickupAfterUpdate, err := repository.GetVersion(ctx, orderVersionID)
 	require.NoError(t, err)
-	require.Equal(t, originalDetails, storedPickupAfterUpdate.Details)
+	require.Equal(t, created.Details, storedPickupAfterUpdate.Details)
 	require.False(t, storedPickupAfterUpdate.Available)
 
 	operationID := supplier.DeletionOperationID(testUUID(t))
@@ -172,7 +172,7 @@ func TestStoredOrderVersionRemainsUnchangedAfterUpdateAndDeletion(t *testing.T) 
 	storedPickupAfterDeletion, err := repository.GetVersion(ctx, orderVersionID)
 	require.NoError(t, err)
 	require.Equal(t, storedPickupAfterUpdate, storedPickupAfterDeletion)
-	require.Equal(t, originalDetails, storedPickupAfterDeletion.Details)
+	require.Equal(t, created.Details, storedPickupAfterDeletion.Details)
 
 	deletedCurrentVersion, err := repository.GetVersion(ctx, updated.VersionID)
 	require.NoError(t, err)
@@ -391,6 +391,18 @@ func validDetails(name string) supplier.Details {
 	}
 }
 
+const uuidPattern = `^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`
+
+// withoutLookupIDs checks that both lookup IDs were resolved and returns the
+// details with them cleared, for comparison with input details.
+func withoutLookupIDs(t testing.TB, details supplier.Details) supplier.Details {
+	t.Helper()
+	require.Regexp(t, uuidPattern, details.BuildingID)
+	require.Regexp(t, uuidPattern, details.TypeID)
+	details.BuildingID, details.TypeID = "", ""
+	return details
+}
+
 func migratedRepository(t testing.TB) (*Repository, *pgxpool.Pool) {
 	t.Helper()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
@@ -422,28 +434,12 @@ func migratedRepository(t testing.TB) (*Repository, *pgxpool.Pool) {
 		_ = admin.Close(cleanupCtx)
 	})
 
-	_, sourceFile, _, ok := runtime.Caller(0)
-	require.True(t, ok)
-	migrationPath := filepath.Join(filepath.Dir(sourceFile), "..", "..", "..", "migrations", "00001_create_versioned_suppliers.sql")
-	migration, err := os.ReadFile(migrationPath)
-	require.NoError(t, err)
-	upSQL, err := migrationUp(string(migration))
+	upSQL, err := migrations.Up()
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, upSQL)
 	require.NoError(t, err)
 
 	return New(pool), pool
-}
-
-func migrationUp(migration string) (string, error) {
-	upMarker := "-- +goose Up"
-	downMarker := "-- +goose Down"
-	upAt := strings.Index(migration, upMarker)
-	downAt := strings.Index(migration, downMarker)
-	if upAt < 0 || downAt <= upAt {
-		return "", errors.New("migration is missing ordered up/down markers")
-	}
-	return migration[upAt+len(upMarker) : downAt], nil
 }
 
 func testUUID(t testing.TB) string {

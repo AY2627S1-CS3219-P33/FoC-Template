@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -28,6 +29,21 @@ var uuidPattern = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]
 // repository uniqueness checks.
 func NormalizeName(name string) string {
 	return strings.ToLower(strings.Join(strings.Fields(name), " "))
+}
+
+// LookupKey defines the single normalization that identifies a building or
+// supplier type. Keep it aligned with the normalize_lookup_key SQL function:
+// keep Unicode alphabetic characters (the [:alnum:] letters of PostgreSQL's
+// pg_c_utf8 collation) and ASCII digits, drop everything else, and lowercase
+// the result. "Com 2", "Com2" and "COM-2" all have the key "com2".
+func LookupKey(name string) string {
+	var key strings.Builder
+	for _, r := range name {
+		if ('0' <= r && r <= '9') || unicode.In(r, unicode.Letter, unicode.Nl, unicode.Other_Alphabetic) {
+			key.WriteRune(unicode.ToLower(r))
+		}
+	}
+	return key.String()
 }
 
 func ValidSupplierID(id SupplierID) bool {
@@ -92,6 +108,14 @@ func ValidateDetails(details Details) error {
 	checkRequired("name", details.Name, 120)
 	checkRequired("type", details.Type, 64)
 	checkRequired("building", details.Building, 120)
+	checkLookupKey := func(field, value string) {
+		// A blank value is already reported as required.
+		if strings.TrimSpace(value) != "" && LookupKey(value) == "" {
+			violations = append(violations, FieldViolation{Field: field, Message: "must contain a letter or digit"})
+		}
+	}
+	checkLookupKey("type", details.Type)
+	checkLookupKey("building", details.Building)
 	checkRequired("floor", details.Floor, 32)
 	checkRequired("locationDescription", details.LocationDescription, 500)
 

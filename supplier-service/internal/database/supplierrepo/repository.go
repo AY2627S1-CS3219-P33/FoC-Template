@@ -24,6 +24,18 @@ import (
 
 const normalizedNameConstraint = "suppliers_live_normalized_name_uidx"
 
+// lookupConstraintViolations maps lookup constraints to the field they
+// guard. Validation normally reports these first; the mapping covers a lookup
+// that changes between validation and the write.
+var lookupConstraintViolations = map[string]supplier.FieldViolation{
+	"supplier_versions_building_fkey":      {Field: "building", Message: "must be an existing building"},
+	"supplier_versions_supplier_type_fkey": {Field: "type", Message: "must be an existing supplier type"},
+	"buildings_name_not_blank":             {Field: "building", Message: "is required"},
+	"buildings_lookup_key_not_blank":       {Field: "building", Message: "must contain a letter or digit"},
+	"supplier_types_name_not_blank":        {Field: "type", Message: "is required"},
+	"supplier_types_lookup_key_not_blank":  {Field: "type", Message: "must contain a letter or digit"},
+}
+
 type Repository struct {
 	pool         *pgxpool.Pool
 	queries      *db.Queries
@@ -57,6 +69,13 @@ func (r *Repository) Create(ctx context.Context, details supplier.Details, now t
 	defer func() { _ = tx.Rollback(context.Background()) }()
 
 	queries := r.queries.WithTx(tx)
+	// TRANSITIONAL: administrator writes find-or-create lookups so the API
+	// keeps accepting any building or type until writes become strict.
+	details.BuildingID, details.TypeID = "", ""
+	details, err = FindOrCreateLookups(ctx, queries, details, now)
+	if err != nil {
+		return supplier.Supplier{}, err
+	}
 	identity, err := queries.InsertSupplierIdentity(ctx, db.InsertSupplierIdentityParams{
 		NormalizedName: supplier.NormalizeName(details.Name),
 		Now:            timestamp(now),
@@ -108,7 +127,9 @@ func (r *Repository) Update(ctx context.Context, supplierID supplier.SupplierID,
 	details := patch.Apply(detailsFromValues(
 		currentVersion.Name,
 		currentVersion.SupplierType,
+		currentVersion.SupplierTypeID,
 		currentVersion.Building,
+		currentVersion.BuildingID,
 		currentVersion.Floor,
 		currentVersion.LocationDescription,
 		currentVersion.Latitude,
@@ -118,6 +139,13 @@ func (r *Repository) Update(ctx context.Context, supplierID supplier.SupplierID,
 		currentVersion.ImageUrl,
 	))
 	if err := supplier.ValidateDetails(details); err != nil {
+		return supplier.Supplier{}, err
+	}
+	// Apply cleared the ID of a patched building or type, so only those are
+	// resolved; an unpatched lookup keeps its row even if it is retired.
+	// TRANSITIONAL: patched values are found or created, as in Create.
+	details, err = FindOrCreateLookups(ctx, queries, details, now)
+	if err != nil {
 		return supplier.Supplier{}, err
 	}
 
@@ -169,7 +197,9 @@ func (r *Repository) GetCurrentAvailable(ctx context.Context, supplierID supplie
 		Details: detailsFromValues(
 			row.Name,
 			row.SupplierType,
+			row.SupplierTypeID,
 			row.Building,
+			row.BuildingID,
 			row.Floor,
 			row.LocationDescription,
 			row.Latitude,
@@ -199,7 +229,9 @@ func (r *Repository) GetVersion(ctx context.Context, versionID supplier.VersionI
 		Details: detailsFromValues(
 			row.Name,
 			row.SupplierType,
+			row.SupplierTypeID,
 			row.Building,
+			row.BuildingID,
 			row.Floor,
 			row.LocationDescription,
 			row.Latitude,
@@ -221,7 +253,7 @@ func (r *Repository) ListAvailable(ctx context.Context, filter supplier.ListFilt
 
 	params := db.ListAvailableSuppliersByNameParams{
 		QueryText:    supplier.NormalizeName(filter.Query),
-		SupplierType: strings.ToLower(strings.TrimSpace(filter.Type)),
+		SupplierType: strings.TrimSpace(filter.Type),
 		HasCursor:    filter.Cursor != "",
 		PageLimit:    int32(filter.PageSize() + 1),
 	}
@@ -258,7 +290,9 @@ func (r *Repository) ListAvailable(ctx context.Context, filter supplier.ListFilt
 			Details: detailsFromValues(
 				row.Name,
 				row.SupplierType,
+				row.SupplierTypeID,
 				row.Building,
+				row.BuildingID,
 				row.Floor,
 				row.LocationDescription,
 				row.Latitude,
@@ -280,7 +314,8 @@ func (r *Repository) ListAvailable(ctx context.Context, filter supplier.ListFilt
 }
 
 // listAvailableRows dispatches to the per-sort query. Type and building sorts
-// receive the anchor's raw values; SQL normalizes them like the sort key.
+// receive the anchor's names; SQL converts them to lookup keys like the sort
+// key.
 func (r *Repository) listAvailableRows(ctx context.Context, sort supplier.ListSort, params db.ListAvailableSuppliersByNameParams, anchor supplier.Details) ([]db.ListAvailableSuppliersByNameRow, error) {
 	typeParams := db.ListAvailableSuppliersByTypeParams{
 		QueryText:        params.QueryText,
@@ -356,8 +391,8 @@ func versionParams(versionID, supplierID string, details supplier.Details, now t
 		VersionID:           versionID,
 		SupplierID:          supplierID,
 		Name:                details.Name,
-		SupplierType:        details.Type,
-		Building:            details.Building,
+		SupplierTypeID:      details.TypeID,
+		BuildingID:          details.BuildingID,
 		Floor:               details.Floor,
 		LocationDescription: details.LocationDescription,
 		Latitude:            details.Latitude,
@@ -369,7 +404,7 @@ func versionParams(versionID, supplierID string, details supplier.Details, now t
 	}
 }
 
-func detailsFromValues(name, supplierType, building, floor, location string, latitude, longitude float64, opening, closing, image string) supplier.Details {
+func detailsFromValues(name, supplierType, typeID, building, buildingID, floor, location string, latitude, longitude float64, opening, closing, image string) supplier.Details {
 	var imageURL *string
 	if image != "" {
 		imageURL = &image
@@ -377,7 +412,9 @@ func detailsFromValues(name, supplierType, building, floor, location string, lat
 	return supplier.Details{
 		Name:                name,
 		Type:                supplierType,
+		TypeID:              typeID,
 		Building:            building,
+		BuildingID:          buildingID,
 		Floor:               floor,
 		LocationDescription: location,
 		Latitude:            latitude,
@@ -401,10 +438,16 @@ func nullableTimestamp(value *time.Time) pgtype.Timestamptz {
 
 func mapWriteError(err error) error {
 	var postgresError *pgconn.PgError
-	if errors.As(err, &postgresError) &&
-		postgresError.Code == "23505" &&
-		postgresError.ConstraintName == normalizedNameConstraint {
+	if !errors.As(err, &postgresError) {
+		return err
+	}
+	if postgresError.Code == "23505" && postgresError.ConstraintName == normalizedNameConstraint {
 		return apperror.ErrSupplierNameConflict
+	}
+	if postgresError.Code == "23503" || postgresError.Code == "23514" {
+		if violation, found := lookupConstraintViolations[postgresError.ConstraintName]; found {
+			return &supplier.ValidationError{Violations: []supplier.FieldViolation{violation}}
+		}
 	}
 	return err
 }

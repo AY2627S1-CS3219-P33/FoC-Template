@@ -10,7 +10,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -20,6 +19,7 @@ import (
 	"github.com/CS3219-AY2627S1/FoC-Template/supplier-service/internal/app"
 	"github.com/CS3219-AY2627S1/FoC-Template/supplier-service/internal/auth"
 	"github.com/CS3219-AY2627S1/FoC-Template/supplier-service/internal/config"
+	"github.com/CS3219-AY2627S1/FoC-Template/supplier-service/migrations"
 )
 
 func startupConfig() config.Config {
@@ -110,9 +110,8 @@ func startupDatabase(t *testing.T) (string, *pgx.Conn) {
 	})
 	_, err = conn.Exec(ctx, "SET search_path TO "+quoted)
 	require.NoError(t, err)
-	migration, err := os.ReadFile("../migrations/00001_create_versioned_suppliers.sql")
+	up, err := migrations.Up()
 	require.NoError(t, err)
-	up := strings.Split(strings.Split(string(migration), "-- +goose Up")[1], "-- +goose Down")[0]
 	_, err = conn.Exec(ctx, up)
 	require.NoError(t, err)
 	u, err := url.Parse(databaseURL)

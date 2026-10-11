@@ -1,10 +1,10 @@
 package seed
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -19,6 +19,7 @@ import (
 	"github.com/CS3219-AY2627S1/FoC-Template/supplier-service/internal/apperror"
 	"github.com/CS3219-AY2627S1/FoC-Template/supplier-service/internal/database/supplierrepo"
 	"github.com/CS3219-AY2627S1/FoC-Template/supplier-service/internal/supplier"
+	"github.com/CS3219-AY2627S1/FoC-Template/supplier-service/migrations"
 )
 
 func TestPostgresImportIsIdempotentAcrossReorderAndAdministratorChanges(t *testing.T) {
@@ -114,6 +115,58 @@ func TestPostgresImportIsIdempotentAcrossReorderAndAdministratorChanges(t *testi
 	_, err = repository.GetCurrentAvailable(ctx, charlieID)
 	requireApplicationErrorCode(t, err, apperror.SupplierNotFound)
 	require.Equal(t, charlieID, provenanceSupplierID(t, pool, "charlie printer"), "deleted seed records retain provenance")
+}
+
+// The template CSV spells "Com 2"/"Com2" and "Prince George's Park" with a
+// straight and a curly apostrophe; each pair must become one lookup row.
+func TestPostgresImportOfTemplateCSVDeduplicatesLookups(t *testing.T) {
+	pool := migratedSeedDatabase(t)
+	_, sourceFile, _, ok := runtime.Caller(0)
+	require.True(t, ok)
+	path := filepath.Join(filepath.Dir(sourceFile), "..", "..", "..", "..", "data", "csv", "supplier-seed-data.csv")
+	importer, err := New(Config{CSVPath: path, DatasetNamespace: "template-v1"}, NewPostgresStore(pool))
+	require.NoError(t, err)
+	ctx := context.Background()
+
+	contents, err := os.ReadFile(path)
+	require.NoError(t, err)
+	records, err := parseCSV(bytes.NewReader(contents))
+	require.NoError(t, err)
+	buildingKeys, typeKeys := map[string]bool{}, map[string]bool{}
+	for _, record := range records {
+		buildingKeys[supplier.LookupKey(record.Details.Building)] = true
+		typeKeys[supplier.LookupKey(record.Details.Type)] = true
+	}
+	require.True(t, buildingKeys["com2"] && buildingKeys["princegeorgespark"])
+
+	for range 2 {
+		_, err := importer.Import(ctx)
+		require.NoError(t, err)
+		requireDatabaseCounts(t, pool, len(records), len(records), len(records))
+		require.Equal(t, len(buildingKeys), countLookups(t, pool, "buildings"), "one building per lookup key")
+		require.Equal(t, len(typeKeys), countLookups(t, pool, "supplier_types"), "one type per lookup key")
+	}
+
+	// The first spelling in the CSV becomes the canonical name.
+	for name, building := range map[string]string{
+		"printer @ com 2": "Com 2",
+		"cool spot":       "Com 2",
+		"a hot hideout":   "Prince George's Park",
+		"octobox":         "Prince George's Park",
+		"supersnacks":     "Prince George's Park",
+	} {
+		current, err := supplierrepo.New(pool).GetCurrentAvailable(ctx, provenanceSupplierID(t, pool, name))
+		require.NoError(t, err)
+		require.Equal(t, building, current.Details.Building, name)
+		require.NotEmpty(t, current.Details.BuildingID)
+	}
+}
+
+func countLookups(t *testing.T, pool *pgxpool.Pool, table string) int {
+	t.Helper()
+	var count int
+	require.NoError(t, pool.QueryRow(context.Background(), "SELECT count(*) FROM "+table).Scan(&count))
+	return count
 }
 
 func TestPostgresImportRollsBackTheWholeBatchOnPersistenceFailure(t *testing.T) {
@@ -223,28 +276,12 @@ func migratedSeedDatabase(t *testing.T) *pgxpool.Pool {
 		_ = admin.Close(cleanupCtx)
 	})
 
-	_, sourceFile, _, ok := runtime.Caller(0)
-	require.True(t, ok)
-	migrationPath := filepath.Join(filepath.Dir(sourceFile), "..", "..", "..", "migrations", "00001_create_versioned_suppliers.sql")
-	migration, err := os.ReadFile(migrationPath)
-	require.NoError(t, err)
-	upSQL, err := seedMigrationUp(string(migration))
+	upSQL, err := migrations.Up()
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, upSQL)
 	require.NoError(t, err)
 
 	return pool
-}
-
-func seedMigrationUp(migration string) (string, error) {
-	upMarker := "-- +goose Up"
-	downMarker := "-- +goose Down"
-	upAt := strings.Index(migration, upMarker)
-	downAt := strings.Index(migration, downMarker)
-	if upAt < 0 || downAt <= upAt {
-		return "", errors.New("migration is missing ordered up/down markers")
-	}
-	return migration[upAt+len(upMarker) : downAt], nil
 }
 
 func seedTestUUID(t *testing.T) string {

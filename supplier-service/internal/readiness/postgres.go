@@ -13,6 +13,8 @@ var requiredTables = []string{
 	"supplier_versions",
 	"supplier_deletion_operations",
 	"supplier_seed_provenance",
+	"buildings",
+	"supplier_types",
 }
 
 // PostgresChecker verifies the minimum durable state needed by supplier
@@ -56,11 +58,14 @@ func (c *PostgresChecker) Check(ctx context.Context) error {
 		       s.current_normalized_name,
 		       s.created_at, s.updated_at, s.deleted_at,
 		       v.version_id,
-		       v.supplier_id, v.name, v.normalized_name, v.supplier_type,
-		       v.building, v.floor, v.location_description,
+		       v.supplier_id, v.name, v.normalized_name, v.supplier_type_id,
+		       v.building_id, v.floor, v.location_description,
 		       v.latitude, v.longitude, v.opening_time, v.closing_time,
 		       v.image_url, v.created_at,
 		       normalize_supplier_name(v.name),
+		       b.id, b.name, b.lookup_key, b.created_at, b.retired_at,
+		       t.id, t.name, t.lookup_key, t.created_at, t.retired_at,
+		       normalize_lookup_key(b.name),
 		       d.operation_id,
 		       d.state,
 		       d.supplier_id, d.attempt_count, d.max_attempts,
@@ -73,6 +78,8 @@ func (c *PostgresChecker) Check(ctx context.Context) error {
 		LEFT JOIN supplier_versions AS v ON false
 		LEFT JOIN supplier_deletion_operations AS d ON false
 		LEFT JOIN supplier_seed_provenance AS p ON false
+		LEFT JOIN buildings AS b ON false
+		LEFT JOIN supplier_types AS t ON false
 		WHERE false
 	`); err != nil {
 		return errors.New("required database schema is incomplete")

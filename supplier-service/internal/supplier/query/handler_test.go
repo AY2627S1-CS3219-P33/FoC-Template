@@ -22,7 +22,8 @@ func catalogueItem() supplier.Supplier {
 	return supplier.Supplier{
 		SupplierID: testSupplierID, VersionID: "173fd7be-4f54-4f15-a8b1-58bd502344a0",
 		Details: supplier.Details{
-			Name: "The Deck", Type: "food", Building: "Arts Link", Floor: "2",
+			Name: "The Deck", Type: "food", TypeID: "0b7e4c39-2d6a-4f8e-a1c3-5e9d7b2f4c61",
+			Building: "Arts Link", BuildingID: "6f1c1a2e-3b0f-4a51-9d55-8f6c2d1e7a10", Floor: "2",
 			LocationDescription: "Beside the library", Latitude: 1.294, Longitude: 103.772,
 			OpeningTime: "08:00", ClosingTime: "20:00", ImageURL: &image,
 		},
@@ -35,7 +36,8 @@ func catalogueItem() supplier.Supplier {
 const itemJSON = `{
 	"supplierId":"29e9aa8b-5651-4981-8828-3fbb1b21fcb1",
 	"versionId":"173fd7be-4f54-4f15-a8b1-58bd502344a0",
-	"name":"The Deck", "type":"food", "building":"Arts Link", "floor":"2",
+	"name":"The Deck", "type":"food", "typeId":"0b7e4c39-2d6a-4f8e-a1c3-5e9d7b2f4c61",
+	"building":"Arts Link", "buildingId":"6f1c1a2e-3b0f-4a51-9d55-8f6c2d1e7a10", "floor":"2",
 	"locationDescription":"Beside the library", "latitude":1.294, "longitude":103.772,
 	"openingTime":"08:00", "closingTime":"20:00", "imageUrl":"https://example.com/supplier.png",
 	"available":true, "createdAt":"2026-09-30T08:15:00Z", "updatedAt":"2026-10-01T08:15:00Z"

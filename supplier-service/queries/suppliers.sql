@@ -21,8 +21,8 @@ INSERT INTO supplier_versions (
     version_id,
     supplier_id,
     name,
-    supplier_type,
-    building,
+    supplier_type_id,
+    building_id,
     floor,
     location_description,
     latitude,
@@ -35,8 +35,8 @@ INSERT INTO supplier_versions (
     sqlc.arg(version_id)::text::uuid,
     sqlc.arg(supplier_id)::text::uuid,
     sqlc.arg(name),
-    sqlc.arg(supplier_type),
-    sqlc.arg(building),
+    sqlc.arg(supplier_type_id)::text::uuid,
+    sqlc.arg(building_id)::text::uuid,
     sqlc.arg(floor),
     sqlc.arg(location_description),
     sqlc.arg(latitude),
@@ -74,8 +74,10 @@ SELECT
     s.supplier_id::text AS supplier_id,
     s.current_version_id::text AS version_id,
     v.name,
-    v.supplier_type,
-    v.building,
+    t.name AS supplier_type,
+    t.id::text AS supplier_type_id,
+    b.name AS building,
+    b.id::text AS building_id,
     v.floor,
     v.location_description,
     v.latitude,
@@ -89,6 +91,8 @@ FROM suppliers AS s
 JOIN supplier_versions AS v
   ON v.supplier_id = s.supplier_id
  AND v.version_id = s.current_version_id
+JOIN buildings AS b ON b.id = v.building_id
+JOIN supplier_types AS t ON t.id = v.supplier_type_id
 WHERE s.supplier_id = sqlc.arg(supplier_id)::text::uuid
   AND s.deleted_at IS NULL;
 
@@ -97,8 +101,10 @@ SELECT
     v.supplier_id::text AS supplier_id,
     v.version_id::text AS version_id,
     v.name,
-    v.supplier_type,
-    v.building,
+    t.name AS supplier_type,
+    t.id::text AS supplier_type_id,
+    b.name AS building,
+    b.id::text AS building_id,
     v.floor,
     v.location_description,
     v.latitude,
@@ -110,6 +116,8 @@ SELECT
     (s.deleted_at IS NULL AND s.current_version_id = v.version_id) AS available
 FROM supplier_versions AS v
 JOIN suppliers AS s ON s.supplier_id = v.supplier_id
+JOIN buildings AS b ON b.id = v.building_id
+JOIN supplier_types AS t ON t.id = v.supplier_type_id
 WHERE v.version_id = sqlc.arg(version_id)::text::uuid;
 
 -- The ListAvailableSuppliers* queries share one projection and filter and
@@ -123,8 +131,10 @@ SELECT
     s.supplier_id::text AS supplier_id,
     s.current_version_id::text AS version_id,
     v.name,
-    v.supplier_type,
-    v.building,
+    t.name AS supplier_type,
+    t.id::text AS supplier_type_id,
+    b.name AS building,
+    b.id::text AS building_id,
     v.floor,
     v.location_description,
     v.latitude,
@@ -139,17 +149,19 @@ FROM suppliers AS s
 JOIN supplier_versions AS v
   ON v.supplier_id = s.supplier_id
  AND v.version_id = s.current_version_id
+JOIN buildings AS b ON b.id = v.building_id
+JOIN supplier_types AS t ON t.id = v.supplier_type_id
 WHERE s.deleted_at IS NULL
   AND (
       sqlc.arg(query_text)::text = ''
       OR strpos(s.current_normalized_name, normalize_supplier_name(sqlc.arg(query_text)::text)) > 0
-      OR strpos(normalize_supplier_name(v.building), normalize_supplier_name(sqlc.arg(query_text)::text)) > 0
+      OR strpos(normalize_supplier_name(b.name), normalize_supplier_name(sqlc.arg(query_text)::text)) > 0
       OR strpos(normalize_supplier_name(v.floor), normalize_supplier_name(sqlc.arg(query_text)::text)) > 0
       OR strpos(normalize_supplier_name(v.location_description), normalize_supplier_name(sqlc.arg(query_text)::text)) > 0
   )
   AND (
       sqlc.arg(supplier_type)::text = ''
-      OR lower(btrim(v.supplier_type)) = lower(btrim(sqlc.arg(supplier_type)::text))
+      OR t.lookup_key = normalize_lookup_key(sqlc.arg(supplier_type)::text)
   )
   AND (
       NOT sqlc.arg(has_cursor)::boolean
@@ -164,8 +176,10 @@ SELECT
     s.supplier_id::text AS supplier_id,
     s.current_version_id::text AS version_id,
     v.name,
-    v.supplier_type,
-    v.building,
+    t.name AS supplier_type,
+    t.id::text AS supplier_type_id,
+    b.name AS building,
+    b.id::text AS building_id,
     v.floor,
     v.location_description,
     v.latitude,
@@ -180,17 +194,19 @@ FROM suppliers AS s
 JOIN supplier_versions AS v
   ON v.supplier_id = s.supplier_id
  AND v.version_id = s.current_version_id
+JOIN buildings AS b ON b.id = v.building_id
+JOIN supplier_types AS t ON t.id = v.supplier_type_id
 WHERE s.deleted_at IS NULL
   AND (
       sqlc.arg(query_text)::text = ''
       OR strpos(s.current_normalized_name, normalize_supplier_name(sqlc.arg(query_text)::text)) > 0
-      OR strpos(normalize_supplier_name(v.building), normalize_supplier_name(sqlc.arg(query_text)::text)) > 0
+      OR strpos(normalize_supplier_name(b.name), normalize_supplier_name(sqlc.arg(query_text)::text)) > 0
       OR strpos(normalize_supplier_name(v.floor), normalize_supplier_name(sqlc.arg(query_text)::text)) > 0
       OR strpos(normalize_supplier_name(v.location_description), normalize_supplier_name(sqlc.arg(query_text)::text)) > 0
   )
   AND (
       sqlc.arg(supplier_type)::text = ''
-      OR lower(btrim(v.supplier_type)) = lower(btrim(sqlc.arg(supplier_type)::text))
+      OR t.lookup_key = normalize_lookup_key(sqlc.arg(supplier_type)::text)
   )
   AND (
       NOT sqlc.arg(has_cursor)::boolean
@@ -201,14 +217,16 @@ ORDER BY s.current_normalized_name DESC, s.supplier_id DESC
 LIMIT sqlc.arg(page_limit);
 
 -- name: ListAvailableSuppliersByType :many
--- cursor_type is the anchor version's raw type; it is normalized here with
--- the same expression as the sort key.
+-- cursor_type is the anchor version's type name; normalize_lookup_key turns
+-- it into the sort key even if that type has since been retired.
 SELECT
     s.supplier_id::text AS supplier_id,
     s.current_version_id::text AS version_id,
     v.name,
-    v.supplier_type,
-    v.building,
+    t.name AS supplier_type,
+    t.id::text AS supplier_type_id,
+    b.name AS building,
+    b.id::text AS building_id,
     v.floor,
     v.location_description,
     v.latitude,
@@ -223,24 +241,26 @@ FROM suppliers AS s
 JOIN supplier_versions AS v
   ON v.supplier_id = s.supplier_id
  AND v.version_id = s.current_version_id
+JOIN buildings AS b ON b.id = v.building_id
+JOIN supplier_types AS t ON t.id = v.supplier_type_id
 WHERE s.deleted_at IS NULL
   AND (
       sqlc.arg(query_text)::text = ''
       OR strpos(s.current_normalized_name, normalize_supplier_name(sqlc.arg(query_text)::text)) > 0
-      OR strpos(normalize_supplier_name(v.building), normalize_supplier_name(sqlc.arg(query_text)::text)) > 0
+      OR strpos(normalize_supplier_name(b.name), normalize_supplier_name(sqlc.arg(query_text)::text)) > 0
       OR strpos(normalize_supplier_name(v.floor), normalize_supplier_name(sqlc.arg(query_text)::text)) > 0
       OR strpos(normalize_supplier_name(v.location_description), normalize_supplier_name(sqlc.arg(query_text)::text)) > 0
   )
   AND (
       sqlc.arg(supplier_type)::text = ''
-      OR lower(btrim(v.supplier_type)) = lower(btrim(sqlc.arg(supplier_type)::text))
+      OR t.lookup_key = normalize_lookup_key(sqlc.arg(supplier_type)::text)
   )
   AND (
       NOT sqlc.arg(has_cursor)::boolean
-      OR (lower(btrim(v.supplier_type)), s.current_normalized_name, s.supplier_id) >
-         (lower(btrim(sqlc.arg(cursor_type)::text)), sqlc.arg(cursor_name)::text, NULLIF(sqlc.arg(cursor_supplier_id)::text, '')::uuid)
+      OR (t.lookup_key, s.current_normalized_name, s.supplier_id) >
+         (normalize_lookup_key(sqlc.arg(cursor_type)::text), sqlc.arg(cursor_name)::text, NULLIF(sqlc.arg(cursor_supplier_id)::text, '')::uuid)
   )
-ORDER BY lower(btrim(v.supplier_type)), s.current_normalized_name, s.supplier_id
+ORDER BY t.lookup_key, s.current_normalized_name, s.supplier_id
 LIMIT sqlc.arg(page_limit);
 
 -- name: ListAvailableSuppliersByTypeDesc :many
@@ -248,8 +268,10 @@ SELECT
     s.supplier_id::text AS supplier_id,
     s.current_version_id::text AS version_id,
     v.name,
-    v.supplier_type,
-    v.building,
+    t.name AS supplier_type,
+    t.id::text AS supplier_type_id,
+    b.name AS building,
+    b.id::text AS building_id,
     v.floor,
     v.location_description,
     v.latitude,
@@ -264,35 +286,39 @@ FROM suppliers AS s
 JOIN supplier_versions AS v
   ON v.supplier_id = s.supplier_id
  AND v.version_id = s.current_version_id
+JOIN buildings AS b ON b.id = v.building_id
+JOIN supplier_types AS t ON t.id = v.supplier_type_id
 WHERE s.deleted_at IS NULL
   AND (
       sqlc.arg(query_text)::text = ''
       OR strpos(s.current_normalized_name, normalize_supplier_name(sqlc.arg(query_text)::text)) > 0
-      OR strpos(normalize_supplier_name(v.building), normalize_supplier_name(sqlc.arg(query_text)::text)) > 0
+      OR strpos(normalize_supplier_name(b.name), normalize_supplier_name(sqlc.arg(query_text)::text)) > 0
       OR strpos(normalize_supplier_name(v.floor), normalize_supplier_name(sqlc.arg(query_text)::text)) > 0
       OR strpos(normalize_supplier_name(v.location_description), normalize_supplier_name(sqlc.arg(query_text)::text)) > 0
   )
   AND (
       sqlc.arg(supplier_type)::text = ''
-      OR lower(btrim(v.supplier_type)) = lower(btrim(sqlc.arg(supplier_type)::text))
+      OR t.lookup_key = normalize_lookup_key(sqlc.arg(supplier_type)::text)
   )
   AND (
       NOT sqlc.arg(has_cursor)::boolean
-      OR (lower(btrim(v.supplier_type)), s.current_normalized_name, s.supplier_id) <
-         (lower(btrim(sqlc.arg(cursor_type)::text)), sqlc.arg(cursor_name)::text, NULLIF(sqlc.arg(cursor_supplier_id)::text, '')::uuid)
+      OR (t.lookup_key, s.current_normalized_name, s.supplier_id) <
+         (normalize_lookup_key(sqlc.arg(cursor_type)::text), sqlc.arg(cursor_name)::text, NULLIF(sqlc.arg(cursor_supplier_id)::text, '')::uuid)
   )
-ORDER BY lower(btrim(v.supplier_type)) DESC, s.current_normalized_name DESC, s.supplier_id DESC
+ORDER BY t.lookup_key DESC, s.current_normalized_name DESC, s.supplier_id DESC
 LIMIT sqlc.arg(page_limit);
 
 -- name: ListAvailableSuppliersByBuilding :many
--- cursor_building is the anchor version's raw building; it is normalized
--- here with the same expression as the sort key.
+-- cursor_building is the anchor version's building name; normalize_lookup_key
+-- turns it into the sort key even if that building has since been retired.
 SELECT
     s.supplier_id::text AS supplier_id,
     s.current_version_id::text AS version_id,
     v.name,
-    v.supplier_type,
-    v.building,
+    t.name AS supplier_type,
+    t.id::text AS supplier_type_id,
+    b.name AS building,
+    b.id::text AS building_id,
     v.floor,
     v.location_description,
     v.latitude,
@@ -307,24 +333,26 @@ FROM suppliers AS s
 JOIN supplier_versions AS v
   ON v.supplier_id = s.supplier_id
  AND v.version_id = s.current_version_id
+JOIN buildings AS b ON b.id = v.building_id
+JOIN supplier_types AS t ON t.id = v.supplier_type_id
 WHERE s.deleted_at IS NULL
   AND (
       sqlc.arg(query_text)::text = ''
       OR strpos(s.current_normalized_name, normalize_supplier_name(sqlc.arg(query_text)::text)) > 0
-      OR strpos(normalize_supplier_name(v.building), normalize_supplier_name(sqlc.arg(query_text)::text)) > 0
+      OR strpos(normalize_supplier_name(b.name), normalize_supplier_name(sqlc.arg(query_text)::text)) > 0
       OR strpos(normalize_supplier_name(v.floor), normalize_supplier_name(sqlc.arg(query_text)::text)) > 0
       OR strpos(normalize_supplier_name(v.location_description), normalize_supplier_name(sqlc.arg(query_text)::text)) > 0
   )
   AND (
       sqlc.arg(supplier_type)::text = ''
-      OR lower(btrim(v.supplier_type)) = lower(btrim(sqlc.arg(supplier_type)::text))
+      OR t.lookup_key = normalize_lookup_key(sqlc.arg(supplier_type)::text)
   )
   AND (
       NOT sqlc.arg(has_cursor)::boolean
-      OR (normalize_supplier_name(v.building), s.current_normalized_name, s.supplier_id) >
-         (normalize_supplier_name(sqlc.arg(cursor_building)::text), sqlc.arg(cursor_name)::text, NULLIF(sqlc.arg(cursor_supplier_id)::text, '')::uuid)
+      OR (b.lookup_key, s.current_normalized_name, s.supplier_id) >
+         (normalize_lookup_key(sqlc.arg(cursor_building)::text), sqlc.arg(cursor_name)::text, NULLIF(sqlc.arg(cursor_supplier_id)::text, '')::uuid)
   )
-ORDER BY normalize_supplier_name(v.building), s.current_normalized_name, s.supplier_id
+ORDER BY b.lookup_key, s.current_normalized_name, s.supplier_id
 LIMIT sqlc.arg(page_limit);
 
 -- name: ListAvailableSuppliersByBuildingDesc :many
@@ -332,8 +360,10 @@ SELECT
     s.supplier_id::text AS supplier_id,
     s.current_version_id::text AS version_id,
     v.name,
-    v.supplier_type,
-    v.building,
+    t.name AS supplier_type,
+    t.id::text AS supplier_type_id,
+    b.name AS building,
+    b.id::text AS building_id,
     v.floor,
     v.location_description,
     v.latitude,
@@ -348,24 +378,26 @@ FROM suppliers AS s
 JOIN supplier_versions AS v
   ON v.supplier_id = s.supplier_id
  AND v.version_id = s.current_version_id
+JOIN buildings AS b ON b.id = v.building_id
+JOIN supplier_types AS t ON t.id = v.supplier_type_id
 WHERE s.deleted_at IS NULL
   AND (
       sqlc.arg(query_text)::text = ''
       OR strpos(s.current_normalized_name, normalize_supplier_name(sqlc.arg(query_text)::text)) > 0
-      OR strpos(normalize_supplier_name(v.building), normalize_supplier_name(sqlc.arg(query_text)::text)) > 0
+      OR strpos(normalize_supplier_name(b.name), normalize_supplier_name(sqlc.arg(query_text)::text)) > 0
       OR strpos(normalize_supplier_name(v.floor), normalize_supplier_name(sqlc.arg(query_text)::text)) > 0
       OR strpos(normalize_supplier_name(v.location_description), normalize_supplier_name(sqlc.arg(query_text)::text)) > 0
   )
   AND (
       sqlc.arg(supplier_type)::text = ''
-      OR lower(btrim(v.supplier_type)) = lower(btrim(sqlc.arg(supplier_type)::text))
+      OR t.lookup_key = normalize_lookup_key(sqlc.arg(supplier_type)::text)
   )
   AND (
       NOT sqlc.arg(has_cursor)::boolean
-      OR (normalize_supplier_name(v.building), s.current_normalized_name, s.supplier_id) <
-         (normalize_supplier_name(sqlc.arg(cursor_building)::text), sqlc.arg(cursor_name)::text, NULLIF(sqlc.arg(cursor_supplier_id)::text, '')::uuid)
+      OR (b.lookup_key, s.current_normalized_name, s.supplier_id) <
+         (normalize_lookup_key(sqlc.arg(cursor_building)::text), sqlc.arg(cursor_name)::text, NULLIF(sqlc.arg(cursor_supplier_id)::text, '')::uuid)
   )
-ORDER BY normalize_supplier_name(v.building) DESC, s.current_normalized_name DESC, s.supplier_id DESC
+ORDER BY b.lookup_key DESC, s.current_normalized_name DESC, s.supplier_id DESC
 LIMIT sqlc.arg(page_limit);
 
 -- name: NormalizedSupplierNameExists :one
@@ -379,3 +411,35 @@ SELECT EXISTS (
           OR supplier_id <> NULLIF(sqlc.arg(exclude_supplier_id)::text, '')::uuid
       )
 ) AS name_exists;
+
+-- Building and supplier-type lookups. Resolution considers live rows only;
+-- reads of existing versions join by ID, so retired rows still resolve there.
+
+-- name: ResolveBuildingByKey :one
+SELECT id::text AS id, name
+FROM buildings
+WHERE lookup_key = normalize_lookup_key(sqlc.arg(name)::text)
+  AND retired_at IS NULL;
+
+-- name: ResolveSupplierTypeByKey :one
+SELECT id::text AS id, name
+FROM supplier_types
+WHERE lookup_key = normalize_lookup_key(sqlc.arg(name)::text)
+  AND retired_at IS NULL;
+
+-- InsertBuilding and InsertSupplierType return no row when a live row with
+-- the same lookup key already exists, including one inserted concurrently.
+-- Unlike a unique violation this does not abort the caller's transaction, so
+-- the caller can resolve again and use the winning row.
+
+-- name: InsertBuilding :one
+INSERT INTO buildings (name, created_at)
+VALUES (sqlc.arg(name), sqlc.arg(now))
+ON CONFLICT (lookup_key) WHERE retired_at IS NULL DO NOTHING
+RETURNING id::text AS id, name;
+
+-- name: InsertSupplierType :one
+INSERT INTO supplier_types (name, created_at)
+VALUES (sqlc.arg(name), sqlc.arg(now))
+ON CONFLICT (lookup_key) WHERE retired_at IS NULL DO NOTHING
+RETURNING id::text AS id, name;
