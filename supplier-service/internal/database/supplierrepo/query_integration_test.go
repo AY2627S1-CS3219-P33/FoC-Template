@@ -125,3 +125,101 @@ func TestCursorRemainsBoundedForUnicodeAndResolvesDeletedAnchor(t *testing.T) {
 	require.NotEqual(t, first.Items[0].SupplierID, last.Items[0].SupplierID)
 	require.Empty(t, last.NextCursor)
 }
+
+// Server-side sorting: every sort pages through one total order, and cursors
+// are bound to the sort that produced them.
+func TestCatalogueSortsPageThroughOneSequence(t *testing.T) {
+	r, _ := migratedRepository(t)
+	ctx := context.Background()
+	for name, place := range map[string]struct{ supplierType, building string }{
+		"Delta":   {" Food ", "Arts"},
+		" alpha ": {"retail", "COM 3"},
+		"Charlie": {"food", "COM  3"},
+		"Bravo":   {"FOOD", "  UTown "},
+		"Echo":    {"Books", "utown"},
+		"Foxtrot": {"retail", "com	3"},
+	} {
+		details := validDetails(name)
+		details.Type, details.Building = place.supplierType, place.building
+		_, err := r.Create(ctx, details, time.Now().UTC())
+		require.NoError(t, err)
+	}
+	for _, test := range []struct {
+		sort  supplier.ListSort
+		names []string
+	}{
+		{"", []string{" alpha ", "Bravo", "Charlie", "Delta", "Echo", "Foxtrot"}},
+		{supplier.SortName, []string{" alpha ", "Bravo", "Charlie", "Delta", "Echo", "Foxtrot"}},
+		{supplier.SortNameDesc, []string{"Foxtrot", "Echo", "Delta", "Charlie", "Bravo", " alpha "}},
+		// Page boundaries at limit=2 fall inside the food and "com 3" groups,
+		// exercising the name tie-break after type and building.
+		{supplier.SortType, []string{"Echo", "Bravo", "Charlie", "Delta", " alpha ", "Foxtrot"}},
+		{supplier.SortTypeDesc, []string{"Foxtrot", " alpha ", "Delta", "Charlie", "Bravo", "Echo"}},
+		{supplier.SortBuilding, []string{"Delta", " alpha ", "Charlie", "Foxtrot", "Bravo", "Echo"}},
+		{supplier.SortBuildingDesc, []string{"Echo", "Bravo", "Foxtrot", "Charlie", " alpha ", "Delta"}},
+	} {
+		unpaged, err := r.ListAvailable(ctx, supplier.ListFilter{Sort: test.sort, Limit: supplier.MaximumPageSize})
+		require.NoError(t, err)
+		require.Empty(t, unpaged.NextCursor)
+		require.Equal(t, test.names, supplierNames(unpaged.Items), "sort %q", test.sort)
+
+		var paged []supplier.Supplier
+		filter := supplier.ListFilter{Sort: test.sort, Limit: 2}
+		for pages := 0; ; pages++ {
+			require.Less(t, pages, len(test.names), "sort %q did not terminate", test.sort)
+			page, err := r.ListAvailable(ctx, filter)
+			require.NoError(t, err)
+			require.LessOrEqual(t, len(page.Items), 2)
+			paged = append(paged, page.Items...)
+			if page.NextCursor == "" {
+				break
+			}
+			filter.Cursor = page.NextCursor
+		}
+		require.Equal(t, unpaged.Items, paged, "sort %q", test.sort)
+		seen := map[supplier.SupplierID]bool{}
+		for _, item := range paged {
+			require.False(t, seen[item.SupplierID], "sort %q duplicated %s", test.sort, item.Details.Name)
+			seen[item.SupplierID] = true
+		}
+	}
+}
+
+func TestCatalogueCursorIsRejectedUnderAnotherSort(t *testing.T) {
+	r, _ := migratedRepository(t)
+	ctx := context.Background()
+	for _, name := range []string{"One", "Two", "Three"} {
+		_, err := r.Create(ctx, validDetails(name), time.Now().UTC())
+		require.NoError(t, err)
+	}
+	sorts := supplier.ListSorts
+	for _, from := range sorts {
+		first, err := r.ListAvailable(ctx, supplier.ListFilter{Sort: from, Limit: 1})
+		require.NoError(t, err)
+		require.NotEmpty(t, first.NextCursor)
+		for _, to := range sorts {
+			_, err := r.ListAvailable(ctx, supplier.ListFilter{Sort: to, Limit: 1, Cursor: first.NextCursor})
+			if to == from {
+				require.NoError(t, err)
+				continue
+			}
+			var application *apperror.Error
+			require.ErrorAs(t, err, &application, "%q cursor reused under %q", from, to)
+			require.Equal(t, apperror.InvalidArgument, application.Code)
+			require.Equal(t, "cursor is invalid", application.Message)
+		}
+	}
+	// The omitted sort is the name sort, so their cursors are interchangeable.
+	first, err := r.ListAvailable(ctx, supplier.ListFilter{Limit: 1})
+	require.NoError(t, err)
+	_, err = r.ListAvailable(ctx, supplier.ListFilter{Sort: supplier.SortName, Limit: 1, Cursor: first.NextCursor})
+	require.NoError(t, err)
+}
+
+func supplierNames(items []supplier.Supplier) []string {
+	names := make([]string, 0, len(items))
+	for _, item := range items {
+		names = append(names, item.Details.Name)
+	}
+	return names
+}

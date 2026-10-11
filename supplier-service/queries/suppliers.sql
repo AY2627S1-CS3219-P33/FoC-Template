@@ -112,7 +112,13 @@ FROM supplier_versions AS v
 JOIN suppliers AS s ON s.supplier_id = v.supplier_id
 WHERE v.version_id = sqlc.arg(version_id)::text::uuid;
 
--- name: ListAvailableSuppliers :many
+-- The ListAvailableSuppliers* queries share one projection and filter and
+-- differ only in sort key. Each keyset predicate compares the same tuple, in
+-- the same direction, as its ORDER BY so pages never overlap or skip rows.
+-- Descending sorts reverse the whole key, so they are exactly the ascending
+-- sequence read backwards.
+
+-- name: ListAvailableSuppliersByName :many
 SELECT
     s.supplier_id::text AS supplier_id,
     s.current_version_id::text AS version_id,
@@ -151,6 +157,215 @@ WHERE s.deleted_at IS NULL
          (sqlc.arg(cursor_name)::text, NULLIF(sqlc.arg(cursor_supplier_id)::text, '')::uuid)
   )
 ORDER BY s.current_normalized_name, s.supplier_id
+LIMIT sqlc.arg(page_limit);
+
+-- name: ListAvailableSuppliersByNameDesc :many
+SELECT
+    s.supplier_id::text AS supplier_id,
+    s.current_version_id::text AS version_id,
+    v.name,
+    v.supplier_type,
+    v.building,
+    v.floor,
+    v.location_description,
+    v.latitude,
+    v.longitude,
+    to_char(v.opening_time, 'HH24:MI') AS opening_time,
+    to_char(v.closing_time, 'HH24:MI') AS closing_time,
+    COALESCE(v.image_url, '') AS image_url,
+    s.created_at,
+    s.updated_at,
+    s.current_normalized_name AS normalized_name
+FROM suppliers AS s
+JOIN supplier_versions AS v
+  ON v.supplier_id = s.supplier_id
+ AND v.version_id = s.current_version_id
+WHERE s.deleted_at IS NULL
+  AND (
+      sqlc.arg(query_text)::text = ''
+      OR strpos(s.current_normalized_name, normalize_supplier_name(sqlc.arg(query_text)::text)) > 0
+      OR strpos(normalize_supplier_name(v.building), normalize_supplier_name(sqlc.arg(query_text)::text)) > 0
+      OR strpos(normalize_supplier_name(v.floor), normalize_supplier_name(sqlc.arg(query_text)::text)) > 0
+      OR strpos(normalize_supplier_name(v.location_description), normalize_supplier_name(sqlc.arg(query_text)::text)) > 0
+  )
+  AND (
+      sqlc.arg(supplier_type)::text = ''
+      OR lower(btrim(v.supplier_type)) = lower(btrim(sqlc.arg(supplier_type)::text))
+  )
+  AND (
+      NOT sqlc.arg(has_cursor)::boolean
+      OR (s.current_normalized_name, s.supplier_id) <
+         (sqlc.arg(cursor_name)::text, NULLIF(sqlc.arg(cursor_supplier_id)::text, '')::uuid)
+  )
+ORDER BY s.current_normalized_name DESC, s.supplier_id DESC
+LIMIT sqlc.arg(page_limit);
+
+-- name: ListAvailableSuppliersByType :many
+-- cursor_type is the anchor version's raw type; it is normalized here with
+-- the same expression as the sort key.
+SELECT
+    s.supplier_id::text AS supplier_id,
+    s.current_version_id::text AS version_id,
+    v.name,
+    v.supplier_type,
+    v.building,
+    v.floor,
+    v.location_description,
+    v.latitude,
+    v.longitude,
+    to_char(v.opening_time, 'HH24:MI') AS opening_time,
+    to_char(v.closing_time, 'HH24:MI') AS closing_time,
+    COALESCE(v.image_url, '') AS image_url,
+    s.created_at,
+    s.updated_at,
+    s.current_normalized_name AS normalized_name
+FROM suppliers AS s
+JOIN supplier_versions AS v
+  ON v.supplier_id = s.supplier_id
+ AND v.version_id = s.current_version_id
+WHERE s.deleted_at IS NULL
+  AND (
+      sqlc.arg(query_text)::text = ''
+      OR strpos(s.current_normalized_name, normalize_supplier_name(sqlc.arg(query_text)::text)) > 0
+      OR strpos(normalize_supplier_name(v.building), normalize_supplier_name(sqlc.arg(query_text)::text)) > 0
+      OR strpos(normalize_supplier_name(v.floor), normalize_supplier_name(sqlc.arg(query_text)::text)) > 0
+      OR strpos(normalize_supplier_name(v.location_description), normalize_supplier_name(sqlc.arg(query_text)::text)) > 0
+  )
+  AND (
+      sqlc.arg(supplier_type)::text = ''
+      OR lower(btrim(v.supplier_type)) = lower(btrim(sqlc.arg(supplier_type)::text))
+  )
+  AND (
+      NOT sqlc.arg(has_cursor)::boolean
+      OR (lower(btrim(v.supplier_type)), s.current_normalized_name, s.supplier_id) >
+         (lower(btrim(sqlc.arg(cursor_type)::text)), sqlc.arg(cursor_name)::text, NULLIF(sqlc.arg(cursor_supplier_id)::text, '')::uuid)
+  )
+ORDER BY lower(btrim(v.supplier_type)), s.current_normalized_name, s.supplier_id
+LIMIT sqlc.arg(page_limit);
+
+-- name: ListAvailableSuppliersByTypeDesc :many
+SELECT
+    s.supplier_id::text AS supplier_id,
+    s.current_version_id::text AS version_id,
+    v.name,
+    v.supplier_type,
+    v.building,
+    v.floor,
+    v.location_description,
+    v.latitude,
+    v.longitude,
+    to_char(v.opening_time, 'HH24:MI') AS opening_time,
+    to_char(v.closing_time, 'HH24:MI') AS closing_time,
+    COALESCE(v.image_url, '') AS image_url,
+    s.created_at,
+    s.updated_at,
+    s.current_normalized_name AS normalized_name
+FROM suppliers AS s
+JOIN supplier_versions AS v
+  ON v.supplier_id = s.supplier_id
+ AND v.version_id = s.current_version_id
+WHERE s.deleted_at IS NULL
+  AND (
+      sqlc.arg(query_text)::text = ''
+      OR strpos(s.current_normalized_name, normalize_supplier_name(sqlc.arg(query_text)::text)) > 0
+      OR strpos(normalize_supplier_name(v.building), normalize_supplier_name(sqlc.arg(query_text)::text)) > 0
+      OR strpos(normalize_supplier_name(v.floor), normalize_supplier_name(sqlc.arg(query_text)::text)) > 0
+      OR strpos(normalize_supplier_name(v.location_description), normalize_supplier_name(sqlc.arg(query_text)::text)) > 0
+  )
+  AND (
+      sqlc.arg(supplier_type)::text = ''
+      OR lower(btrim(v.supplier_type)) = lower(btrim(sqlc.arg(supplier_type)::text))
+  )
+  AND (
+      NOT sqlc.arg(has_cursor)::boolean
+      OR (lower(btrim(v.supplier_type)), s.current_normalized_name, s.supplier_id) <
+         (lower(btrim(sqlc.arg(cursor_type)::text)), sqlc.arg(cursor_name)::text, NULLIF(sqlc.arg(cursor_supplier_id)::text, '')::uuid)
+  )
+ORDER BY lower(btrim(v.supplier_type)) DESC, s.current_normalized_name DESC, s.supplier_id DESC
+LIMIT sqlc.arg(page_limit);
+
+-- name: ListAvailableSuppliersByBuilding :many
+-- cursor_building is the anchor version's raw building; it is normalized
+-- here with the same expression as the sort key.
+SELECT
+    s.supplier_id::text AS supplier_id,
+    s.current_version_id::text AS version_id,
+    v.name,
+    v.supplier_type,
+    v.building,
+    v.floor,
+    v.location_description,
+    v.latitude,
+    v.longitude,
+    to_char(v.opening_time, 'HH24:MI') AS opening_time,
+    to_char(v.closing_time, 'HH24:MI') AS closing_time,
+    COALESCE(v.image_url, '') AS image_url,
+    s.created_at,
+    s.updated_at,
+    s.current_normalized_name AS normalized_name
+FROM suppliers AS s
+JOIN supplier_versions AS v
+  ON v.supplier_id = s.supplier_id
+ AND v.version_id = s.current_version_id
+WHERE s.deleted_at IS NULL
+  AND (
+      sqlc.arg(query_text)::text = ''
+      OR strpos(s.current_normalized_name, normalize_supplier_name(sqlc.arg(query_text)::text)) > 0
+      OR strpos(normalize_supplier_name(v.building), normalize_supplier_name(sqlc.arg(query_text)::text)) > 0
+      OR strpos(normalize_supplier_name(v.floor), normalize_supplier_name(sqlc.arg(query_text)::text)) > 0
+      OR strpos(normalize_supplier_name(v.location_description), normalize_supplier_name(sqlc.arg(query_text)::text)) > 0
+  )
+  AND (
+      sqlc.arg(supplier_type)::text = ''
+      OR lower(btrim(v.supplier_type)) = lower(btrim(sqlc.arg(supplier_type)::text))
+  )
+  AND (
+      NOT sqlc.arg(has_cursor)::boolean
+      OR (normalize_supplier_name(v.building), s.current_normalized_name, s.supplier_id) >
+         (normalize_supplier_name(sqlc.arg(cursor_building)::text), sqlc.arg(cursor_name)::text, NULLIF(sqlc.arg(cursor_supplier_id)::text, '')::uuid)
+  )
+ORDER BY normalize_supplier_name(v.building), s.current_normalized_name, s.supplier_id
+LIMIT sqlc.arg(page_limit);
+
+-- name: ListAvailableSuppliersByBuildingDesc :many
+SELECT
+    s.supplier_id::text AS supplier_id,
+    s.current_version_id::text AS version_id,
+    v.name,
+    v.supplier_type,
+    v.building,
+    v.floor,
+    v.location_description,
+    v.latitude,
+    v.longitude,
+    to_char(v.opening_time, 'HH24:MI') AS opening_time,
+    to_char(v.closing_time, 'HH24:MI') AS closing_time,
+    COALESCE(v.image_url, '') AS image_url,
+    s.created_at,
+    s.updated_at,
+    s.current_normalized_name AS normalized_name
+FROM suppliers AS s
+JOIN supplier_versions AS v
+  ON v.supplier_id = s.supplier_id
+ AND v.version_id = s.current_version_id
+WHERE s.deleted_at IS NULL
+  AND (
+      sqlc.arg(query_text)::text = ''
+      OR strpos(s.current_normalized_name, normalize_supplier_name(sqlc.arg(query_text)::text)) > 0
+      OR strpos(normalize_supplier_name(v.building), normalize_supplier_name(sqlc.arg(query_text)::text)) > 0
+      OR strpos(normalize_supplier_name(v.floor), normalize_supplier_name(sqlc.arg(query_text)::text)) > 0
+      OR strpos(normalize_supplier_name(v.location_description), normalize_supplier_name(sqlc.arg(query_text)::text)) > 0
+  )
+  AND (
+      sqlc.arg(supplier_type)::text = ''
+      OR lower(btrim(v.supplier_type)) = lower(btrim(sqlc.arg(supplier_type)::text))
+  )
+  AND (
+      NOT sqlc.arg(has_cursor)::boolean
+      OR (normalize_supplier_name(v.building), s.current_normalized_name, s.supplier_id) <
+         (normalize_supplier_name(sqlc.arg(cursor_building)::text), sqlc.arg(cursor_name)::text, NULLIF(sqlc.arg(cursor_supplier_id)::text, '')::uuid)
+  )
+ORDER BY normalize_supplier_name(v.building) DESC, s.current_normalized_name DESC, s.supplier_id DESC
 LIMIT sqlc.arg(page_limit);
 
 -- name: NormalizedSupplierNameExists :one

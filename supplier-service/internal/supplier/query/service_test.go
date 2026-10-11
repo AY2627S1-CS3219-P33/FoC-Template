@@ -50,8 +50,36 @@ func TestListNormalizesSearchAndTypeAndDefaultsPageSize(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, reader.page, page)
-	require.Equal(t, supplier.ListFilter{Query: "com 3", Type: "food", Limit: 25, Cursor: "previous"}, reader.filter)
+	require.Equal(t, supplier.ListFilter{Query: "com 3", Type: "food", Sort: supplier.SortName, Limit: 25, Cursor: "previous"}, reader.filter)
 	require.Equal(t, ctx, reader.ctx)
+}
+
+func TestListPassesEachValidSortAndDefaultsToName(t *testing.T) {
+	for input, expected := range map[supplier.ListSort]supplier.ListSort{
+		"":                        supplier.SortName,
+		supplier.SortName:         supplier.SortName,
+		supplier.SortNameDesc:     supplier.SortNameDesc,
+		supplier.SortType:         supplier.SortType,
+		supplier.SortTypeDesc:     supplier.SortTypeDesc,
+		supplier.SortBuilding:     supplier.SortBuilding,
+		supplier.SortBuildingDesc: supplier.SortBuildingDesc,
+	} {
+		reader := &readerStub{}
+		_, err := NewService(reader).List(context.Background(), auth.Principal{Subject: "user-1", Permissions: []auth.Permission{auth.ReadSuppliers}}, supplier.ListFilter{Sort: input})
+		require.NoError(t, err)
+		require.Equal(t, expected, reader.filter.Sort, "sort %q", input)
+	}
+}
+
+func TestListRejectsUnknownSortWithSortField(t *testing.T) {
+	for _, sort := range []supplier.ListSort{"NAME", "+name", "--name", "name ", "created", "-floor", "building,name"} {
+		reader := &readerStub{}
+		_, err := NewService(reader).List(context.Background(), auth.Principal{Subject: "user-1", Permissions: []auth.Permission{auth.ReadSuppliers}}, supplier.ListFilter{Sort: sort})
+		var validation *supplier.ValidationError
+		require.ErrorAs(t, err, &validation, "sort %q", sort)
+		require.Equal(t, []supplier.FieldViolation{{Field: "sort", Message: "must be one of name, -name, type, -type, building, -building"}}, validation.Violations)
+		require.Zero(t, reader.calls)
+	}
 }
 
 func TestListRejectsInvalidFiltersBeforeReading(t *testing.T) {

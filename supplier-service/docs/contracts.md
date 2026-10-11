@@ -45,11 +45,31 @@ numeric value so an omitted coordinate cannot be mistaken for valid zero.
 - `q`: normalized, case-insensitive match against name, building, floor, or
   location description;
 - `type`: exact, case-insensitive type match;
+- `sort`: `name` (default), `-name`, `type`, `-type`, `building`, or
+  `-building`;
 - `limit`: 1-100, default 25;
 - `cursor`: an opaque continuation value returned as `nextCursor`.
 
-Results are ordered by normalized name and then `supplierId`, both ascending,
-before applying the cursor. Clients must not parse or construct cursors.
+Ordering is applied on the server before the cursor, so clients must not
+re-sort a partially loaded list:
+
+| `sort` | Order |
+| --- | --- |
+| `name` | normalized name, then `supplierId`, both ascending |
+| `-name` | normalized name, then `supplierId`, both descending |
+| `type` | trimmed lower-case type, then normalized name, then `supplierId`, all ascending |
+| `-type` | the `type` order with every key descending |
+| `building` | normalized building (as used by `q`), then normalized name, then `supplierId`, all ascending |
+| `-building` | the `building` order with every key descending |
+
+A `-` prefix reverses every key, so a descending list is exactly the
+ascending list read backwards; for example, `-type` also lists names Z-A within
+each type.
+
+Any other `sort` value, including an empty one, is rejected with
+`INVALID_ARGUMENT` and field `sort`. Clients must not parse or construct
+cursors. A cursor is bound to the `q`, `type`, and `sort` that produced it;
+reusing it with different values is rejected as `cursor is invalid`.
 `nextCursor` is omitted on the last page.
 
 ## Authorization and errors

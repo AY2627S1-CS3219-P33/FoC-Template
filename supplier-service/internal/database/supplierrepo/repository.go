@@ -219,12 +219,20 @@ func (r *Repository) ListAvailable(ctx context.Context, filter supplier.ListFilt
 		return supplier.Page{}, err
 	}
 
-	var cursorName, cursorSupplierID string
+	params := db.ListAvailableSuppliersByNameParams{
+		QueryText:    supplier.NormalizeName(filter.Query),
+		SupplierType: strings.ToLower(strings.TrimSpace(filter.Type)),
+		HasCursor:    filter.Cursor != "",
+		PageLimit:    int32(filter.PageSize() + 1),
+	}
+	var anchorDetails supplier.Details
 	if filter.Cursor != "" {
 		versionID, err := r.decodeCursor(filter.Cursor, filter)
 		if err != nil {
 			return supplier.Page{}, err
 		}
+		// The immutable anchor version supplies every sort-key column, so the
+		// cursor stays valid after its supplier is renamed or deleted.
 		anchor, err := r.GetVersion(ctx, versionID)
 		if err != nil {
 			var application *apperror.Error
@@ -233,21 +241,15 @@ func (r *Repository) ListAvailable(ctx context.Context, filter supplier.ListFilt
 			}
 			return supplier.Page{}, err
 		}
-		cursorName, cursorSupplierID = supplier.NormalizeName(anchor.Details.Name), string(anchor.SupplierID)
+		params.CursorName, params.CursorSupplierID = supplier.NormalizeName(anchor.Details.Name), string(anchor.SupplierID)
+		anchorDetails = anchor.Details
 	}
-	pageSize := filter.PageSize()
-	rows, err := r.queries.ListAvailableSuppliers(ctx, db.ListAvailableSuppliersParams{
-		QueryText:        supplier.NormalizeName(filter.Query),
-		SupplierType:     strings.ToLower(strings.TrimSpace(filter.Type)),
-		HasCursor:        filter.Cursor != "",
-		CursorName:       cursorName,
-		CursorSupplierID: cursorSupplierID,
-		PageLimit:        int32(pageSize + 1),
-	})
+	rows, err := r.listAvailableRows(ctx, filter.SortOrder(), params, anchorDetails)
 	if err != nil {
 		return supplier.Page{}, err
 	}
 
+	pageSize := filter.PageSize()
 	page := supplier.Page{Items: make([]supplier.Supplier, 0, min(len(rows), pageSize))}
 	for _, row := range rows[:min(len(rows), pageSize)] {
 		page.Items = append(page.Items, supplier.Supplier{
@@ -275,6 +277,62 @@ func (r *Repository) ListAvailable(ctx context.Context, filter supplier.ListFilt
 		page.NextCursor = r.encodeCursor(supplier.VersionID(last.VersionID), filter)
 	}
 	return page, nil
+}
+
+// listAvailableRows dispatches to the per-sort query. Type and building sorts
+// receive the anchor's raw values; SQL normalizes them like the sort key.
+func (r *Repository) listAvailableRows(ctx context.Context, sort supplier.ListSort, params db.ListAvailableSuppliersByNameParams, anchor supplier.Details) ([]db.ListAvailableSuppliersByNameRow, error) {
+	typeParams := db.ListAvailableSuppliersByTypeParams{
+		QueryText:        params.QueryText,
+		SupplierType:     params.SupplierType,
+		HasCursor:        params.HasCursor,
+		CursorType:       anchor.Type,
+		CursorName:       params.CursorName,
+		CursorSupplierID: params.CursorSupplierID,
+		PageLimit:        params.PageLimit,
+	}
+	buildingParams := db.ListAvailableSuppliersByBuildingParams{
+		QueryText:        params.QueryText,
+		SupplierType:     params.SupplierType,
+		HasCursor:        params.HasCursor,
+		CursorBuilding:   anchor.Building,
+		CursorName:       params.CursorName,
+		CursorSupplierID: params.CursorSupplierID,
+		PageLimit:        params.PageLimit,
+	}
+	switch sort {
+	case supplier.SortName:
+		return r.queries.ListAvailableSuppliersByName(ctx, params)
+	case supplier.SortNameDesc:
+		return nameRows(r.queries.ListAvailableSuppliersByNameDesc(ctx, db.ListAvailableSuppliersByNameDescParams(params)))
+	case supplier.SortType:
+		return nameRows(r.queries.ListAvailableSuppliersByType(ctx, typeParams))
+	case supplier.SortTypeDesc:
+		return nameRows(r.queries.ListAvailableSuppliersByTypeDesc(ctx, db.ListAvailableSuppliersByTypeDescParams(typeParams)))
+	case supplier.SortBuilding:
+		return nameRows(r.queries.ListAvailableSuppliersByBuilding(ctx, buildingParams))
+	case supplier.SortBuildingDesc:
+		return nameRows(r.queries.ListAvailableSuppliersByBuildingDesc(ctx, db.ListAvailableSuppliersByBuildingDescParams(buildingParams)))
+	}
+	return nil, invalidArgument("sort is invalid")
+}
+
+// availableRow is the set of generated list row types. They share one
+// projection, so each converts to the name-ordered row type.
+type availableRow interface {
+	db.ListAvailableSuppliersByNameDescRow |
+		db.ListAvailableSuppliersByTypeRow |
+		db.ListAvailableSuppliersByTypeDescRow |
+		db.ListAvailableSuppliersByBuildingRow |
+		db.ListAvailableSuppliersByBuildingDescRow
+}
+
+func nameRows[T availableRow](rows []T, err error) ([]db.ListAvailableSuppliersByNameRow, error) {
+	converted := make([]db.ListAvailableSuppliersByNameRow, len(rows))
+	for i, row := range rows {
+		converted[i] = db.ListAvailableSuppliersByNameRow(row)
+	}
+	return converted, err
 }
 
 func (r *Repository) NormalizedNameExists(ctx context.Context, name string, excluded *supplier.SupplierID) (exists bool, err error) {

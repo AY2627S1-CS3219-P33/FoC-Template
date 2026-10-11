@@ -32,7 +32,12 @@ func (h Handler) list(response http.ResponseWriter, request *http.Request) {
 		return
 	}
 	parameters := request.URL.Query()
-	filter := supplier.ListFilter{Query: parameters.Get("q"), Type: parameters.Get("type"), Cursor: parameters.Get("cursor")}
+	filter := supplier.ListFilter{Query: parameters.Get("q"), Type: parameters.Get("type"), Sort: supplier.ListSort(parameters.Get("sort")), Cursor: parameters.Get("cursor")}
+	// An explicit empty sort is not the omitted default.
+	if parameters.Has("sort") && filter.Sort == "" {
+		writeError(response, &supplier.ValidationError{Violations: []supplier.FieldViolation{supplier.InvalidSortViolation()}})
+		return
+	}
 	if parameters.Has("limit") {
 		var err error
 		filter.Limit, err = strconv.Atoi(parameters.Get("limit"))

@@ -71,6 +71,22 @@ components:
       schema:
         type: string
         maxLength: 64
+    Sort:
+      name: sort
+      in: query
+      description: >-
+        Result ordering, applied before the cursor. name (default) orders by
+        normalized name then supplierId. type orders by trimmed,
+        case-insensitive type, then normalized name, then supplierId.
+        building orders by normalized building (whitespace-collapsed,
+        case-insensitive), then normalized name, then supplierId. These are
+        ascending; the "-" prefixed values reverse every key, giving the same
+        sequence backwards. A cursor is valid only with the sort that
+        produced it.
+      schema:
+        type: string
+        enum: [name, -name, type, -type, building, -building]
+        default: name
     Limit:
       name: limit
       in: query
