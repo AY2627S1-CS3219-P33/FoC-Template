@@ -19,8 +19,6 @@ export interface AuthConfig {
   domain: string;
   clientId: string;
   audience: string;
-  // dev is true only when the service runs with the in-process mock issuer.
-  dev?: boolean;
 }
 
 export interface ProfilePatch {

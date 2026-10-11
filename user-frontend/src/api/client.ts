@@ -34,20 +34,6 @@ export function getConfig(): Promise<AuthConfig> {
   return fetch("/api/auth/config", { cache: "no-store" }).then(parse<AuthConfig>);
 }
 
-// DEV-ONLY: mint a signed access token from the mock issuer. Present only when the
-// service runs with DEV_FAKE_AUTH=1.
-export function mintDevToken(params: {
-  sub: string;
-  email: string;
-  nickname: string;
-  name: string;
-}): Promise<{ access_token: string }> {
-  const query = new URLSearchParams(params).toString();
-  return fetch(`/dev/token?${query}`, { cache: "no-store" }).then(
-    parse<{ access_token: string }>,
-  );
-}
-
 // provision creates the local account on first sign-in and is idempotent
 // afterwards; either way it returns the caller's profile.
 export function provision(token: string): Promise<Profile> {

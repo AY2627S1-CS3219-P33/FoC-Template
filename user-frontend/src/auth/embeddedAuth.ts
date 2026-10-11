@@ -25,11 +25,12 @@ export function authError(error: Auth0Error): Error {
 export class EmbeddedAuth {
   private readonly webAuth: WebAuth;
   private readonly connection: string;
-  private accessToken = "";
-  private expiresAt = 0;
-  private renewal: Promise<string> | null = null;
+  private readonly defaultAudience: string;
+  private readonly tokens = new Map<string, { value: string; expiresAt: number }>();
+  private readonly renewals = new Map<string, Promise<string>>();
 
   constructor(config: AuthConfig) {
+    this.defaultAudience = config.audience;
     this.connection = import.meta.env.VITE_AUTH0_CONNECTION || "Username-Password-Authentication";
     this.webAuth = new WebAuth({
       domain: config.domain,
@@ -41,14 +42,13 @@ export class EmbeddedAuth {
     });
   }
 
-  private accept(result: Auth0DecodedHash | null | undefined): string {
+  private accept(result: Auth0DecodedHash | null | undefined, key: string): string {
     const seconds = Number(result?.expiresIn);
     if (!result?.accessToken || !Number.isFinite(seconds) || seconds <= 0) {
       throw new Error("Auth0 did not return a valid API access token.");
     }
-    this.accessToken = result.accessToken;
-    this.expiresAt = Date.now() + seconds * 1000;
-    return this.accessToken;
+    this.tokens.set(key, { value: result.accessToken, expiresAt: Date.now() + seconds * 1000 });
+    return result.accessToken;
   }
 
   async initialize(): Promise<string | null> {
@@ -62,7 +62,7 @@ export class EmbeddedAuth {
             else resolve(value);
           });
         });
-        return this.accept(result);
+        return this.accept(result, this.cacheKey(this.defaultAudience, "openid profile email"));
       } finally {
         window.history.replaceState({}, document.title, window.location.pathname + window.location.search);
       }
@@ -78,24 +78,31 @@ export class EmbeddedAuth {
     }
   }
 
-  getAccessToken(): Promise<string> {
-    if (this.accessToken && Date.now() + 30_000 < this.expiresAt) {
-      return Promise.resolve(this.accessToken);
-    }
-    if (!this.renewal) {
-      this.renewal = new Promise<string>((resolve, reject) => {
-        this.webAuth.checkSession({}, (error, result) => {
-          if (error) {
-            this.accessToken = "";
-            this.expiresAt = 0;
-            reject(Object.assign(authError(error), { code: error.code || error.error }));
-            return;
-          }
-          try { resolve(this.accept(result)); } catch (err) { reject(err); }
-        });
-      }).finally(() => { this.renewal = null; });
-    }
-    return this.renewal;
+  getAccessToken(options: { audience?: string; scope?: string } = {}): Promise<string> {
+    const audience = options.audience || this.defaultAudience;
+    const scope = options.scope || "openid profile email";
+    const key = this.cacheKey(audience, scope);
+    const cached = this.tokens.get(key);
+    if (cached && Date.now() + 30_000 < cached.expiresAt) return Promise.resolve(cached.value);
+
+    const renewal = this.renewals.get(key);
+    if (renewal) return renewal;
+
+    const next = new Promise<string>((resolve, reject) => {
+      this.webAuth.checkSession({ audience, scope }, (error, result) => {
+        if (error) {
+          reject(Object.assign(authError(error), { code: error.code || error.error }));
+          return;
+        }
+        try { resolve(this.accept(result, key)); } catch (err) { reject(err); }
+      });
+    }).finally(() => { this.renewals.delete(key); });
+    this.renewals.set(key, next);
+    return next;
+  }
+
+  private cacheKey(audience: string, scope: string): string {
+    return `${audience}\u0000${scope}`;
   }
 
   login(email: string, password: string): Promise<void> {
@@ -139,8 +146,8 @@ export class EmbeddedAuth {
   }
 
   logout(): void {
-    this.accessToken = "";
-    this.expiresAt = 0;
+    this.tokens.clear();
+    this.renewals.clear();
     this.webAuth.logout({ returnTo: window.location.origin + "/" });
   }
 }

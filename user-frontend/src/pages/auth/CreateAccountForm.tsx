@@ -11,8 +11,8 @@ const CHECK_LABELS: Record<string, string> = {
 };
 
 // Matches wireframe image16 (create account).
-export function CreateAccountForm({ dev, onLogin }: { dev: boolean; onLogin: (email: string) => void }) {
-  const { signUpDev, signUpAuth0, hostedLogin } = useAuth();
+export function CreateAccountForm({ onLogin }: { onLogin: (email: string) => void }) {
+  const { signUpAuth0, hostedLogin } = useAuth();
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -43,14 +43,10 @@ export function CreateAccountForm({ dev, onLogin }: { dev: boolean; onLogin: (em
     setError(null);
     setBusy(true);
     try {
-      if (dev) {
-        await signUpDev(username, email, false);
-      } else {
-        await signUpAuth0(username, email, password);
-        setCreated(true);
-        setPassword("");
-        setConfirm("");
-      }
+      await signUpAuth0(username, email, password);
+      setCreated(true);
+      setPassword("");
+      setConfirm("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not create account.");
     } finally {
@@ -168,7 +164,7 @@ export function CreateAccountForm({ dev, onLogin }: { dev: boolean; onLogin: (em
       <button type="submit" className="btn" disabled={!canSubmit}>
         {busy ? "Creating…" : "Create account"}
       </button>
-      {!dev && error && (
+      {error && (
         <button type="button" className="link-btn mt" disabled={busy} onClick={() => {
           try { hostedLogin(true); } catch (err) { setError(err instanceof Error ? err.message : "Auth0 is unavailable."); }
         }}>
