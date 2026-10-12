@@ -15,7 +15,11 @@ type Reader interface {
 
 // Writer methods are atomic persistence operations, including normalized-name
 // uniqueness enforcement. Create receives already validated details and
-// generates both IDs. Update keeps SupplierID stable, appends a fresh
+// generates both IDs. Both resolve a written building and type to an
+// existing, unretired lookup and return *ValidationError (fields "building"
+// and "type", alongside any other violations) when none matches; neither
+// creates lookups. An unpatched building or type is kept even if retired.
+// Update keeps SupplierID stable, appends a fresh
 // VersionID, and changes the current pointer without mutating an older
 // snapshot. Guarded deletion is exposed separately by DeletionStore.
 type Writer interface {

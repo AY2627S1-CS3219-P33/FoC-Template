@@ -6,7 +6,8 @@ services:
       POSTGRES_USER: supplier_test
       POSTGRES_HOST_AUTH_METHOD: trust
     ports:
-      - "127.0.0.1:5433:5432"
+      # Override when 5433 is taken, e.g. by the e2e stack.
+      - "127.0.0.1:${SUPPLIER_TEST_DB_PORT:-5433}:5432"
     volumes:
       - supplier-test-data:/var/lib/postgresql/data
     healthcheck:

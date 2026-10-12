@@ -433,8 +433,10 @@ WHERE lookup_key = normalize_lookup_key(sqlc.arg(name)::text)
   AND retired_at IS NULL
 FOR SHARE;
 
--- InsertBuilding and InsertSupplierType return no row when a live row with
--- the same lookup key already exists, including one inserted concurrently.
+-- InsertBuilding and InsertSupplierType are used only by the seed import's
+-- find-or-create; administrator writes must resolve an existing row. They
+-- return no row when a live row with the same lookup key already exists,
+-- including one inserted concurrently.
 -- Unlike a unique violation this does not abort the caller's transaction, so
 -- the caller can resolve again and use the winning row.
 

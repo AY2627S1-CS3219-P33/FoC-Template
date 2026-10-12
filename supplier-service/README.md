@@ -207,6 +207,13 @@ Start the disposable PostgreSQL database from the repository root:
 docker compose -f supplier-service/compose.test.yaml up -d
 ```
 
+If port 5433 is already taken (for example by the e2e stack), choose another
+host port and use it in `TEST_DATABASE_URL` below:
+
+```sh
+SUPPLIER_TEST_DB_PORT=5434 docker compose -f supplier-service/compose.test.yaml up -d
+```
+
 Configure integration tests with:
 
 ```text

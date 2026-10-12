@@ -68,7 +68,10 @@ func TestPostgresImportIsIdempotentAcrossReorderAndAdministratorChanges(t *testi
 	require.NoError(t, err)
 	require.Equal(t, renamed, alpha.Details.Name)
 
+	// Administrators may only assign an existing building.
 	updatedBuilding := "Administrator Building"
+	_, err = repository.CreateLookup(ctx, supplier.BuildingLookup, updatedBuilding, seededAt.Add(2*time.Hour))
+	require.NoError(t, err)
 	bravo, err := repository.Update(ctx, bravoID, supplier.Patch{Building: &updatedBuilding}, seededAt.Add(2*time.Hour))
 	require.NoError(t, err)
 	require.Equal(t, updatedBuilding, bravo.Details.Building)
@@ -172,6 +175,10 @@ func countLookups(t *testing.T, pool *pgxpool.Pool, table string) int {
 func TestPostgresImportRollsBackTheWholeBatchOnPersistenceFailure(t *testing.T) {
 	pool := migratedSeedDatabase(t)
 	repository := supplierrepo.New(pool)
+	for kind, name := range map[supplier.LookupKind]string{supplier.BuildingLookup: "COM 3", supplier.SupplierTypeLookup: "Food"} {
+		_, err := repository.CreateLookup(context.Background(), kind, name, time.Now().UTC())
+		require.NoError(t, err)
+	}
 	_, err := repository.Create(context.Background(), supplier.Details{
 		Name:                "Conflicting Supplier",
 		Type:                "Food",

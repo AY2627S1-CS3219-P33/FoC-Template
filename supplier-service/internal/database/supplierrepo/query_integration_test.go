@@ -22,6 +22,7 @@ func TestCatalogueSearchFiltersAndOrdering(t *testing.T) {
 		if name == "Beta" {
 			details.Type = "food truck"
 		}
+		createLookups(t, r, details)
 		_, err := r.Create(ctx, details, time.Now().UTC())
 		require.NoError(t, err)
 	}
@@ -69,6 +70,7 @@ func TestCatalogueSearchFiltersAndOrdering(t *testing.T) {
 
 func TestCatalogueReturnsNewestVersionAndExcludesDeletedSuppliers(t *testing.T) {
 	r, pool := migratedRepository(t)
+	createLookups(t, r, validDetails(""))
 	ctx := context.Background()
 	// Exercise a host clock ahead of PostgreSQL without relying on clock sync.
 	createdAt := time.Now().UTC().Add(24 * time.Hour)
@@ -106,6 +108,7 @@ func TestCatalogueReturnsNewestVersionAndExcludesDeletedSuppliers(t *testing.T) 
 
 func TestCursorRemainsBoundedForUnicodeAndResolvesDeletedAnchor(t *testing.T) {
 	r, pool := migratedRepository(t)
+	createLookups(t, r, validDetails(""))
 	ctx := context.Background()
 	createdAt := time.Now().UTC().Add(24 * time.Hour)
 	for _, name := range []string{strings.Repeat("界", 120), strings.Repeat("界", 119) + "齊"} {
@@ -141,6 +144,7 @@ func TestCatalogueSortsPageThroughOneSequence(t *testing.T) {
 	} {
 		details := validDetails(name)
 		details.Type, details.Building = place.supplierType, place.building
+		createLookups(t, r, details)
 		_, err := r.Create(ctx, details, time.Now().UTC())
 		require.NoError(t, err)
 	}
@@ -187,6 +191,7 @@ func TestCatalogueSortsPageThroughOneSequence(t *testing.T) {
 
 func TestCatalogueCursorIsRejectedUnderAnotherSort(t *testing.T) {
 	r, _ := migratedRepository(t)
+	createLookups(t, r, validDetails(""))
 	ctx := context.Background()
 	for _, name := range []string{"One", "Two", "Three"} {
 		_, err := r.Create(ctx, validDetails(name), time.Now().UTC())

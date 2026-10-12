@@ -23,9 +23,10 @@ type DeletionOperationID string
 
 // Details are the versioned, administrator-editable supplier fields.
 // Building and Type are resolved by LookupKey to rows of the buildings and
-// supplier_types lookups; reads return the lookup's canonical name.
-// BuildingID and TypeID identify those rows. They are read-only outputs:
-// writers ignore them and resolve Building and Type instead.
+// supplier_types lookups; reads return the lookup's canonical name. A write
+// may only assign an existing, unretired row. BuildingID and TypeID identify
+// those rows. They are read-only outputs: writers ignore them and resolve
+// Building and Type instead.
 type Details struct {
 	Name                string
 	Type                string
