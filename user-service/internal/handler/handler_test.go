@@ -48,7 +48,7 @@ func testAuthentication(t *testing.T) *middleware.Auth0 {
 }
 
 func TestPublicRoutesAndProtectedRejection(t *testing.T) {
-	h := New(AuthConfig{Domain: "example.auth0.com", ClientID: "client", Audience: "audience"}, testAuthentication(t), &provisionerStub{}, service.NewUserService(nil, nil))
+	h := New(AuthConfig{Domain: "example.auth0.com", ClientID: "client", Audience: "audience"}, testAuthentication(t), &provisionerStub{}, service.NewUserService(nil, nil), nil)
 	tests := []struct {
 		method     string
 		path       string

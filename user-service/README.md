@@ -2,7 +2,7 @@
 
 PostgreSQL-backed student-account service for the food-delivery platform. Auth0 owns registration, credentials, and sessions; this service validates access tokens, provisions local application accounts, and manages profile data. The browser application lives in [user-frontend](../user-frontend/README.md).
 
-Business-level deletion remains blocked until coordinated credit/errand checks and Auth0 session revocation are implemented. Auth0 RBAC now protects self-service profile routes; administrator/super-administrator management and audit logging remain future work. Initial super-administrator bootstrap links a deployment-supplied Auth0 identity. The service never receives or stores passwords.
+Business-level deletion remains blocked until coordinated credit/errand checks and Auth0 session revocation are implemented. Auth0 RBAC protects self-service profile routes and administrator role changes. Auth0 owns authorization; the local account role column is legacy data and is not consulted for access decisions. Initial administrator bootstrap still links a deployment-supplied Auth0 identity locally. The service never receives or stores passwords.
 
 ## Structure
 
@@ -12,7 +12,7 @@ internal/config/        Environment configuration
 internal/handler/       HTTP handlers
 internal/service/       Internal student-account operations and future integrations
 internal/repository/    Persistence contracts and PostgreSQL adapter
-internal/auth/          Auth0 user-profile client
+internal/auth/          Auth0 user-profile and Management API clients
 internal/middleware/    Auth0 JWT authentication
 migrations/             Versioned account schema SQL
 Dockerfile              Multi-stage image build
@@ -63,9 +63,10 @@ The user service owns:
 
 - User identity
 - Profile information
-- Account roles
 - Account activation and deactivation
 - Audit records related to user-management actions
+
+Auth0 owns roles and authorization policy. The account `role` column remains as legacy/bootstrap data only and is not consulted for protected operations.
 
 The user service does not own:
 
@@ -159,4 +160,10 @@ Apply all migrations, including `000004_bootstrap_status.up.sql`, before startin
 
 Bootstrap locks a durable coordination row, inserts an active `SUPER_ADMIN`, and records completion in one transaction. Concurrent instances serialize; subsequent runs do not reset the account or completion timestamp. Existing super administrators, including inactive or deleted records, prevent creation and cause completion to be recorded if needed. Conflicting users are never promoted or overwritten. If completion exists but no super-administrator record remains, startup fails and requires explicit recovery; do not reset the flag automatically.
 
-This creates the account only. Administrator endpoints and role-based authorization remain future work. Remove bootstrap configuration after successful initialization if desired. Errors omit configured values and database diagnostics.
+This creates the local account only; it does not grant an Auth0 role. Assign the Auth0 Administrator role separately. Remove bootstrap configuration after successful initialization if desired. Errors omit configured values and database diagnostics.
+
+## Administrator role changes
+
+`PUT /api/admin/users/{userID}/administrator` assigns the configured Auth0 Administrator role. `DELETE` on the same path assigns the configured User role first, then removes Administrator. Both endpoints require an active local account and the Auth0 API permission `users:manage:roles`; define this permission on the User Service API and grant it only to the Auth0 Administrator role. Profile role labels are derived from this permission. Local account role values are not used for authorization or returned as the user's role.
+
+Configure `AUTH0_M2M_CLIENT_ID`, `AUTH0_M2M_CLIENT_SECRET`, `AUTH0_USER_ROLE_ID`, and `AUTH0_ADMIN_ROLE_ID` in the service environment. Authorize the M2M application for the Auth0 Management API with `update:users`; keep its secret server-side. If the credentials or role IDs are absent, the service starts normally and these endpoints return `503`. A demotion assigns User before removing Administrator, so a failed removal leaves the target with both roles rather than removing regular-user permissions. Role changes take effect in newly issued tokens; a target may need to renew their session before token permissions change.

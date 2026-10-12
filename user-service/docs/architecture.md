@@ -1,8 +1,8 @@
 # User-service architecture
 
 These diagrams describe the current user-service implementation. Auth0 owns
-credentials and sessions; user-service owns local accounts, profiles, roles,
-and account state.
+credentials, sessions, and RBAC roles; user-service owns local accounts,
+profiles, and account state. The local role column is legacy data only.
 
 ## 1. System architecture
 
@@ -102,9 +102,9 @@ flowchart LR
     AuthZ -->|yes| Allowed[Run operation]
 ```
 
-The current administrator role receives the broad user-management permissions.
-Local `ADMIN` and `SUPER_ADMIN` accounts have the same API functionality for
-now; the local distinction remains available for future policy changes.
+The Auth0 Administrator role receives explicitly configured API permissions,
+including `users:manage:roles`. Services authorize from the token's permission
+claim; the local account role column is not an authorization source.
 
 ## 5. User provisioning sequence
 

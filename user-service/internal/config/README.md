@@ -1,6 +1,6 @@
 # Configuration — planned responsibilities
 
-Current implementation: `Load` reads required `DATABASE_URL`, `AUTH0_DOMAIN`, `AUTH0_CLIENT_ID`, and `AUTH0_AUDIENCE`, plus optional `HTTP_ADDRESS` (default `:8080`). The Auth0 domain is a hostname without a scheme; the audience is the custom API identifier. Repository connection setup validates connectivity without exposing credentials.
+Current implementation: `Load` reads required `DATABASE_URL`, `AUTH0_DOMAIN`, `AUTH0_CLIENT_ID`, and `AUTH0_AUDIENCE`, plus optional `HTTP_ADDRESS` (default `:8080`). Administrator role management uses `AUTH0_M2M_CLIENT_ID`, `AUTH0_M2M_CLIENT_SECRET`, `AUTH0_USER_ROLE_ID`, and `AUTH0_ADMIN_ROLE_ID`; these are optional while the feature is not configured, and paired credentials/role IDs must be supplied together. The M2M secret is never exposed in browser configuration or errors. The Auth0 domain is a hostname without a scheme; the audience is the custom API identifier. Repository connection setup validates connectivity without exposing credentials.
 
 - **F1.8.2:** Read initial super-administrator credentials from the deployment environment. Use `BOOTSTRAP_AUTH0_SUBJECT`, `BOOTSTRAP_USERNAME`, and `BOOTSTRAP_EMAIL`; no password is accepted. `LoadBootstrap` loads these independently, and the service validates them only when initial creation is required.
 - **F1.8.5:** Support validation of required bootstrap values when initialization is needed. The service determines this from persisted initialization/account state; configuration alone cannot decide.

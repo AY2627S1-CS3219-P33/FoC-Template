@@ -1,6 +1,6 @@
 # HTTP handlers — planned responsibilities
 
-The package exposes public health/browser configuration and protects provisioning, logout, and test API routes with Auth0 JWT validation. The browser application lives in `user-frontend/`. Provisioning accepts identity only from validated token context and Auth0 `/userinfo`, never browser-submitted profile fields. Logout returns `204` before the SPA clears its in-memory state and Auth0 browser session; stateless access tokens remain valid until expiry.
+The package exposes public health/browser configuration and protects provisioning, logout, profile operations, and administrator role changes with Auth0 JWT validation. The browser application lives in `user-frontend/`. Provisioning accepts identity only from validated token context and Auth0 `/userinfo`, never browser-submitted profile fields. Administrator endpoints require an active local account and the Auth0 `users:manage:roles` permission, then use server-side M2M credentials to update Auth0. Profile role labels are derived from this permission, not the local role column. Logout returns `204` before the SPA clears its in-memory state and Auth0 browser session; stateless access tokens remain valid until expiry.
 
 | Requirements | Future HTTP responsibility |
 | --- | --- |
@@ -13,6 +13,6 @@ The package exposes public health/browser configuration and protects provisionin
 | F1.9, F1.9.1–F1.9.5 | Accept super-administrator invitations and activation requests; derive the creator identity from authentication. |
 | F1.10, F1.10.1–F1.10.7 | Accept deactivation, re-authentication/confirmation, and reactivation requests; derive the acting identity from authentication. |
 
-Services remain authoritative for local uniqueness, ownership, account state, and role restrictions. Auth0 remains authoritative for credentials, password rules, and sessions.
+Services remain authoritative for local uniqueness, ownership, and account state. Auth0 remains authoritative for credentials, password rules, sessions, roles, and permissions.
 
 No errand creation, courier assignment, supplier management, or dispute endpoints belong in this package (F1.5, F1.6.1–F1.6.2).

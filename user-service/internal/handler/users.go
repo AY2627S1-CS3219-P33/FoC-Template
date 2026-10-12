@@ -11,7 +11,7 @@ import (
 )
 
 // registerUserRoutes registers authenticated profile and account deletion endpoints.
-func registerUserRoutes(router *http.ServeMux, authentication *middleware.Auth0, provisioner Provisioner, userService *service.UserService) {
+func registerUserRoutes(router *http.ServeMux, authentication *middleware.Auth0, provisioner Provisioner, userService *service.UserService, administratorService *service.AdministratorService) {
 	router.Handle("GET /api/me", authentication.Authentication(middleware.RequirePermission("users:read:self", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		getAccountInformation(w, req, provisioner, userService)
 	}))))
@@ -21,6 +21,32 @@ func registerUserRoutes(router *http.ServeMux, authentication *middleware.Auth0,
 	router.Handle("DELETE /api/me", authentication.Authentication(middleware.RequirePermission("users:delete:self", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		deleteAccount(w, req, provisioner, userService)
 	}))))
+	router.Handle("PUT /api/admin/users/{userID}/administrator", authentication.Authentication(middleware.RequirePermission("users:manage:roles", requireActiveAccount(provisioner, http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		setAdministrator(w, req, administratorService, true)
+	})))))
+	router.Handle("DELETE /api/admin/users/{userID}/administrator", authentication.Authentication(middleware.RequirePermission("users:manage:roles", requireActiveAccount(provisioner, http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		setAdministrator(w, req, administratorService, false)
+	})))))
+}
+
+func setAdministrator(writer http.ResponseWriter, req *http.Request, administratorService *service.AdministratorService, enabled bool) {
+	if administratorService == nil {
+		writeError(writer, http.StatusServiceUnavailable, "role_management_unavailable", "Administrator role management is unavailable.")
+		return
+	}
+	if err := administratorService.SetAdministrator(req.Context(), req.PathValue("userID"), enabled); err != nil {
+		switch {
+		case errors.Is(err, service.ErrValidation):
+			writeError(writer, http.StatusBadRequest, "invalid_user_id", "The Auth0 user ID is invalid.")
+		case errors.Is(err, service.ErrNotFound):
+			writeError(writer, http.StatusNotFound, "user_not_found", "The Auth0 user was not found.")
+		default:
+			writeError(writer, http.StatusServiceUnavailable, "role_management_unavailable", "Administrator role management is unavailable.")
+		}
+		return
+	}
+	writer.Header().Set("Cache-Control", "no-store")
+	writer.WriteHeader(http.StatusNoContent)
 }
 
 // getAccountInformation returns the profile for the authenticated active account.
@@ -43,6 +69,7 @@ func getAccountInformation(writer http.ResponseWriter, req *http.Request, pro Pr
 		writeAccountError(writer, err)
 		return
 	}
+	setAuthorizationRole(profile, req)
 	writeJSON(writer, http.StatusOK, profile)
 }
 
@@ -90,6 +117,7 @@ func updateAccountInformation(writer http.ResponseWriter, req *http.Request, pro
 		}
 		return
 	}
+	setAuthorizationRole(profile, req)
 	writeJSON(writer, http.StatusOK, profile)
 }
 
