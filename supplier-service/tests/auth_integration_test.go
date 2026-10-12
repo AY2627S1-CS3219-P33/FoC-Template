@@ -20,6 +20,20 @@ import (
 type authRouteStore struct {
 	supplier.DeletionStore                   // Unexpected deletion calls panic in these focused tests.
 	reads, writes, deletionRequests, retries int
+	lookupReads, lookupWrites                int
+}
+
+func (s *authRouteStore) ListLookups(context.Context, supplier.LookupKind, bool, int) ([]supplier.Lookup, error) {
+	s.lookupReads++
+	return nil, nil
+}
+func (s *authRouteStore) CreateLookup(_ context.Context, _ supplier.LookupKind, name string, _ time.Time) (supplier.Lookup, error) {
+	s.lookupWrites++
+	return supplier.Lookup{ID: "00000000-0000-4000-8000-000000000004", Name: name}, nil
+}
+func (s *authRouteStore) RetireLookup(context.Context, supplier.LookupKind, supplier.LookupID, time.Time) error {
+	s.lookupWrites++
+	return nil
 }
 
 func (s *authRouteStore) ListAvailable(context.Context, supplier.ListFilter) (supplier.Page, error) {
@@ -71,7 +85,7 @@ func TestComposedAuth0Routes_F2_1_F2_2_NFR3_3(t *testing.T) {
 	verifier, err := auth.NewAuth0(cfg, logger, auth.WithHTTPClient(f.Server.Client()))
 	require.NoError(t, err)
 	store := &authRouteStore{}
-	handler := app.NewHandler(logger, verifier, readyFunc(func(context.Context) error { return nil }), store, store, store, app.UnavailableDeletionFence{})
+	handler := app.NewHandler(logger, verifier, readyFunc(func(context.Context) error { return nil }), store, store, store, store, app.UnavailableDeletionFence{})
 	read := f.Token(t, f.Claims(auth.SupplierAudience, []string{"suppliers:read"}), "one")
 	admin := f.Token(t, f.Claims(auth.SupplierAudience, []string{"suppliers:read", "suppliers:manage"}), "one")
 	noPermissions := f.Token(t, f.Claims(auth.SupplierAudience, nil), "one")
@@ -99,6 +113,17 @@ func TestComposedAuth0Routes_F2_1_F2_2_NFR3_3(t *testing.T) {
 		{"delete needs login", "DELETE", "/suppliers/00000000-0000-4000-8000-000000000001", "", "", 401},
 		{"read cannot delete", "DELETE", "/suppliers/00000000-0000-4000-8000-000000000001", read, "", 403},
 		{"admin delete fails closed without fence", "DELETE", "/suppliers/00000000-0000-4000-8000-000000000001", admin, "", 503},
+		{"buildings need login", "GET", "/buildings", "", "", 401},
+		{"supplier types need login", "GET", "/supplier-types", "", "", 401},
+		{"retire needs login", "DELETE", "/buildings/00000000-0000-4000-8000-000000000004", "", "", 401},
+		{"buildings need read permission", "GET", "/buildings", noPermissions, "", 403},
+		{"read lists buildings", "GET", "/buildings?includeRetired=true", read, "", 200},
+		{"read lists supplier types", "GET", "/supplier-types", read, "", 200},
+		{"read cannot create building", "POST", "/buildings", read, `{"name":"Com 2"}`, 403},
+		{"read cannot retire supplier type", "DELETE", "/supplier-types/00000000-0000-4000-8000-000000000004", read, "", 403},
+		{"manage needs router read for lookups", "POST", "/supplier-types", manageOnly, `{"name":"Food"}`, 403},
+		{"admin creates building", "POST", "/buildings", admin, `{"name":"Com 2"}`, 201},
+		{"admin retires supplier type", "DELETE", "/supplier-types/00000000-0000-4000-8000-000000000004", admin, "", 204},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			req := httptest.NewRequest(tt.method, tt.path, strings.NewReader(tt.body))
@@ -122,13 +147,15 @@ func TestComposedAuth0Routes_F2_1_F2_2_NFR3_3(t *testing.T) {
 	require.Equal(t, 2, store.writes)
 	require.Equal(t, 1, store.deletionRequests)
 	require.Equal(t, 1, store.retries)
+	require.Equal(t, 2, store.lookupReads)
+	require.Equal(t, 2, store.lookupWrites)
 	require.EqualValues(t, 1, f.Hits.Load())
 
 	// A fresh verifier cannot authorize through an unavailable key endpoint.
 	f.Response(503, []byte("private-provider-error"), 0, "")
 	fresh, err := auth.NewAuth0(cfg, logger, auth.WithHTTPClient(f.Server.Client()))
 	require.NoError(t, err)
-	unavailable := app.NewHandler(logger, fresh, readyFunc(fresh.Check), store, store, store, app.UnavailableDeletionFence{})
+	unavailable := app.NewHandler(logger, fresh, readyFunc(fresh.Check), store, store, store, store, app.UnavailableDeletionFence{})
 	req := httptest.NewRequest("GET", "/suppliers", nil)
 	req.Header.Set("Authorization", "Bearer "+read)
 	rec := httptest.NewRecorder()

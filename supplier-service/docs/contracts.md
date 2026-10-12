@@ -58,6 +58,40 @@ and `typeId` are read-only.
   text. Its name is the most frequent spelling, then the spelling used by the
   earliest version, so earlier versions now report that canonical spelling.
 
+### Managing the lists
+
+| Method and path | Permission | Result |
+| --- | --- | --- |
+| `GET /buildings`, `GET /supplier-types` | `suppliers:read` | `200 {items: [{id, name, retired}]}` |
+| `POST /buildings`, `POST /supplier-types` | `suppliers:manage` | `201` with the created row |
+| `DELETE /buildings/{buildingId}`, `DELETE /supplier-types/{supplierTypeId}` | `suppliers:manage` | `204`; the row is retired |
+
+- Lists return live rows ordered by lookup key, then `id`. With
+  `includeRetired=true` they also return retired rows with `retired: true`;
+  any value other than `true` or `false` is `INVALID_ARGUMENT`. Lists are
+  campus scale, so they are not paginated, but the server returns at most
+  500 rows.
+- `POST` takes `{name}`. The name is trimmed, must be at most 120 (building)
+  or 64 (type) characters after trimming, and must contain a letter or digit;
+  violations are `INVALID_ARGUMENT` with field `name`. A live row with the
+  same lookup key is `409 BUILDING_CONFLICT` or `SUPPLIER_TYPE_CONFLICT`, and
+  the message names the existing row, so `Com2` is rejected while `Com 2`
+  exists. The live-key unique index decides this, so concurrent creates of
+  one key produce exactly one row.
+- `DELETE` retires a row; rows are never deleted. It is
+  `409 BUILDING_IN_USE` or `SUPPLIER_TYPE_IN_USE` while the current version
+  of any non-deleted supplier references the row. Superseded versions and
+  deleted suppliers do not count; they keep showing the retired name. An
+  unknown ID is `404 BUILDING_NOT_FOUND` or `SUPPLIER_TYPE_NOT_FOUND`, and
+  retiring a retired row is `204` without changing it. Retirement releases
+  the lookup key, so a replacement row with the same key can be created.
+- There is no rename endpoint because names are immutable.
+- Retirement locks the row `FOR UPDATE`, checks use, and sets `retired_at`
+  in one transaction. Supplier writes resolve the row `FOR SHARE` in their
+  own transaction, so a write and a retirement of the same row serialise:
+  either the write commits first and retirement is rejected as in use, or
+  retirement commits first and the write no longer resolves the row.
+
 ## Validation and list behavior
 
 Create requires `name`, `type`, `building`, `floor`, `locationDescription`,
@@ -107,9 +141,11 @@ the `sort` that produced it; reusing it with different values is rejected as
 
 ## Authorization and errors
 
-All supplier and version endpoints require a verified Auth0 access token for
-`https://api.foc.local/supplier-service` and explicit `suppliers:read`. Create,
-patch, and delete additionally require `suppliers:manage`. Auth0 administrator
+All supplier, version, building, and supplier-type endpoints require a
+verified Auth0 access token for `https://api.foc.local/supplier-service` and
+explicit `suppliers:read`. Create, patch, and delete of suppliers, and create
+and retire of buildings and supplier types, additionally require
+`suppliers:manage`. Auth0 administrator
 assignments must grant both permissions. `/readyz` is unauthenticated.
 Supplier use cases consume the trusted `auth.Principal`: Subject is Auth0
 `sub`, Permissions comes from the validated token, and Roles grants no access.
@@ -136,8 +172,8 @@ Not-found current and historical reads intentionally have distinct codes.
 | 400 | `INVALID_ARGUMENT` |
 | 401 | `UNAUTHENTICATED` |
 | 403 | `FORBIDDEN` |
-| 404 | `SUPPLIER_NOT_FOUND` or `SUPPLIER_VERSION_NOT_FOUND` |
-| 409 | `SUPPLIER_NAME_CONFLICT` or `SUPPLIER_HAS_ACTIVE_ERRANDS` |
+| 404 | `SUPPLIER_NOT_FOUND`, `SUPPLIER_VERSION_NOT_FOUND`, `BUILDING_NOT_FOUND`, or `SUPPLIER_TYPE_NOT_FOUND` |
+| 409 | `SUPPLIER_NAME_CONFLICT`, `SUPPLIER_HAS_ACTIVE_ERRANDS`, `BUILDING_CONFLICT`, `BUILDING_IN_USE`, `SUPPLIER_TYPE_CONFLICT`, or `SUPPLIER_TYPE_IN_USE` |
 | 500 | `INTERNAL` |
 | 503 | `DELETION_FENCE_UNAVAILABLE` or `DEPENDENCY_UNAVAILABLE` |
 

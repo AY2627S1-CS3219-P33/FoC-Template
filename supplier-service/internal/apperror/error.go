@@ -12,6 +12,12 @@ const (
 	SupplierNameConflict     Code = "SUPPLIER_NAME_CONFLICT"
 	SupplierHasActiveErrands Code = "SUPPLIER_HAS_ACTIVE_ERRANDS"
 	DeletionFenceUnavailable Code = "DELETION_FENCE_UNAVAILABLE"
+	BuildingNotFound         Code = "BUILDING_NOT_FOUND"
+	BuildingConflict         Code = "BUILDING_CONFLICT"
+	BuildingInUse            Code = "BUILDING_IN_USE"
+	SupplierTypeNotFound     Code = "SUPPLIER_TYPE_NOT_FOUND"
+	SupplierTypeConflict     Code = "SUPPLIER_TYPE_CONFLICT"
+	SupplierTypeInUse        Code = "SUPPLIER_TYPE_IN_USE"
 	DependencyUnavailable    Code = "DEPENDENCY_UNAVAILABLE"
 	Internal                 Code = "INTERNAL"
 )
