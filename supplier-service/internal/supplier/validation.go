@@ -58,6 +58,10 @@ func ValidDeletionOperationID(id DeletionOperationID) bool {
 	return uuidPattern.MatchString(string(id))
 }
 
+func ValidLookupID(id LookupID) bool {
+	return uuidPattern.MatchString(string(id))
+}
+
 // ValidateCreate checks presence-sensitive create fields and returns the
 // validated domain details used by the repository.
 func ValidateCreate(input Create) (Details, error) {

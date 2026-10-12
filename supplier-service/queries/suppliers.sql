@@ -414,18 +414,24 @@ SELECT EXISTS (
 
 -- Building and supplier-type lookups. Resolution considers live rows only;
 -- reads of existing versions join by ID, so retired rows still resolve there.
+-- FOR SHARE pairs with the FOR UPDATE taken by RetireBuilding and
+-- RetireSupplierType: a write that resolves a row blocks its retirement until
+-- the write commits, and a write that waits on a retirement re-checks
+-- retired_at and no longer sees the row.
 
 -- name: ResolveBuildingByKey :one
 SELECT id::text AS id, name
 FROM buildings
 WHERE lookup_key = normalize_lookup_key(sqlc.arg(name)::text)
-  AND retired_at IS NULL;
+  AND retired_at IS NULL
+FOR SHARE;
 
 -- name: ResolveSupplierTypeByKey :one
 SELECT id::text AS id, name
 FROM supplier_types
 WHERE lookup_key = normalize_lookup_key(sqlc.arg(name)::text)
-  AND retired_at IS NULL;
+  AND retired_at IS NULL
+FOR SHARE;
 
 -- InsertBuilding and InsertSupplierType return no row when a live row with
 -- the same lookup key already exists, including one inserted concurrently.

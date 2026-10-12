@@ -1,0 +1,201 @@
+operations:
+  listBuildings:
+    operationId: listBuildings
+    tags: [Lookups]
+    summary: List buildings
+    description: >-
+      Live buildings ordered by lookup key, then id. includeRetired=true adds
+      retired buildings with retired true. The list is unpaginated and capped
+      at 500 rows.
+    x-required-permissions: [suppliers:read]
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: ./common.yaml#/components/parameters/IncludeRetired
+    responses:
+      "200":
+        description: Buildings, at most 500.
+        content:
+          application/json:
+            schema:
+              $ref: ./common.yaml#/components/schemas/LookupList
+      "400":
+        $ref: ./common.yaml#/components/responses/InvalidArgument
+      "401":
+        $ref: ./common.yaml#/components/responses/Unauthenticated
+      "403":
+        $ref: ./common.yaml#/components/responses/Forbidden
+      "500":
+        $ref: ./common.yaml#/components/responses/Internal
+      "503":
+        $ref: ./common.yaml#/components/responses/DependencyUnavailable
+
+  createBuilding:
+    operationId: createBuilding
+    tags: [Lookups]
+    summary: Create a building
+    description: >-
+      The name is trimmed and must contain a letter or digit. It conflicts
+      with a live building that has the same lookup key, so "Com2" conflicts
+      with "Com 2"; the message names the existing building. Names are
+      immutable: there is no rename.
+    x-required-permissions: [suppliers:read, suppliers:manage]
+    security:
+      - bearerAuth: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: ./common.yaml#/components/schemas/BuildingCreate
+    responses:
+      "201":
+        description: Building created.
+        content:
+          application/json:
+            schema:
+              $ref: ./common.yaml#/components/schemas/Lookup
+      "400":
+        $ref: ./common.yaml#/components/responses/InvalidArgument
+      "401":
+        $ref: ./common.yaml#/components/responses/Unauthenticated
+      "403":
+        $ref: ./common.yaml#/components/responses/Forbidden
+      "409":
+        $ref: ./common.yaml#/components/responses/BuildingConflict
+      "500":
+        $ref: ./common.yaml#/components/responses/Internal
+      "503":
+        $ref: ./common.yaml#/components/responses/DependencyUnavailable
+
+  retireBuilding:
+    operationId: retireBuilding
+    tags: [Lookups]
+    summary: Retire a building
+    description: >-
+      Hides the building from new supplier assignments and releases its
+      lookup key. Versions that already reference it keep showing it.
+      Rejected while the current version of any non-deleted supplier uses
+      it. Retiring an already retired building succeeds without change.
+    x-required-permissions: [suppliers:read, suppliers:manage]
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: ./common.yaml#/components/parameters/BuildingID
+    responses:
+      "204":
+        description: The building is retired; no response body.
+      "400":
+        $ref: ./common.yaml#/components/responses/InvalidArgument
+      "401":
+        $ref: ./common.yaml#/components/responses/Unauthenticated
+      "403":
+        $ref: ./common.yaml#/components/responses/Forbidden
+      "404":
+        $ref: ./common.yaml#/components/responses/BuildingNotFound
+      "409":
+        $ref: ./common.yaml#/components/responses/BuildingInUse
+      "500":
+        $ref: ./common.yaml#/components/responses/Internal
+      "503":
+        $ref: ./common.yaml#/components/responses/DependencyUnavailable
+
+  listSupplierTypes:
+    operationId: listSupplierTypes
+    tags: [Lookups]
+    summary: List supplier types
+    description: >-
+      Live supplier types ordered by lookup key, then id. includeRetired=true
+      adds retired types with retired true. The list is unpaginated and
+      capped at 500 rows.
+    x-required-permissions: [suppliers:read]
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: ./common.yaml#/components/parameters/IncludeRetired
+    responses:
+      "200":
+        description: Supplier types, at most 500.
+        content:
+          application/json:
+            schema:
+              $ref: ./common.yaml#/components/schemas/LookupList
+      "400":
+        $ref: ./common.yaml#/components/responses/InvalidArgument
+      "401":
+        $ref: ./common.yaml#/components/responses/Unauthenticated
+      "403":
+        $ref: ./common.yaml#/components/responses/Forbidden
+      "500":
+        $ref: ./common.yaml#/components/responses/Internal
+      "503":
+        $ref: ./common.yaml#/components/responses/DependencyUnavailable
+
+  createSupplierType:
+    operationId: createSupplierType
+    tags: [Lookups]
+    summary: Create a supplier type
+    description: >-
+      The name is trimmed and must contain a letter or digit. It conflicts
+      with a live supplier type that has the same lookup key; the message
+      names the existing type. Names are immutable: there is no rename.
+    x-required-permissions: [suppliers:read, suppliers:manage]
+    security:
+      - bearerAuth: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: ./common.yaml#/components/schemas/SupplierTypeCreate
+    responses:
+      "201":
+        description: Supplier type created.
+        content:
+          application/json:
+            schema:
+              $ref: ./common.yaml#/components/schemas/Lookup
+      "400":
+        $ref: ./common.yaml#/components/responses/InvalidArgument
+      "401":
+        $ref: ./common.yaml#/components/responses/Unauthenticated
+      "403":
+        $ref: ./common.yaml#/components/responses/Forbidden
+      "409":
+        $ref: ./common.yaml#/components/responses/SupplierTypeConflict
+      "500":
+        $ref: ./common.yaml#/components/responses/Internal
+      "503":
+        $ref: ./common.yaml#/components/responses/DependencyUnavailable
+
+  retireSupplierType:
+    operationId: retireSupplierType
+    tags: [Lookups]
+    summary: Retire a supplier type
+    description: >-
+      Hides the type from new supplier assignments and releases its lookup
+      key. Versions that already reference it keep showing it. Rejected
+      while the current version of any non-deleted supplier uses it.
+      Retiring an already retired type succeeds without change.
+    x-required-permissions: [suppliers:read, suppliers:manage]
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: ./common.yaml#/components/parameters/SupplierTypeID
+    responses:
+      "204":
+        description: The supplier type is retired; no response body.
+      "400":
+        $ref: ./common.yaml#/components/responses/InvalidArgument
+      "401":
+        $ref: ./common.yaml#/components/responses/Unauthenticated
+      "403":
+        $ref: ./common.yaml#/components/responses/Forbidden
+      "404":
+        $ref: ./common.yaml#/components/responses/SupplierTypeNotFound
+      "409":
+        $ref: ./common.yaml#/components/responses/SupplierTypeInUse
+      "500":
+        $ref: ./common.yaml#/components/responses/Internal
+      "503":
+        $ref: ./common.yaml#/components/responses/DependencyUnavailable

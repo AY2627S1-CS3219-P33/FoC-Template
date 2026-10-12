@@ -38,6 +38,17 @@ func repositoryErrorKind(err error) string {
 	if errors.As(err, &validationError) {
 		return "validation"
 	}
+	if errors.Is(err, supplier.ErrLookupNotFound) {
+		return "lookup_not_found"
+	}
+	var conflict *supplier.LookupConflictError
+	if errors.As(err, &conflict) {
+		return "lookup_conflict"
+	}
+	var inUse *supplier.LookupInUseError
+	if errors.As(err, &inUse) {
+		return "lookup_in_use"
+	}
 	var applicationError *apperror.Error
 	if errors.As(err, &applicationError) {
 		return string(applicationError.Code)

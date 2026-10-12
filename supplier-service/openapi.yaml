@@ -19,6 +19,10 @@ tags:
     description: Authenticated current and historical supplier reads.
   - name: Administration
     description: Administrator-only supplier lifecycle operations.
+  - name: Lookups
+    description: >-
+      Managed building and supplier-type lists. Reads for filters and
+      pickers; administrators create and retire rows.
   - name: Operations
     description: Service health and operational endpoints.
 
@@ -38,6 +42,22 @@ paths:
   /supplier-versions/{versionId}:
     get:
       $ref: ./openapi/catalog.yaml#/operations/getSupplierVersion
+  /buildings:
+    get:
+      $ref: ./openapi/lookups.yaml#/operations/listBuildings
+    post:
+      $ref: ./openapi/lookups.yaml#/operations/createBuilding
+  /buildings/{buildingId}:
+    delete:
+      $ref: ./openapi/lookups.yaml#/operations/retireBuilding
+  /supplier-types:
+    get:
+      $ref: ./openapi/lookups.yaml#/operations/listSupplierTypes
+    post:
+      $ref: ./openapi/lookups.yaml#/operations/createSupplierType
+  /supplier-types/{supplierTypeId}:
+    delete:
+      $ref: ./openapi/lookups.yaml#/operations/retireSupplierType
   /readyz:
     get:
       $ref: ./openapi/common.yaml#/operations/readiness
@@ -52,6 +72,10 @@ components:
       $ref: ./openapi/common.yaml#/components/schemas/SupplierWrite
     SupplierPatch:
       $ref: ./openapi/common.yaml#/components/schemas/SupplierPatch
+    Lookup:
+      $ref: ./openapi/common.yaml#/components/schemas/Lookup
+    LookupList:
+      $ref: ./openapi/common.yaml#/components/schemas/LookupList
     Error:
       $ref: ./openapi/common.yaml#/components/schemas/Error
   securitySchemes:

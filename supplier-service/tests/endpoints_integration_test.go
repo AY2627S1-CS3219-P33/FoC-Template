@@ -86,3 +86,87 @@ func TestApplicationEndpoints_F2_1_F2_2_F2_3_F2_4_F2_5(t *testing.T) {
 }
 
 const uuidPattern = `^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`
+
+func TestApplicationLookupEndpoints_F2_1_2_F2_2_1_F2_5_1(t *testing.T) {
+	databaseURL, _ := startupDatabase(t)
+	f := testauth.New(t)
+	cfg := startupConfig()
+	cfg.Database.URL = databaseURL
+	cfg.Auth.Issuer = f.Server.URL + "/"
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	application, err := app.New(context.Background(), cfg, logger, auth.WithHTTPClient(f.Server.Client()))
+	require.NoError(t, err)
+	t.Cleanup(application.Close)
+	admin := f.Token(t, f.Claims(auth.SupplierAudience, []string{"suppliers:read", "suppliers:manage"}), "one")
+	reader := f.Token(t, f.Claims(auth.SupplierAudience, []string{"suppliers:read"}), "one")
+	send := func(token, method, path, body string, status int) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+		rec := httptest.NewRecorder()
+		application.Handler().ServeHTTP(rec, req)
+		require.Equal(t, status, rec.Code, rec.Body.String())
+		return rec
+	}
+	decode := func(rec *httptest.ResponseRecorder) map[string]any {
+		t.Helper()
+		var response map[string]any
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response))
+		return response
+	}
+	list := func(path string) map[string]map[string]any {
+		t.Helper()
+		byName := map[string]map[string]any{}
+		for _, item := range decode(send(reader, "GET", path, "", 200))["items"].([]any) {
+			row := item.(map[string]any)
+			byName[row["name"].(string)] = row
+		}
+		return byName
+	}
+
+	send("", "GET", "/buildings", "", 401)
+	send("", "GET", "/supplier-types", "", 401)
+
+	for _, kind := range []struct {
+		path, seeded, variant, conflict, inUse, notFound string
+	}{
+		{"/buildings", "Com 2", "Com2", "BUILDING_CONFLICT", "BUILDING_IN_USE", "BUILDING_NOT_FOUND"},
+		{"/supplier-types", "Printing", " PRINTING ", "SUPPLIER_TYPE_CONFLICT", "SUPPLIER_TYPE_IN_USE", "SUPPLIER_TYPE_NOT_FOUND"},
+	} {
+		t.Run(kind.path, func(t *testing.T) {
+			// The seed import deduplicated spellings into one live row.
+			live := list(kind.path)
+			seeded, found := live[kind.seeded]
+			require.True(t, found, "seeded %s is listed", kind.seeded)
+			require.Equal(t, false, seeded["retired"])
+			require.Regexp(t, uuidPattern, seeded["id"])
+
+			conflict := decode(send(admin, "POST", kind.path, `{"name":"`+kind.variant+`"}`, 409))
+			require.Equal(t, kind.conflict, conflict["code"])
+			require.Contains(t, conflict["message"], `"`+kind.seeded+`"`)
+			send(reader, "POST", kind.path, `{"name":"Fixture Lookup"}`, 403)
+			send(admin, "POST", kind.path, `{"name":"  "}`, 400)
+
+			created := decode(send(admin, "POST", kind.path, `{"name":"  Fixture Lookup "}`, 201))
+			require.Equal(t, "Fixture Lookup", created["name"])
+			require.Equal(t, false, created["retired"])
+			require.Contains(t, list(kind.path), "Fixture Lookup")
+
+			inUse := decode(send(admin, "DELETE", kind.path+"/"+seeded["id"].(string), "", 409))
+			require.Equal(t, kind.inUse, inUse["code"])
+			send(reader, "DELETE", kind.path+"/"+created["id"].(string), "", 403)
+			for range 2 {
+				require.Empty(t, send(admin, "DELETE", kind.path+"/"+created["id"].(string), "", 204).Body.String())
+			}
+			require.NotContains(t, list(kind.path), "Fixture Lookup")
+			retired := list(kind.path + "?includeRetired=true")["Fixture Lookup"]
+			require.Equal(t, created["id"], retired["id"])
+			require.Equal(t, true, retired["retired"])
+
+			notFound := decode(send(admin, "DELETE", kind.path+"/00000000-0000-4000-8000-000000000099", "", 404))
+			require.Equal(t, kind.notFound, notFound["code"])
+		})
+	}
+}
