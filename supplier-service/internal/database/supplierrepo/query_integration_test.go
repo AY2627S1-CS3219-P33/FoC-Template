@@ -221,6 +221,79 @@ func TestCatalogueCursorIsRejectedUnderAnotherSort(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// F2.1.2: building filters by lookup key, combines with q, type and every
+// sort, pages through the filtered sequence, and binds the cursor.
+func TestCatalogueBuildingFilter(t *testing.T) {
+	r, _ := migratedRepository(t)
+	ctx := context.Background()
+	for name, place := range map[string]struct{ supplierType, building, floor string }{
+		"Delta":   {"food", "Arts", "1"},
+		" alpha ": {"retail", "COM 3", "2"},
+		"Charlie": {"food", "COM  3", "B1"},
+		"Bravo":   {"FOOD", "  UTown ", "1"},
+		"Echo":    {"Books", "com-3", "B1"},
+		"Foxtrot": {"retail", "com	3", "3"},
+	} {
+		details := validDetails(name)
+		details.Type, details.Building, details.Floor = place.supplierType, place.building, place.floor
+		createLookups(t, r, details)
+		_, err := r.Create(ctx, details, time.Now().UTC())
+		require.NoError(t, err)
+	}
+	for _, test := range []struct {
+		filter supplier.ListFilter
+		names  []string
+	}{
+		{supplier.ListFilter{Building: "COM3"}, []string{" alpha ", "Charlie", "Echo", "Foxtrot"}},
+		{supplier.ListFilter{Building: " c.o.m - 3 "}, []string{" alpha ", "Charlie", "Echo", "Foxtrot"}},
+		{supplier.ListFilter{Building: "com 3", Type: "Retail"}, []string{" alpha ", "Foxtrot"}},
+		{supplier.ListFilter{Building: "com 3", Query: "b1"}, []string{"Charlie", "Echo"}},
+		{supplier.ListFilter{Building: "com 3", Query: "b1", Type: "food"}, []string{"Charlie"}},
+		{supplier.ListFilter{Building: "utown"}, []string{"Bravo"}},
+		{supplier.ListFilter{Building: "Nowhere"}, []string{}},
+		{supplier.ListFilter{Building: "arts", Type: "retail"}, []string{}},
+		{supplier.ListFilter{Building: "com 3", Sort: supplier.SortNameDesc}, []string{"Foxtrot", "Echo", "Charlie", " alpha "}},
+		{supplier.ListFilter{Building: "com 3", Sort: supplier.SortType}, []string{"Echo", "Charlie", " alpha ", "Foxtrot"}},
+		{supplier.ListFilter{Building: "com 3", Sort: supplier.SortTypeDesc}, []string{"Foxtrot", " alpha ", "Charlie", "Echo"}},
+		{supplier.ListFilter{Building: "com 3", Sort: supplier.SortBuilding}, []string{" alpha ", "Charlie", "Echo", "Foxtrot"}},
+		{supplier.ListFilter{Building: "com 3", Sort: supplier.SortBuildingDesc}, []string{"Foxtrot", "Echo", "Charlie", " alpha "}},
+	} {
+		unpaged, err := r.ListAvailable(ctx, test.filter)
+		require.NoError(t, err)
+		require.Equal(t, test.names, supplierNames(unpaged.Items), "filter: %+v", test.filter)
+		require.Empty(t, unpaged.NextCursor)
+
+		paged := []supplier.Supplier{}
+		filter := test.filter
+		filter.Limit = 1
+		for pages := 0; ; pages++ {
+			require.LessOrEqual(t, pages, len(test.names), "filter %+v did not terminate", test.filter)
+			page, err := r.ListAvailable(ctx, filter)
+			require.NoError(t, err)
+			paged = append(paged, page.Items...)
+			if page.NextCursor == "" {
+				break
+			}
+			filter.Cursor = page.NextCursor
+		}
+		require.Equal(t, unpaged.Items, paged, "filter: %+v", test.filter)
+	}
+
+	first, err := r.ListAvailable(ctx, supplier.ListFilter{Building: "com 3", Limit: 1})
+	require.NoError(t, err)
+	require.NotEmpty(t, first.NextCursor)
+	// Another spelling of the same building keeps the cursor valid.
+	_, err = r.ListAvailable(ctx, supplier.ListFilter{Building: "COM-3", Limit: 1, Cursor: first.NextCursor})
+	require.NoError(t, err)
+	for _, other := range []string{"utown", ""} {
+		_, err = r.ListAvailable(ctx, supplier.ListFilter{Building: other, Limit: 1, Cursor: first.NextCursor})
+		var application *apperror.Error
+		require.ErrorAs(t, err, &application, "building %q", other)
+		require.Equal(t, apperror.InvalidArgument, application.Code)
+		require.Equal(t, "cursor is invalid", application.Message)
+	}
+}
+
 func supplierNames(items []supplier.Supplier) []string {
 	names := make([]string, 0, len(items))
 	for _, item := range items {

@@ -129,6 +129,10 @@ numeric value so an omitted coordinate cannot be mistaken for valid zero.
   location description;
 - `type`: type match by lookup key (see
   [Buildings and supplier types](#buildings-and-supplier-types));
+- `building`: building match by lookup key, at most 120 characters, so
+  `com2`, `COM-2` and `Com 2` select the same building. A building that does
+  not exist or is retired yields an empty page rather than an error, as for
+  `type`. It combines with every other parameter;
 - `sort`: `name` (default), `-name`, `type`, `-type`, `building`, or
   `-building`;
 - `limit`: 1-100, default 25;
@@ -152,8 +156,8 @@ each type.
 
 Any other `sort` value, including an empty one, is rejected with
 `INVALID_ARGUMENT` and field `sort`. Clients must not parse or construct
-cursors. A cursor is bound to the normalized `q`, the `type` lookup key, and
-the `sort` that produced it; reusing it with different values is rejected as
+cursors. A cursor is bound to the normalized `q`, the `type` and `building`
+lookup keys, and the `sort` that produced it; reusing it with different values is rejected as
 `cursor is invalid`.
 `nextCursor` is omitted on the last page.
 

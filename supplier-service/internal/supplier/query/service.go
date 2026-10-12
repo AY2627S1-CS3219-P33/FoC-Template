@@ -35,6 +35,9 @@ func (s Service) List(ctx context.Context, principal auth.Principal, filter supp
 	if utf8.RuneCountInString(filter.Type) > 64 {
 		violations = append(violations, supplier.FieldViolation{Field: "type", Message: "is too long"})
 	}
+	if utf8.RuneCountInString(filter.Building) > 120 {
+		violations = append(violations, supplier.FieldViolation{Field: "building", Message: "is too long"})
+	}
 	if len(violations) > 0 {
 		return supplier.Page{}, &supplier.ValidationError{Violations: violations}
 	}
@@ -43,6 +46,7 @@ func (s Service) List(ctx context.Context, principal auth.Principal, filter supp
 	}
 	filter.Query = supplier.NormalizeName(filter.Query)
 	filter.Type = strings.ToLower(strings.TrimSpace(filter.Type))
+	filter.Building = strings.TrimSpace(filter.Building)
 	filter.Sort = filter.SortOrder()
 	filter.Limit = filter.PageSize()
 	return s.reader.ListAvailable(ctx, filter)

@@ -21,16 +21,21 @@ const cursorVersionID supplier.VersionID = "173fd7be-4f54-4f15-a8b1-58bd502344a0
 
 func TestCursorIsOpaqueBoundedAndBoundToNormalizedFilters(t *testing.T) {
 	r := New(nil)
-	filter := supplier.ListFilter{Query: " COM\t 3 ", Type: " FOOD ", Limit: 1}
+	filter := supplier.ListFilter{Query: " COM\t 3 ", Type: " FOOD ", Building: " COM-3 ", Limit: 1}
 	token := r.encodeCursor(cursorVersionID, filter)
 	require.LessOrEqual(t, len(token), 512)
 	raw, err := base64.RawURLEncoding.DecodeString(token)
 	require.NoError(t, err)
 	require.NotContains(t, string(raw), string(cursorVersionID))
-	id, err := r.decodeCursor(token, supplier.ListFilter{Query: "com 3", Type: "food", Limit: 100})
+	id, err := r.decodeCursor(token, supplier.ListFilter{Query: "com 3", Type: "food", Building: "com 3", Limit: 100})
 	require.NoError(t, err)
 	require.Equal(t, cursorVersionID, id)
-	for _, changed := range []supplier.ListFilter{{Query: "com 4", Type: "food"}, {Query: "com 3", Type: "shopping"}} {
+	for _, changed := range []supplier.ListFilter{
+		{Query: "com 4", Type: "food", Building: "com 3"},
+		{Query: "com 3", Type: "shopping", Building: "com 3"},
+		{Query: "com 3", Type: "food", Building: "com 4"},
+		{Query: "com 3", Type: "food"},
+	} {
 		_, err := r.decodeCursor(token, changed)
 		require.Error(t, err)
 	}

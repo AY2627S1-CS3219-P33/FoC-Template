@@ -164,6 +164,10 @@ WHERE s.deleted_at IS NULL
       OR t.lookup_key = normalize_lookup_key(sqlc.arg(supplier_type)::text)
   )
   AND (
+      sqlc.arg(building)::text = ''
+      OR b.lookup_key = normalize_lookup_key(sqlc.arg(building)::text)
+  )
+  AND (
       NOT sqlc.arg(has_cursor)::boolean
       OR (s.current_normalized_name, s.supplier_id) >
          (sqlc.arg(cursor_name)::text, NULLIF(sqlc.arg(cursor_supplier_id)::text, '')::uuid)
@@ -207,6 +211,10 @@ WHERE s.deleted_at IS NULL
   AND (
       sqlc.arg(supplier_type)::text = ''
       OR t.lookup_key = normalize_lookup_key(sqlc.arg(supplier_type)::text)
+  )
+  AND (
+      sqlc.arg(building)::text = ''
+      OR b.lookup_key = normalize_lookup_key(sqlc.arg(building)::text)
   )
   AND (
       NOT sqlc.arg(has_cursor)::boolean
@@ -256,6 +264,10 @@ WHERE s.deleted_at IS NULL
       OR t.lookup_key = normalize_lookup_key(sqlc.arg(supplier_type)::text)
   )
   AND (
+      sqlc.arg(building)::text = ''
+      OR b.lookup_key = normalize_lookup_key(sqlc.arg(building)::text)
+  )
+  AND (
       NOT sqlc.arg(has_cursor)::boolean
       OR (t.lookup_key, s.current_normalized_name, s.supplier_id) >
          (normalize_lookup_key(sqlc.arg(cursor_type)::text), sqlc.arg(cursor_name)::text, NULLIF(sqlc.arg(cursor_supplier_id)::text, '')::uuid)
@@ -299,6 +311,10 @@ WHERE s.deleted_at IS NULL
   AND (
       sqlc.arg(supplier_type)::text = ''
       OR t.lookup_key = normalize_lookup_key(sqlc.arg(supplier_type)::text)
+  )
+  AND (
+      sqlc.arg(building)::text = ''
+      OR b.lookup_key = normalize_lookup_key(sqlc.arg(building)::text)
   )
   AND (
       NOT sqlc.arg(has_cursor)::boolean
@@ -348,6 +364,10 @@ WHERE s.deleted_at IS NULL
       OR t.lookup_key = normalize_lookup_key(sqlc.arg(supplier_type)::text)
   )
   AND (
+      sqlc.arg(building)::text = ''
+      OR b.lookup_key = normalize_lookup_key(sqlc.arg(building)::text)
+  )
+  AND (
       NOT sqlc.arg(has_cursor)::boolean
       OR (b.lookup_key, s.current_normalized_name, s.supplier_id) >
          (normalize_lookup_key(sqlc.arg(cursor_building)::text), sqlc.arg(cursor_name)::text, NULLIF(sqlc.arg(cursor_supplier_id)::text, '')::uuid)
@@ -391,6 +411,10 @@ WHERE s.deleted_at IS NULL
   AND (
       sqlc.arg(supplier_type)::text = ''
       OR t.lookup_key = normalize_lookup_key(sqlc.arg(supplier_type)::text)
+  )
+  AND (
+      sqlc.arg(building)::text = ''
+      OR b.lookup_key = normalize_lookup_key(sqlc.arg(building)::text)
   )
   AND (
       NOT sqlc.arg(has_cursor)::boolean

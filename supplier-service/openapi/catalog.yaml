@@ -22,6 +22,7 @@ operations:
     parameters:
       - $ref: ./common.yaml#/components/parameters/Query
       - $ref: ./common.yaml#/components/parameters/Type
+      - $ref: ./common.yaml#/components/parameters/Building
       - $ref: ./common.yaml#/components/parameters/Sort
       - $ref: ./common.yaml#/components/parameters/Limit
       - $ref: ./common.yaml#/components/parameters/Cursor

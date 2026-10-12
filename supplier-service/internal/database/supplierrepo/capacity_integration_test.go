@@ -18,11 +18,13 @@ func TestListAndSearchPaginationAcrossOneThousandRecords(t *testing.T) {
 	insertCapacityRecords(t, pool, capacityRecordCount)
 
 	for _, test := range []struct {
-		name  string
-		query string
+		name     string
+		query    string
+		building string
 	}{
 		{name: "list"},
 		{name: "search", query: "capacity supplier"},
+		{name: "building", building: "com-3"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			seen := make(map[supplier.SupplierID]struct{}, capacityRecordCount)
@@ -30,7 +32,7 @@ func TestListAndSearchPaginationAcrossOneThousandRecords(t *testing.T) {
 			pages := 0
 			for {
 				page, err := repository.ListAvailable(context.Background(), supplier.ListFilter{
-					Query: test.query, Limit: 97, Cursor: cursor,
+					Query: test.query, Building: test.building, Limit: 97, Cursor: cursor,
 				})
 				require.NoError(t, err)
 				require.LessOrEqual(t, len(page.Items), 97)

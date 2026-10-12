@@ -180,14 +180,16 @@ func (s ListSort) Valid() bool {
 
 // ListFilter is the shared query contract. Cursor is opaque to callers. Query
 // matches normalized name, building, floor, or location description. Type
-// matches the type whose LookupKey equals LookupKey(Type). Repositories order by Sort (SortName when
-// empty) before applying the cursor.
+// matches the type whose LookupKey equals LookupKey(Type), and Building the
+// building whose LookupKey equals LookupKey(Building). Repositories order by
+// Sort (SortName when empty) before applying the cursor.
 type ListFilter struct {
-	Query  string
-	Type   string
-	Sort   ListSort
-	Limit  int
-	Cursor string
+	Query    string
+	Type     string
+	Building string
+	Sort     ListSort
+	Limit    int
+	Cursor   string
 }
 
 func (f ListFilter) PageSize() int {

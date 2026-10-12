@@ -46,11 +46,11 @@ func TestListNormalizesSearchAndTypeAndDefaultsPageSize(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	page, err := NewService(reader).List(ctx, auth.Principal{Subject: "user-1", Permissions: []auth.Permission{auth.ReadSuppliers}}, supplier.ListFilter{
-		Query: "  COM\t  3 \n", Type: " FoOd ", Cursor: "previous",
+		Query: "  COM\t  3 \n", Type: " FoOd ", Building: "  COM-3 ", Cursor: "previous",
 	})
 	require.NoError(t, err)
 	require.Equal(t, reader.page, page)
-	require.Equal(t, supplier.ListFilter{Query: "com 3", Type: "food", Sort: supplier.SortName, Limit: 25, Cursor: "previous"}, reader.filter)
+	require.Equal(t, supplier.ListFilter{Query: "com 3", Type: "food", Building: "COM-3", Sort: supplier.SortName, Limit: 25, Cursor: "previous"}, reader.filter)
 	require.Equal(t, ctx, reader.ctx)
 }
 
@@ -85,7 +85,8 @@ func TestListRejectsUnknownSortWithSortField(t *testing.T) {
 func TestListRejectsInvalidFiltersBeforeReading(t *testing.T) {
 	for _, filter := range []supplier.ListFilter{
 		{Limit: -1}, {Limit: 101}, {Query: strings.Repeat("界", 121)},
-		{Type: strings.Repeat("x", 65)}, {Cursor: strings.Repeat("x", 513)},
+		{Type: strings.Repeat("x", 65)}, {Building: strings.Repeat("界", 121)},
+		{Building: strings.Repeat(" ", 121)}, {Cursor: strings.Repeat("x", 513)},
 	} {
 		reader := &readerStub{}
 		_, err := NewService(reader).List(context.Background(), auth.Principal{Subject: "user-1", Permissions: []auth.Permission{auth.ReadSuppliers}}, filter)

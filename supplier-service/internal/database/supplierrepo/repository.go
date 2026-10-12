@@ -248,6 +248,7 @@ func (r *Repository) ListAvailable(ctx context.Context, filter supplier.ListFilt
 	params := db.ListAvailableSuppliersByNameParams{
 		QueryText:    supplier.NormalizeName(filter.Query),
 		SupplierType: strings.TrimSpace(filter.Type),
+		Building:     strings.TrimSpace(filter.Building),
 		HasCursor:    filter.Cursor != "",
 		PageLimit:    int32(filter.PageSize() + 1),
 	}
@@ -314,6 +315,7 @@ func (r *Repository) listAvailableRows(ctx context.Context, sort supplier.ListSo
 	typeParams := db.ListAvailableSuppliersByTypeParams{
 		QueryText:        params.QueryText,
 		SupplierType:     params.SupplierType,
+		Building:         params.Building,
 		HasCursor:        params.HasCursor,
 		CursorType:       anchor.Type,
 		CursorName:       params.CursorName,
@@ -323,6 +325,7 @@ func (r *Repository) listAvailableRows(ctx context.Context, sort supplier.ListSo
 	buildingParams := db.ListAvailableSuppliersByBuildingParams{
 		QueryText:        params.QueryText,
 		SupplierType:     params.SupplierType,
+		Building:         params.Building,
 		HasCursor:        params.HasCursor,
 		CursorBuilding:   anchor.Building,
 		CursorName:       params.CursorName,
