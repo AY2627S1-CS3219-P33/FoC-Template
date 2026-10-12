@@ -5,13 +5,15 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strconv"
+	"strings"
 
 	"user-service/internal/middleware"
 	"user-service/internal/service"
 )
 
 // registerUserRoutes registers authenticated profile and account deletion endpoints.
-func registerUserRoutes(router *http.ServeMux, authentication *middleware.Auth0, provisioner Provisioner, userService *service.UserService, administratorService *service.AdministratorService) {
+func registerUserRoutes(router *http.ServeMux, authentication *middleware.Auth0, provisioner Provisioner, userService *service.UserService, administratorService *service.AdministratorService, adminUsersService *service.AdminUsersService) {
 	router.Handle("GET /api/me", authentication.Authentication(middleware.RequirePermission("users:read:self", http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		getAccountInformation(w, req, provisioner, userService)
 	}))))
@@ -24,9 +26,84 @@ func registerUserRoutes(router *http.ServeMux, authentication *middleware.Auth0,
 	router.Handle("PUT /api/admin/users/{userID}/administrator", authentication.Authentication(middleware.RequirePermission("users:manage:roles", requireActiveAccount(provisioner, http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		setAdministrator(w, req, administratorService, true)
 	})))))
+	router.Handle("GET /api/admin/users", authentication.Authentication(middleware.RequirePermission("users:manage:roles", requireActiveAccount(provisioner, http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		listAdminUsers(w, req, adminUsersService)
+	})))))
 	router.Handle("DELETE /api/admin/users/{userID}/administrator", authentication.Authentication(middleware.RequirePermission("users:manage:roles", requireActiveAccount(provisioner, http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		setAdministrator(w, req, administratorService, false)
 	})))))
+}
+
+func listAdminUsers(writer http.ResponseWriter, req *http.Request, adminUsersService *service.AdminUsersService) {
+	query := req.URL.Query()
+	page, err := optionalQueryInt(query["page"], 0)
+	if err != nil {
+		writeError(writer, http.StatusBadRequest, "invalid_query", "page must be a non-negative integer.")
+		return
+	}
+	perPage, err := optionalQueryInt(query["per_page"], 0)
+	if err != nil {
+		writeError(writer, http.StatusBadRequest, "invalid_query", "per_page must be an integer from 1 to 100.")
+		return
+	}
+	emailValues := query["email"]
+	if len(emailValues) > 1 {
+		writeError(writer, http.StatusBadRequest, "invalid_query", "Provide at most one email value.")
+		return
+	}
+	roleValues := query["role"]
+	if len(roleValues) > 1 {
+		writeError(writer, http.StatusBadRequest, "invalid_query", "Provide at most one role value.")
+		return
+	}
+	cursorValues := query["cursor"]
+	if len(cursorValues) > 1 {
+		writeError(writer, http.StatusBadRequest, "invalid_query", "Provide at most one cursor value.")
+		return
+	}
+	email := ""
+	if len(emailValues) == 1 {
+		email = emailValues[0]
+	}
+	role, cursor := "", ""
+	if len(roleValues) == 1 {
+		role = roleValues[0]
+	}
+	if len(cursorValues) == 1 {
+		cursor = cursorValues[0]
+	}
+	if strings.TrimSpace(email) != email {
+		writeError(writer, http.StatusBadRequest, "invalid_query", "email must not have surrounding whitespace.")
+		return
+	}
+	if adminUsersService == nil {
+		writeError(writer, http.StatusServiceUnavailable, "user_listing_unavailable", "The Auth0 user directory is unavailable.")
+		return
+	}
+	users, err := adminUsersService.List(req.Context(), page, perPage, email, role, cursor)
+	if err != nil {
+		if errors.Is(err, service.ErrValidation) {
+			writeError(writer, http.StatusBadRequest, "invalid_query", "page, per_page, or email is invalid.")
+		} else {
+			writeError(writer, http.StatusServiceUnavailable, "user_listing_unavailable", "The Auth0 user directory is unavailable.")
+		}
+		return
+	}
+	writeJSON(writer, http.StatusOK, users)
+}
+
+func optionalQueryInt(values []string, defaultValue int) (int, error) {
+	if len(values) == 0 {
+		return defaultValue, nil
+	}
+	if len(values) != 1 {
+		return 0, errors.New("query parameter must appear once")
+	}
+	value, err := strconv.Atoi(values[0])
+	if err != nil {
+		return 0, err
+	}
+	return value, nil
 }
 
 func setAdministrator(writer http.ResponseWriter, req *http.Request, administratorService *service.AdministratorService, enabled bool) {

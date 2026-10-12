@@ -29,9 +29,9 @@ type Handler struct {
 }
 
 // New creates a handler with public web assets and authenticated API routes.
-func New(authConfig AuthConfig, authentication *middleware.Auth0, provisioner Provisioner, userService *service.UserService, administratorService *service.AdministratorService) *Handler {
+func New(authConfig AuthConfig, authentication *middleware.Auth0, provisioner Provisioner, userService *service.UserService, administratorService *service.AdministratorService, adminUsersService *service.AdminUsersService) *Handler {
 	router := http.NewServeMux()
-	registerUserRoutes(router, authentication, provisioner, userService, administratorService)
+	registerUserRoutes(router, authentication, provisioner, userService, administratorService, adminUsersService)
 	router.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
 	router.HandleFunc("GET /api/auth/config", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, authConfig)

@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -25,9 +26,36 @@ type ManagementClient struct {
 	secret     string
 	httpClient *http.Client
 
-	mu        sync.Mutex
-	token     string
-	tokenEnds time.Time
+	mu          sync.Mutex
+	token       string
+	tokenEnds   time.Time
+	roleCacheMu sync.Mutex
+	adminIDs    map[string]struct{}
+	adminRoleID string
+	adminIDsEnd time.Time
+}
+
+// ManagedUser is the small Auth0 profile subset exposed to administrators.
+type ManagedUser struct {
+	ID            string `json:"user_id"`
+	Email         string `json:"email"`
+	Name          string `json:"name,omitempty"`
+	EmailVerified *bool  `json:"email_verified,omitempty"`
+	CreatedAt     string `json:"created_at,omitempty"`
+	LastLogin     string `json:"last_login,omitempty"`
+}
+
+type ManagedUsersPage struct {
+	Users   []ManagedUser `json:"users"`
+	Total   *int          `json:"total,omitempty"`
+	Page    int           `json:"page"`
+	PerPage int           `json:"per_page"`
+	Role    string        `json:"role,omitempty"`
+	Next    string        `json:"next_cursor,omitempty"`
+}
+
+type ManagedRole struct {
+	ID string `json:"id"`
 }
 
 // NewManagementClient validates Auth0 configuration and creates the client.
@@ -52,6 +80,135 @@ func (c *ManagementClient) AssignRole(ctx context.Context, userID, roleID string
 // RemoveRole removes an Auth0 role from a user.
 func (c *ManagementClient) RemoveRole(ctx context.Context, userID, roleID string) error {
 	return c.changeRole(ctx, http.MethodDelete, userID, roleID)
+}
+
+// ListRoleUsers returns one checkpoint-paginated page of users assigned to a role.
+func (c *ManagementClient) ListRoleUsers(ctx context.Context, roleID, cursor string, take int) ([]ManagedUser, string, error) {
+	query := url.Values{"take": {strconv.Itoa(take)}}
+	if cursor != "" {
+		query.Set("from", cursor)
+	}
+	var result struct {
+		Users []ManagedUser `json:"users"`
+		Next  string        `json:"next"`
+	}
+	if err := c.getManagementJSON(ctx, "/api/v2/roles/"+url.PathEscape(roleID)+"/users?"+query.Encode(), &result); err != nil {
+		return nil, "", err
+	}
+	if result.Users == nil {
+		result.Users = []ManagedUser{}
+	}
+	return result.Users, result.Next, nil
+}
+
+// UserRoles returns the IDs of roles directly assigned to one Auth0 user.
+func (c *ManagementClient) UserRoles(ctx context.Context, userID string) ([]ManagedRole, error) {
+	if strings.TrimSpace(userID) == "" {
+		return nil, errors.New("Auth0 user ID is required")
+	}
+	var roles []ManagedRole
+	if err := c.getManagementJSON(ctx, "/api/v2/users/"+url.PathEscape(userID)+"/roles", &roles); err != nil {
+		return nil, err
+	}
+	return roles, nil
+}
+
+// AdministratorIDs returns a short-lived snapshot used to exclude administrators
+// from the regular-user directory when users have both roles assigned.
+func (c *ManagementClient) AdministratorIDs(ctx context.Context, roleID string) (map[string]struct{}, error) {
+	c.roleCacheMu.Lock()
+	defer c.roleCacheMu.Unlock()
+	if c.adminRoleID == roleID && time.Now().Before(c.adminIDsEnd) {
+		return c.adminIDs, nil
+	}
+	ids := make(map[string]struct{})
+	cursor := ""
+	for {
+		users, next, err := c.ListRoleUsers(ctx, roleID, cursor, 100)
+		if err != nil {
+			return nil, err
+		}
+		for _, user := range users {
+			ids[user.ID] = struct{}{}
+		}
+		if next == "" || next == cursor {
+			break
+		}
+		cursor = next
+	}
+	// shortcut: Dashboard role edits may stay cached for one minute; lower the TTL if those changes need to appear immediately.
+	c.adminIDs, c.adminRoleID, c.adminIDsEnd = ids, roleID, time.Now().Add(time.Minute)
+	return ids, nil
+}
+
+// ListUsers searches Auth0 users by an optional exact email and returns one page.
+func (c *ManagementClient) ListUsers(ctx context.Context, page, perPage int, email string) (ManagedUsersPage, error) {
+	query := url.Values{}
+	query.Set("page", strconv.Itoa(page))
+	query.Set("per_page", strconv.Itoa(perPage))
+	query.Set("include_totals", "true")
+	query.Set("fields", "user_id,email,name,email_verified,created_at,last_login")
+	query.Set("include_fields", "true")
+	if email != "" {
+		escaped := strings.NewReplacer("\\", "\\\\", `"`, `\"`).Replace(email)
+		query.Set("q", `email:"`+escaped+`"`)
+		query.Set("search_engine", "v3")
+	}
+	token, err := c.managementToken(ctx)
+	if err != nil {
+		return ManagedUsersPage{}, err
+	}
+	endpoint := "https://" + c.domain + "/api/v2/users?" + query.Encode()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return ManagedUsersPage{}, errors.New("create Auth0 user-list request")
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	response, err := c.httpClient.Do(req)
+	if err != nil {
+		return ManagedUsersPage{}, errors.New("call Auth0 Management API")
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, maxManagementResponseBytes))
+		return ManagedUsersPage{}, fmt.Errorf("Auth0 Management API returned status %d", response.StatusCode)
+	}
+	var result struct {
+		Users []ManagedUser `json:"users"`
+		Total int           `json:"total"`
+	}
+	if err := json.NewDecoder(io.LimitReader(response.Body, maxManagementResponseBytes)).Decode(&result); err != nil {
+		return ManagedUsersPage{}, errors.New("decode Auth0 user-list response")
+	}
+	if result.Users == nil {
+		result.Users = []ManagedUser{}
+	}
+	return ManagedUsersPage{Users: result.Users, Total: &result.Total, Page: page, PerPage: perPage}, nil
+}
+
+func (c *ManagementClient) getManagementJSON(ctx context.Context, path string, destination any) error {
+	token, err := c.managementToken(ctx)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://"+c.domain+path, nil)
+	if err != nil {
+		return errors.New("create Auth0 Management API request")
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	response, err := c.httpClient.Do(req)
+	if err != nil {
+		return errors.New("call Auth0 Management API")
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, maxManagementResponseBytes))
+		return fmt.Errorf("Auth0 Management API returned status %d", response.StatusCode)
+	}
+	if err := json.NewDecoder(io.LimitReader(response.Body, maxManagementResponseBytes)).Decode(destination); err != nil {
+		return errors.New("decode Auth0 Management API response")
+	}
+	return nil
 }
 
 func (c *ManagementClient) changeRole(ctx context.Context, method, userID, roleID string) error {
@@ -85,6 +242,9 @@ func (c *ManagementClient) changeRole(ctx context.Context, method, userID, roleI
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return fmt.Errorf("Auth0 Management API returned status %d", response.StatusCode)
 	}
+	c.roleCacheMu.Lock()
+	c.adminIDsEnd = time.Time{}
+	c.roleCacheMu.Unlock()
 	return nil
 }
 
