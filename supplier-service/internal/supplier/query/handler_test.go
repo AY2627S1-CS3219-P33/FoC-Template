@@ -49,10 +49,10 @@ func TestCatalogueHandlersReturnAllF211FieldsAndBothIdentifiers(t *testing.T) {
 	require.Equal(t, http.StatusOK, response.Code)
 	require.Equal(t, "application/json", response.Header().Get("Content-Type"))
 	require.JSONEq(t, itemJSON, response.Body.String())
-	response = serveCatalogue(reader, "/suppliers?q=++ARTS+++LINK++&type=FOOD&limit=100&cursor=previous", true)
+	response = serveCatalogue(reader, "/suppliers?q=++ARTS+++LINK++&type=FOOD&building=COM+3&limit=100&cursor=previous", true)
 	require.Equal(t, http.StatusOK, response.Code)
 	require.JSONEq(t, `{"items":[`+itemJSON+`],"nextCursor":"opaque"}`, response.Body.String())
-	require.Equal(t, supplier.ListFilter{Query: "arts link", Type: "food", Sort: supplier.SortName, Limit: 100, Cursor: "previous"}, reader.filter)
+	require.Equal(t, supplier.ListFilter{Query: "arts link", Type: "food", Building: "COM 3", Sort: supplier.SortName, Limit: 100, Cursor: "previous"}, reader.filter)
 }
 
 func TestListPassesSortAndDefaultsToName(t *testing.T) {
@@ -133,6 +133,8 @@ func TestCatalogueHandlersRejectInvalidParametersBeforeReading(t *testing.T) {
 		"/suppliers?q=" + url.QueryEscape(strings.Repeat(" ", 121)),
 		"/suppliers?type=" + strings.Repeat("x", 65),
 		"/suppliers?type=" + url.QueryEscape(strings.Repeat(" ", 65)),
+		"/suppliers?building=" + url.QueryEscape(strings.Repeat("界", 121)),
+		"/suppliers?building=" + url.QueryEscape(strings.Repeat(" ", 121)),
 		"/suppliers?cursor=" + strings.Repeat("x", 513),
 		"/suppliers/invalid",
 	} {

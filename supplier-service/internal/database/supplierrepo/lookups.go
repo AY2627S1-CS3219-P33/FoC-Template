@@ -4,8 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
-	"time"
+	"slices"
 
 	"github.com/jackc/pgx/v5"
 
@@ -13,93 +12,81 @@ import (
 	"github.com/CS3219-AY2627S1/FoC-Template/supplier-service/internal/supplier"
 )
 
-// lookupAttempts bounds find-or-create when a concurrent writer keeps
-// inserting and retiring rows with the same key between our statements.
-const lookupAttempts = 3
+var (
+	unknownBuilding     = supplier.FieldViolation{Field: "building", Message: "must be an existing building"}
+	unknownSupplierType = supplier.FieldViolation{Field: "type", Message: "must be an existing supplier type"}
+)
 
-// LookupQueries is the subset of generated queries used to resolve building
-// and supplier-type lookups. Pass transaction-scoped queries so a created
-// lookup commits or rolls back with the version that references it.
-type LookupQueries interface {
-	ResolveBuildingByKey(context.Context, string) (db.ResolveBuildingByKeyRow, error)
-	InsertBuilding(context.Context, db.InsertBuildingParams) (db.InsertBuildingRow, error)
-	ResolveSupplierTypeByKey(context.Context, string) (db.ResolveSupplierTypeByKeyRow, error)
-	InsertSupplierType(context.Context, db.InsertSupplierTypeParams) (db.InsertSupplierTypeRow, error)
-}
-
-// FindOrCreateLookups sets details.Building/BuildingID and Type/TypeID to the
-// live lookup rows whose keys match supplier.LookupKey of the given names,
-// creating a row when none is live. The returned names are canonical, so
-// "com2" resolves to an existing "Com 2". A field whose ID is already set is
-// left unchanged; Update relies on this to keep an unpatched, possibly
-// retired, lookup.
-//
-// The seed importer uses find-or-create permanently because its CSV is
-// trusted bootstrap data. Administrator writes use it only until they are
-// restricted to existing lookups.
-func FindOrCreateLookups(ctx context.Context, queries LookupQueries, details supplier.Details, now time.Time) (supplier.Details, error) {
-	if details.BuildingID == "" {
-		id, name, err := findOrCreate(ctx, details.Building, now,
-			func(ctx context.Context, name string) (string, string, error) {
-				row, err := queries.ResolveBuildingByKey(ctx, name)
-				return row.ID, row.Name, err
-			},
-			func(ctx context.Context, name string, now time.Time) (string, string, error) {
-				row, err := queries.InsertBuilding(ctx, db.InsertBuildingParams{Name: name, Now: timestamp(now)})
-				return row.ID, row.Name, err
-			},
-		)
-		if err != nil {
-			return supplier.Details{}, fmt.Errorf("resolve building: %w", err)
+// validateAndResolve validates details and resolves their building and type
+// inside the caller's transaction. Lookup violations are reported alongside
+// field violations in one *supplier.ValidationError, so a request learns
+// every problem at once.
+func validateAndResolve(ctx context.Context, queries *db.Queries, details supplier.Details) (supplier.Details, error) {
+	var violations []supplier.FieldViolation
+	if err := supplier.ValidateDetails(details); err != nil {
+		validation := &supplier.ValidationError{}
+		if !errors.As(err, &validation) {
+			return supplier.Details{}, err
 		}
-		details.BuildingID, details.Building = id, name
+		violations = validation.Violations
 	}
-	if details.TypeID == "" {
-		id, name, err := findOrCreate(ctx, details.Type, now,
-			func(ctx context.Context, name string) (string, string, error) {
-				row, err := queries.ResolveSupplierTypeByKey(ctx, name)
-				return row.ID, row.Name, err
-			},
-			func(ctx context.Context, name string, now time.Time) (string, string, error) {
-				row, err := queries.InsertSupplierType(ctx, db.InsertSupplierTypeParams{Name: name, Now: timestamp(now)})
-				return row.ID, row.Name, err
-			},
-		)
-		if err != nil {
-			return supplier.Details{}, fmt.Errorf("resolve supplier type: %w", err)
-		}
-		details.TypeID, details.Type = id, name
+	details, lookupViolations, err := resolveLookups(ctx, queries, details, violations)
+	if err != nil {
+		return supplier.Details{}, err
+	}
+	violations = append(violations, lookupViolations...)
+	if len(violations) > 0 {
+		return supplier.Details{}, &supplier.ValidationError{Violations: violations}
 	}
 	return details, nil
 }
 
-// findOrCreate resolves, inserts on a miss, and resolves again when the
-// insert lost a unique-key race. The insert's ON CONFLICT DO NOTHING waits
-// for a concurrent inserter to finish, so under READ COMMITTED the next
-// resolve sees its committed row.
-func findOrCreate(
+// resolveLookups sets details.Building/BuildingID and Type/TypeID to the live
+// lookup rows whose keys match supplier.LookupKey of the given names. The
+// returned names are canonical, so "com2" resolves to an existing "Com 2".
+// Administrators may only assign existing, unretired rows; a name with no
+// live row is returned as a violation, never created.
+//
+// Each resolved row stays locked FOR SHARE until the caller's transaction
+// ends, which serialises the write with RetireLookup's FOR UPDATE.
+//
+// A field whose ID is already set is left unchanged; Update relies on this to
+// keep an unpatched, possibly retired, lookup. A field that already has a
+// violation in invalid is not resolved.
+func resolveLookups(
 	ctx context.Context,
-	name string,
-	now time.Time,
-	resolve func(context.Context, string) (string, string, error),
-	insert func(context.Context, string, time.Time) (string, string, error),
-) (string, string, error) {
-	name = strings.TrimSpace(name)
-	for range lookupAttempts {
-		id, canonical, err := resolve(ctx, name)
-		if err == nil {
-			return id, canonical, nil
-		}
-		if !errors.Is(err, pgx.ErrNoRows) {
-			return "", "", err
-		}
-		id, canonical, err = insert(ctx, name, now)
-		if err == nil {
-			return id, canonical, nil
-		}
-		if !errors.Is(err, pgx.ErrNoRows) {
-			return "", "", mapWriteError(err)
+	queries *db.Queries,
+	details supplier.Details,
+	invalid []supplier.FieldViolation,
+) (supplier.Details, []supplier.FieldViolation, error) {
+	var violations []supplier.FieldViolation
+	if details.BuildingID == "" && !hasViolation(invalid, unknownBuilding.Field) {
+		row, err := queries.ResolveBuildingByKey(ctx, details.Building)
+		switch {
+		case errors.Is(err, pgx.ErrNoRows):
+			violations = append(violations, unknownBuilding)
+		case err != nil:
+			return supplier.Details{}, nil, fmt.Errorf("resolve building: %w", err)
+		default:
+			details.BuildingID, details.Building = row.ID, row.Name
 		}
 	}
-	return "", "", errors.New("lookup row changed concurrently")
+	if details.TypeID == "" && !hasViolation(invalid, unknownSupplierType.Field) {
+		row, err := queries.ResolveSupplierTypeByKey(ctx, details.Type)
+		switch {
+		case errors.Is(err, pgx.ErrNoRows):
+			violations = append(violations, unknownSupplierType)
+		case err != nil:
+			return supplier.Details{}, nil, fmt.Errorf("resolve supplier type: %w", err)
+		default:
+			details.TypeID, details.Type = row.ID, row.Name
+		}
+	}
+	return details, violations, nil
+}
+
+func hasViolation(violations []supplier.FieldViolation, field string) bool {
+	return slices.ContainsFunc(violations, func(violation supplier.FieldViolation) bool {
+		return violation.Field == field
+	})
 }

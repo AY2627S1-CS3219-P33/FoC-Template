@@ -28,6 +28,7 @@ func TestReadinessRequiresSchemaConnectivityAndSeedProvenance(t *testing.T) {
 	err = checker.Check(context.Background())
 	require.ErrorContains(t, err, "required seed dataset is missing")
 
+	createLookups(t, repository, validDetails(""))
 	created, err := repository.Create(context.Background(), validDetails("Readiness Seed"), time.Now().UTC())
 	require.NoError(t, err)
 	_, err = pool.Exec(context.Background(), `

@@ -96,6 +96,16 @@ components:
       schema:
         type: string
         maxLength: 64
+    Building:
+      name: building
+      in: query
+      description: >-
+        Building, matched by lookup key: case, spaces, and punctuation are
+        ignored, so "COM-2" and "com 2" are the same building. An unknown or
+        retired building yields an empty page.
+      schema:
+        type: string
+        maxLength: 120
     Sort:
       name: sort
       in: query

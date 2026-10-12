@@ -172,6 +172,9 @@ func ValidateListFilter(filter ListFilter) error {
 	if utf8.RuneCountInString(strings.TrimSpace(filter.Type)) > 64 {
 		violations = append(violations, FieldViolation{Field: "type", Message: "is too long"})
 	}
+	if utf8.RuneCountInString(strings.TrimSpace(filter.Building)) > 120 {
+		violations = append(violations, FieldViolation{Field: "building", Message: "is too long"})
+	}
 	if filter.Sort != "" && !filter.Sort.Valid() {
 		violations = append(violations, InvalidSortViolation())
 	}

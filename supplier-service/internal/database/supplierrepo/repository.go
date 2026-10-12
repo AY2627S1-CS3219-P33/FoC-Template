@@ -28,8 +28,8 @@ const normalizedNameConstraint = "suppliers_live_normalized_name_uidx"
 // guard. Validation normally reports these first; the mapping covers a lookup
 // that changes between validation and the write.
 var lookupConstraintViolations = map[string]supplier.FieldViolation{
-	"supplier_versions_building_fkey":      {Field: "building", Message: "must be an existing building"},
-	"supplier_versions_supplier_type_fkey": {Field: "type", Message: "must be an existing supplier type"},
+	"supplier_versions_building_fkey":      unknownBuilding,
+	"supplier_versions_supplier_type_fkey": unknownSupplierType,
 	"buildings_name_not_blank":             {Field: "building", Message: "is required"},
 	"buildings_lookup_key_not_blank":       {Field: "building", Message: "must contain a letter or digit"},
 	"supplier_types_name_not_blank":        {Field: "type", Message: "is required"},
@@ -58,10 +58,6 @@ var _ supplier.Repository = (*Repository)(nil)
 
 func (r *Repository) Create(ctx context.Context, details supplier.Details, now time.Time) (result supplier.Supplier, err error) {
 	defer r.observe("create", time.Now(), &err)
-	if err := supplier.ValidateDetails(details); err != nil {
-		return supplier.Supplier{}, err
-	}
-
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return supplier.Supplier{}, err
@@ -69,10 +65,10 @@ func (r *Repository) Create(ctx context.Context, details supplier.Details, now t
 	defer func() { _ = tx.Rollback(context.Background()) }()
 
 	queries := r.queries.WithTx(tx)
-	// TRANSITIONAL: administrator writes find-or-create lookups so the API
-	// keeps accepting any building or type until writes become strict.
+	// Input lookup IDs are ignored: building and type must name existing,
+	// unretired lookups, resolved by key inside this transaction.
 	details.BuildingID, details.TypeID = "", ""
-	details, err = FindOrCreateLookups(ctx, queries, details, now)
+	details, err = validateAndResolve(ctx, queries, details)
 	if err != nil {
 		return supplier.Supplier{}, err
 	}
@@ -138,13 +134,11 @@ func (r *Repository) Update(ctx context.Context, supplierID supplier.SupplierID,
 		currentVersion.ClosingTime,
 		currentVersion.ImageUrl,
 	))
-	if err := supplier.ValidateDetails(details); err != nil {
-		return supplier.Supplier{}, err
-	}
 	// Apply cleared the ID of a patched building or type, so only those are
-	// resolved; an unpatched lookup keeps its row even if it is retired.
-	// TRANSITIONAL: patched values are found or created, as in Create.
-	details, err = FindOrCreateLookups(ctx, queries, details, now)
+	// resolved and must name an existing, unretired lookup. An unpatched
+	// lookup keeps its row even if it has since been retired, so the
+	// supplier's other fields stay editable.
+	details, err = validateAndResolve(ctx, queries, details)
 	if err != nil {
 		return supplier.Supplier{}, err
 	}
@@ -254,6 +248,7 @@ func (r *Repository) ListAvailable(ctx context.Context, filter supplier.ListFilt
 	params := db.ListAvailableSuppliersByNameParams{
 		QueryText:    supplier.NormalizeName(filter.Query),
 		SupplierType: strings.TrimSpace(filter.Type),
+		Building:     strings.TrimSpace(filter.Building),
 		HasCursor:    filter.Cursor != "",
 		PageLimit:    int32(filter.PageSize() + 1),
 	}
@@ -320,6 +315,7 @@ func (r *Repository) listAvailableRows(ctx context.Context, sort supplier.ListSo
 	typeParams := db.ListAvailableSuppliersByTypeParams{
 		QueryText:        params.QueryText,
 		SupplierType:     params.SupplierType,
+		Building:         params.Building,
 		HasCursor:        params.HasCursor,
 		CursorType:       anchor.Type,
 		CursorName:       params.CursorName,
@@ -329,6 +325,7 @@ func (r *Repository) listAvailableRows(ctx context.Context, sort supplier.ListSo
 	buildingParams := db.ListAvailableSuppliersByBuildingParams{
 		QueryText:        params.QueryText,
 		SupplierType:     params.SupplierType,
+		Building:         params.Building,
 		HasCursor:        params.HasCursor,
 		CursorBuilding:   anchor.Building,
 		CursorName:       params.CursorName,

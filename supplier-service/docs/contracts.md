@@ -42,9 +42,11 @@ and `typeId` are read-only.
   A building or type with no letter or digit is invalid.
 - Lookup keys are unique among rows that are not retired. A write resolves a
   name to the live row with the same key and responds with that row's
-  canonical name, so `com2` is returned as `Com 2`. Until administrator
-  writes are restricted to existing lookups, a name with no live row creates
-  one; the seed import always does this.
+  canonical name, so `com2` is returned as `Com 2`. Administrator writes may
+  only assign an existing, unretired row (see
+  [Validation and list behavior](#validation-and-list-behavior)); only the
+  seed import creates a row for a name with no live match, because it is
+  trusted bootstrap data that builds the initial lists.
 - A patch that omits `building` or `type` keeps the current row, even if it
   has been retired since.
 - Lookup names are immutable, and rows are never deleted; the only permitted
@@ -99,6 +101,22 @@ Create requires `name`, `type`, `building`, `floor`, `locationDescription`,
 optional. Patch accepts those fields but rejects an empty object; setting
 `imageUrl` to `null` removes it. IDs are never patchable.
 
+`building` and `type` must each name an existing building and supplier type
+that is not retired. Rows are created through `POST /buildings` and
+`POST /supplier-types`; a supplier write never creates one. The value is
+matched by lookup key, so `com2`, ` COM-2 `, and `Com 2` all select the row
+named `Com 2`, and the response returns that canonical name. A value with no
+live match is `INVALID_ARGUMENT` with field `building` and message
+`must be an existing building`, or field `type` and message
+`must be an existing supplier type`. These are reported together with each
+other and with every other field violation. A retired row does not match, so
+assigning it is rejected the same way. A patch that omits `building` or
+`type` keeps the current row even if it has been retired since, so the
+supplier's other fields remain editable. The resolved rows are locked
+`FOR SHARE` in the write's transaction, so a concurrent retirement either
+waits and then finds the row in use, or commits first and the write is
+rejected.
+
 Coordinates use latitude `[-90, 90]` and longitude `[-180, 180]`. Times use
 24-hour `HH:MM` and must differ. Image URLs must be absolute HTTP(S) URLs. The
 length bounds in the common OpenAPI fragment are the shared bounds used by Go
@@ -111,6 +129,10 @@ numeric value so an omitted coordinate cannot be mistaken for valid zero.
   location description;
 - `type`: type match by lookup key (see
   [Buildings and supplier types](#buildings-and-supplier-types));
+- `building`: building match by lookup key, at most 120 characters, so
+  `com2`, `COM-2` and `Com 2` select the same building. A building that does
+  not exist or is retired yields an empty page rather than an error, as for
+  `type`. It combines with every other parameter;
 - `sort`: `name` (default), `-name`, `type`, `-type`, `building`, or
   `-building`;
 - `limit`: 1-100, default 25;
@@ -134,8 +156,8 @@ each type.
 
 Any other `sort` value, including an empty one, is rejected with
 `INVALID_ARGUMENT` and field `sort`. Clients must not parse or construct
-cursors. A cursor is bound to the normalized `q`, the `type` lookup key, and
-the `sort` that produced it; reusing it with different values is rejected as
+cursors. A cursor is bound to the normalized `q`, the `type` and `building`
+lookup keys, and the `sort` that produced it; reusing it with different values is rejected as
 `cursor is invalid`.
 `nextCursor` is omitted on the last page.
 

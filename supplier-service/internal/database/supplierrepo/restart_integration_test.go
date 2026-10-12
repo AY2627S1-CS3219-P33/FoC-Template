@@ -64,6 +64,7 @@ func TestPersistenceSurvivesDatabaseAndServiceRestart(t *testing.T) {
 	require.NoError(t, err)
 
 	repository := New(pool)
+	createLookups(t, repository, validDetails(""))
 	createdAt := time.Now().UTC()
 	created, err := repository.Create(ctx, validDetails("Restart Supplier"), createdAt)
 	require.NoError(t, err)

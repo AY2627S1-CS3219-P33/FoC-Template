@@ -30,7 +30,7 @@ func newCursorCipher() cipher.AEAD {
 }
 
 func cursorFilters(filter supplier.ListFilter) []byte {
-	return []byte(supplier.NormalizeName(filter.Query) + "\x00" + supplier.LookupKey(filter.Type) + "\x00" + string(filter.SortOrder()))
+	return []byte(supplier.NormalizeName(filter.Query) + "\x00" + supplier.LookupKey(filter.Type) + "\x00" + supplier.LookupKey(filter.Building) + "\x00" + string(filter.SortOrder()))
 }
 
 func (r *Repository) encodeCursor(versionID supplier.VersionID, filter supplier.ListFilter) string {

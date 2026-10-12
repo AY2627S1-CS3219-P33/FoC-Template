@@ -3,7 +3,6 @@ package supplierrepo
 import (
 	"context"
 	"fmt"
-	"sync"
 	"testing"
 	"time"
 
@@ -17,6 +16,8 @@ func TestWritesResolveSpellingVariantsToOneCanonicalLookup(t *testing.T) {
 	repository, pool := migratedRepository(t)
 	ctx := context.Background()
 	now := time.Now().UTC()
+	building := mustCreateLookup(t, repository, supplier.BuildingLookup, "Com 2")
+	supplierType := mustCreateLookup(t, repository, supplier.SupplierTypeLookup, "Printing")
 
 	first := validDetails("Printer @ Com 2")
 	first.Building, first.Type = "Com 2", "Printing"
@@ -26,29 +27,37 @@ func TestWritesResolveSpellingVariantsToOneCanonicalLookup(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "Com 2", created.Details.Building)
 	require.Equal(t, "Printing", created.Details.Type)
-	require.NotEqual(t, first.BuildingID, created.Details.BuildingID)
+	require.Equal(t, string(building.ID), created.Details.BuildingID)
+	require.Equal(t, string(supplierType.ID), created.Details.TypeID)
 
-	second := validDetails("Cool Spot")
-	second.Building, second.Type = "  com2 ", "PRINTING"
-	other, err := repository.Create(ctx, second, now)
-	require.NoError(t, err)
-	require.Equal(t, "Com 2", other.Details.Building, "the response carries the canonical name")
-	require.Equal(t, "Printing", other.Details.Type)
-	require.Equal(t, created.Details.BuildingID, other.Details.BuildingID)
-	require.Equal(t, created.Details.TypeID, other.Details.TypeID)
+	// Case, spacing, and punctuation variants resolve to the canonical row.
+	for i, variant := range []struct{ building, supplierType string }{
+		{"  com2 ", "PRINTING"},
+		{"COM-2", " printing."},
+		{"c.o.m 2", "Print-ing"},
+	} {
+		details := validDetails(fmt.Sprintf("Variant Supplier %d", i))
+		details.Building, details.Type = variant.building, variant.supplierType
+		other, err := repository.Create(ctx, details, now)
+		require.NoError(t, err, "variant %+v", variant)
+		require.Equal(t, "Com 2", other.Details.Building, "the response carries the canonical name")
+		require.Equal(t, "Printing", other.Details.Type)
+		require.Equal(t, created.Details.BuildingID, other.Details.BuildingID)
+		require.Equal(t, created.Details.TypeID, other.Details.TypeID)
+	}
 
 	variant := "COM-2"
-	updated, err := repository.Update(ctx, other.SupplierID, supplier.Patch{Building: &variant}, now.Add(time.Minute))
+	updated, err := repository.Update(ctx, created.SupplierID, supplier.Patch{Building: &variant}, now.Add(time.Minute))
 	require.NoError(t, err)
 	require.Equal(t, "Com 2", updated.Details.Building)
 	require.Equal(t, created.Details.BuildingID, updated.Details.BuildingID)
 
-	require.Equal(t, 1, countRows(t, pool, "buildings"))
+	require.Equal(t, 1, countRows(t, pool, "buildings"), "writes never create lookups")
 	require.Equal(t, 1, countRows(t, pool, "supplier_types"))
 
 	for _, read := range []supplier.Details{
-		mustGetCurrent(t, repository, other.SupplierID).Details,
-		mustGetVersion(t, repository, other.VersionID).Details,
+		mustGetCurrent(t, repository, created.SupplierID).Details,
+		mustGetVersion(t, repository, created.VersionID).Details,
 		mustGetVersion(t, repository, updated.VersionID).Details,
 	} {
 		require.Equal(t, "Com 2", read.Building)
@@ -59,7 +68,7 @@ func TestWritesResolveSpellingVariantsToOneCanonicalLookup(t *testing.T) {
 
 	page, err := repository.ListAvailable(ctx, supplier.ListFilter{Limit: supplier.MaximumPageSize})
 	require.NoError(t, err)
-	require.Len(t, page.Items, 2)
+	require.Len(t, page.Items, 4)
 	for _, item := range page.Items {
 		require.Equal(t, "Com 2", item.Details.Building)
 		require.Equal(t, created.Details.BuildingID, item.Details.BuildingID)
@@ -67,30 +76,92 @@ func TestWritesResolveSpellingVariantsToOneCanonicalLookup(t *testing.T) {
 	}
 }
 
-func TestPatchKeepsAnUnpatchedRetiredLookupAndHistoryStillResolves(t *testing.T) {
+func TestWritesRejectUnknownBuildingAndTypeWithOtherViolations(t *testing.T) {
+	repository, pool := migratedRepository(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	createLookups(t, repository, validDetails(""))
+
+	unknownBuilding := validDetails("Unknown Building Supplier")
+	unknownBuilding.Building = "Nowhere Hall"
+	_, err := repository.Create(ctx, unknownBuilding, now)
+	requireViolations(t, err, supplier.FieldViolation{Field: "building", Message: "must be an existing building"})
+
+	unknownType := validDetails("Unknown Type Supplier")
+	unknownType.Type = "Laundry"
+	_, err = repository.Create(ctx, unknownType, now)
+	requireViolations(t, err, supplier.FieldViolation{Field: "type", Message: "must be an existing supplier type"})
+
+	// Both lookups and unrelated fields are reported together.
+	both := validDetails("Unknown Both Supplier")
+	both.Building, both.Type, both.Latitude, both.ClosingTime = "Nowhere Hall", "Laundry", 91, both.OpeningTime
+	_, err = repository.Create(ctx, both, now)
+	requireViolations(t, err,
+		supplier.FieldViolation{Field: "latitude", Message: "must be between -90 and 90"},
+		supplier.FieldViolation{Field: "closingTime", Message: "must differ from openingTime"},
+		supplier.FieldViolation{Field: "building", Message: "must be an existing building"},
+		supplier.FieldViolation{Field: "type", Message: "must be an existing supplier type"},
+	)
+
+	created, err := repository.Create(ctx, validDetails("Known Supplier"), now)
+	require.NoError(t, err)
+	building, supplierType := "Nowhere Hall", "Laundry"
+	opening := created.Details.ClosingTime
+	_, err = repository.Update(ctx, created.SupplierID, supplier.Patch{
+		Building: &building, Type: &supplierType, OpeningTime: &opening,
+	}, now.Add(time.Minute))
+	requireViolations(t, err,
+		supplier.FieldViolation{Field: "closingTime", Message: "must differ from openingTime"},
+		supplier.FieldViolation{Field: "building", Message: "must be an existing building"},
+		supplier.FieldViolation{Field: "type", Message: "must be an existing supplier type"},
+	)
+
+	require.Equal(t, 1, countRows(t, pool, "buildings"), "a rejected write creates no lookup")
+	require.Equal(t, 1, countRows(t, pool, "supplier_types"))
+	require.Equal(t, 1, countRows(t, pool, "supplier_versions"))
+}
+
+func TestRetiredLookupCannotBeAssignedButAnUnpatchedOneIsKept(t *testing.T) {
 	repository, pool := migratedRepository(t)
 	ctx := context.Background()
 	now := time.Now().UTC()
 	details := validDetails("Retired Building Supplier")
-	details.Building = "Old Hall"
+	details.Building, details.Type = "Old Hall", "Old Type"
+	createLookups(t, repository, details, validDetails(""))
 	created, err := repository.Create(ctx, details, now)
 	require.NoError(t, err)
+	// Retirement through the API is refused while the supplier uses the row,
+	// so retire it directly to reach the state of a supplier left on one.
 	retire(t, pool, "buildings", created.Details.BuildingID)
+	retire(t, pool, "supplier_types", created.Details.TypeID)
+
+	newcomer := validDetails("Newcomer Supplier")
+	newcomer.Building = "old hall"
+	_, err = repository.Create(ctx, newcomer, now)
+	requireViolations(t, err, supplier.FieldViolation{Field: "building", Message: "must be an existing building"})
 
 	floor := "2"
 	kept, err := repository.Update(ctx, created.SupplierID, supplier.Patch{Floor: &floor}, now.Add(time.Minute))
-	require.NoError(t, err)
+	require.NoError(t, err, "a supplier on a retired lookup stays editable")
 	require.Equal(t, created.Details.BuildingID, kept.Details.BuildingID, "an unpatched building is not re-resolved")
+	require.Equal(t, created.Details.TypeID, kept.Details.TypeID)
 	require.Equal(t, "Old Hall", kept.Details.Building)
 	require.Equal(t, "Old Hall", mustGetCurrent(t, repository, created.SupplierID).Details.Building)
 
-	// TRANSITIONAL find-or-create: naming the retired building again creates
-	// a new live row with the same key.
-	building := "old hall"
-	replaced, err := repository.Update(ctx, created.SupplierID, supplier.Patch{Building: &building}, now.Add(2*time.Minute))
+	building, supplierType := "OLD HALL", "old type"
+	_, err = repository.Update(ctx, created.SupplierID, supplier.Patch{Building: &building, Type: &supplierType}, now.Add(2*time.Minute))
+	requireViolations(t, err,
+		supplier.FieldViolation{Field: "building", Message: "must be an existing building"},
+		supplier.FieldViolation{Field: "type", Message: "must be an existing supplier type"},
+	)
+	require.Equal(t, kept.VersionID, mustGetCurrent(t, repository, created.SupplierID).VersionID)
+
+	// A replacement row with the same key is assignable.
+	replacement := mustCreateLookup(t, repository, supplier.BuildingLookup, "Old Hall")
+	replaced, err := repository.Update(ctx, created.SupplierID, supplier.Patch{Building: &building}, now.Add(3*time.Minute))
 	require.NoError(t, err)
-	require.NotEqual(t, created.Details.BuildingID, replaced.Details.BuildingID)
-	require.Equal(t, "old hall", replaced.Details.Building)
+	require.Equal(t, string(replacement.ID), replaced.Details.BuildingID)
+	require.Equal(t, "Old Hall", replaced.Details.Building)
 
 	original := mustGetVersion(t, repository, created.VersionID)
 	require.Equal(t, created.Details, original.Details, "history keeps the retired lookup")
@@ -100,6 +171,11 @@ func TestPatchKeepsAnUnpatchedRetiredLookupAndHistoryStillResolves(t *testing.T)
 func TestTypeFilterAndSortUseTheLookupKey(t *testing.T) {
 	repository, _ := migratedRepository(t)
 	ctx := context.Background()
+	// validDetails supplies the "food" type, which "Food" resolves to.
+	createLookups(t, repository, validDetails(""))
+	for _, name := range []string{"Food/Coffee", "Shopping"} {
+		mustCreateLookup(t, repository, supplier.SupplierTypeLookup, name)
+	}
 	for name, supplierType := range map[string]string{
 		"Cafe":  "Food/Coffee",
 		"Deli":  "food coffee",
@@ -133,50 +209,6 @@ func TestTypeFilterAndSortUseTheLookupKey(t *testing.T) {
 	require.Len(t, page.Items, 4, "q still matches the building name")
 }
 
-func TestConcurrentWritesCreateOneLookupPerKey(t *testing.T) {
-	repository, pool := migratedRepository(t)
-	ctx := context.Background()
-	const writers = 8
-	spellings := []string{"University Town", "UTown", "university-town", "UNIVERSITY TOWN"}
-
-	start := make(chan struct{})
-	results := make(chan supplier.Supplier, writers)
-	errs := make(chan error, writers)
-	var wait sync.WaitGroup
-	for i := range writers {
-		wait.Add(1)
-		go func() {
-			defer wait.Done()
-			details := validDetails(fmt.Sprintf("Concurrent Lookup %d", i))
-			details.Building = spellings[i%len(spellings)]
-			details.Type = fmt.Sprintf("Type %c", 'A'+i%2)
-			<-start
-			created, err := repository.Create(ctx, details, time.Now().UTC())
-			if err != nil {
-				errs <- err
-				return
-			}
-			results <- created
-		}()
-	}
-	close(start)
-	wait.Wait()
-	close(results)
-	close(errs)
-	for err := range errs {
-		require.NoError(t, err)
-	}
-
-	buildingIDs := map[string]bool{}
-	for created := range results {
-		buildingIDs[created.Details.BuildingID] = true
-	}
-	// "UTown" has a different key from "University Town".
-	require.Len(t, buildingIDs, 2)
-	require.Equal(t, 2, countRows(t, pool, "buildings"))
-	require.Equal(t, 2, countRows(t, pool, "supplier_types"))
-}
-
 func TestWritesRejectBuildingAndTypeWithoutALookupKey(t *testing.T) {
 	repository, pool := migratedRepository(t)
 	ctx := context.Background()
@@ -191,6 +223,20 @@ func TestWritesRejectBuildingAndTypeWithoutALookupKey(t *testing.T) {
 		{Field: "type", Message: "must contain a letter or digit"},
 	}, validation.Violations)
 	require.Equal(t, 0, countRows(t, pool, "buildings"))
+}
+
+func mustCreateLookup(t *testing.T, repository *Repository, kind supplier.LookupKind, name string) supplier.Lookup {
+	t.Helper()
+	created, err := repository.CreateLookup(context.Background(), kind, name, time.Now().UTC())
+	require.NoError(t, err)
+	return created
+}
+
+func requireViolations(t *testing.T, err error, expected ...supplier.FieldViolation) {
+	t.Helper()
+	validation := &supplier.ValidationError{}
+	require.ErrorAs(t, err, &validation)
+	require.ElementsMatch(t, expected, validation.Violations)
 }
 
 func mustGetCurrent(t *testing.T, repository *Repository, id supplier.SupplierID) supplier.Supplier {

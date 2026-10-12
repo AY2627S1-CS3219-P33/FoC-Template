@@ -75,6 +75,7 @@ func TestRetireLookupChecksCurrentVersionsOnlyAndIsIdempotent(t *testing.T) {
 
 	details := validDetails("Retirement Supplier")
 	details.Building, details.Type = "Com 2", "Printing"
+	createLookups(t, repository, details)
 	created, err := repository.Create(ctx, details, now)
 	require.NoError(t, err)
 	buildingID := supplier.LookupID(created.Details.BuildingID)
@@ -90,6 +91,7 @@ func TestRetireLookupChecksCurrentVersionsOnlyAndIsIdempotent(t *testing.T) {
 
 	// A superseded version does not keep the building in use.
 	moved := "Com 3"
+	mustCreateLookup(t, repository, supplier.BuildingLookup, moved)
 	updated, err := repository.Update(ctx, created.SupplierID, supplier.Patch{Building: &moved}, now.Add(time.Minute))
 	require.NoError(t, err)
 	require.NoError(t, repository.RetireLookup(ctx, supplier.BuildingLookup, buildingID, now))
@@ -111,13 +113,9 @@ func TestRetireLookupChecksCurrentVersionsOnlyAndIsIdempotent(t *testing.T) {
 
 // TestConcurrentRetireAndAssignNeverLeaveACurrentVersionOnARetiredRow races
 // RetireLookup against an Update that moves a supplier onto the same
-// building. Exactly one of them succeeds against that row: either the update
-// commits first and retirement fails as in use, or retirement commits first
-// and the update no longer resolves the row.
-//
-// TRANSITIONAL: until administrator writes are restricted to existing
-// lookups, an update that loses the race still succeeds by creating a new
-// live row with the same key, so the assertion is on the contested row.
+// building. Exactly one of them succeeds: either the update commits first and
+// retirement fails as in use, or retirement commits first and the update is
+// rejected because the building no longer exists.
 func TestConcurrentRetireAndAssignNeverLeaveACurrentVersionOnARetiredRow(t *testing.T) {
 	repository, pool := migratedRepository(t)
 	ctx := context.Background()
@@ -130,6 +128,7 @@ func TestConcurrentRetireAndAssignNeverLeaveACurrentVersionOnARetiredRow(t *test
 		require.NoError(t, err)
 		details := validDetails(fmt.Sprintf("Race Supplier %d", round))
 		details.Building = "Base Hall"
+		createLookups(t, repository, details)
 		created, err := repository.Create(ctx, details, now)
 		require.NoError(t, err)
 
@@ -154,19 +153,23 @@ func TestConcurrentRetireAndAssignNeverLeaveACurrentVersionOnARetiredRow(t *test
 		close(start)
 		retireErr := <-retireResult
 		updated := <-updateResult
-		require.NoError(t, <-updateErr)
+		assignErr := <-updateErr
 
-		onContested := updated.Details.BuildingID == string(contested.ID)
+		current := mustGetCurrent(t, repository, created.SupplierID)
 		if retireErr == nil {
 			retiredFirst++
-			require.False(t, onContested, "round %d: an update that waited for retirement must not use the retired row", round)
+			validation := &supplier.ValidationError{}
+			require.ErrorAs(t, assignErr, &validation, "round %d: an update that waited for retirement must not use the retired row", round)
+			require.Equal(t, []supplier.FieldViolation{{Field: "building", Message: "must be an existing building"}}, validation.Violations)
+			require.Equal(t, created.Details.BuildingID, current.Details.BuildingID, "round %d", round)
 		} else {
 			assignedFirst++
 			inUse := &supplier.LookupInUseError{}
 			require.ErrorAs(t, retireErr, &inUse, "round %d", round)
-			require.True(t, onContested, "round %d", round)
+			require.NoError(t, assignErr, "round %d", round)
+			require.Equal(t, string(contested.ID), updated.Details.BuildingID, "round %d", round)
+			require.Equal(t, string(contested.ID), current.Details.BuildingID, "round %d", round)
 		}
-		require.Equal(t, updated.Details.BuildingID, mustGetCurrent(t, repository, created.SupplierID).Details.BuildingID)
 		requireNoCurrentVersionOnRetiredLookup(t, pool)
 	}
 	t.Logf("retire won %d rounds, assignment won %d rounds", retiredFirst, assignedFirst)
@@ -185,6 +188,7 @@ func TestAssignmentWaitingOnRetirementDoesNotUseTheRetiredRow(t *testing.T) {
 	require.NoError(t, err)
 	details := validDetails("Waiting Supplier")
 	details.Building = "Base Hall"
+	createLookups(t, repository, details)
 	created, err := repository.Create(ctx, details, now)
 	require.NoError(t, err)
 
@@ -218,8 +222,8 @@ func TestAssignmentWaitingOnRetirementDoesNotUseTheRetiredRow(t *testing.T) {
 	require.NoError(t, retirement.Commit(ctx))
 
 	result := <-done
-	require.NoError(t, result.err)
-	require.NotEqual(t, string(contested.ID), result.updated.Details.BuildingID)
+	requireViolations(t, result.err, supplier.FieldViolation{Field: "building", Message: "must be an existing building"})
+	require.Equal(t, created.Details.BuildingID, mustGetCurrent(t, repository, created.SupplierID).Details.BuildingID)
 	requireNoCurrentVersionOnRetiredLookup(t, pool)
 }
 

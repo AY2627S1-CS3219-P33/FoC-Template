@@ -46,10 +46,22 @@ func TestApplicationEndpoints_F2_1_F2_2_F2_3_F2_4_F2_5(t *testing.T) {
 	require.Len(t, page["items"], 1)
 	require.NotEmpty(t, page["nextCursor"])
 	request("GET", "/suppliers?limit=1&cursor="+page["nextCursor"].(string), "", 200)
+	// Administrators may only assign existing lookups. The seed provides
+	// "Food" but not the fixture's building.
+	unknownBuilding := []any{map[string]any{"field": "building", "message": "must be an existing building"}}
+	require.Equal(t, unknownBuilding, request("POST", "/suppliers", createBody, 400)["fields"])
+	request("POST", "/buildings", `{"name":"COM 1"}`, 201)
 	created := request("POST", "/suppliers", createBody, 201)
 	id, version := created["supplierId"].(string), created["versionId"].(string)
 	require.Regexp(t, uuidPattern, created["buildingId"])
 	require.Regexp(t, uuidPattern, created["typeId"])
+	require.Equal(t, "COM 1", created["building"], `"COM1" resolves to the canonical name`)
+	require.Equal(t, "Food", created["type"])
+	rejected := request("PATCH", "/suppliers/"+id, `{"building":"Nowhere Hall","type":"Laundry"}`, 400)
+	require.ElementsMatch(t, []any{
+		map[string]any{"field": "building", "message": "must be an existing building"},
+		map[string]any{"field": "type", "message": "must be an existing supplier type"},
+	}, rejected["fields"])
 	request("POST", "/suppliers", strings.Replace(createBody, "Fixture supplier", "  FIXTURE   supplier  ", 1), 409)
 	current := request("GET", "/suppliers/"+id, "", 200)
 	require.Equal(t, created, current)

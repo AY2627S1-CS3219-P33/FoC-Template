@@ -22,6 +22,7 @@ import (
 
 func TestConcurrentDuplicateCreatesUseDatabaseUniqueness(t *testing.T) {
 	repository, pool := migratedRepository(t)
+	createLookups(t, repository, validDetails(""))
 	ctx := context.Background()
 	start := make(chan struct{})
 	results := make(chan error, 2)
@@ -48,6 +49,7 @@ func TestConcurrentDuplicateCreatesUseDatabaseUniqueness(t *testing.T) {
 
 func TestConcurrentDuplicateRenamesRollbackLosingVersion(t *testing.T) {
 	repository, pool := migratedRepository(t)
+	createLookups(t, repository, validDetails(""))
 	ctx := context.Background()
 	first, err := repository.Create(ctx, validDetails("First Supplier"), time.Now().UTC())
 	require.NoError(t, err)
@@ -81,6 +83,7 @@ func TestConcurrentDuplicateRenamesRollbackLosingVersion(t *testing.T) {
 
 func TestConcurrentUpdatesValidateAgainstLatestLockedVersion(t *testing.T) {
 	repository, pool := migratedRepository(t)
+	createLookups(t, repository, validDetails(""))
 	ctx := context.Background()
 	created, err := repository.Create(ctx, validDetails("Concurrent Supplier"), time.Now().UTC())
 	require.NoError(t, err)
@@ -127,6 +130,7 @@ func TestConcurrentUpdatesValidateAgainstLatestLockedVersion(t *testing.T) {
 
 func TestStoredOrderVersionRemainsUnchangedAfterUpdateAndDeletion(t *testing.T) {
 	repository, _ := migratedRepository(t)
+	createLookups(t, repository, validDetails(""))
 	ctx := context.Background()
 	createdAt := time.Now().UTC()
 	originalDetails := validDetails("Order Pickup Supplier")
@@ -188,6 +192,7 @@ func TestStoredOrderVersionRemainsUnchangedAfterUpdateAndDeletion(t *testing.T) 
 
 func TestReplayedDeletionOperationIsCreatedClaimedAndCompletedOnce(t *testing.T) {
 	repository, pool := migratedRepository(t)
+	createLookups(t, repository, validDetails(""))
 	ctx := context.Background()
 	created, err := repository.Create(ctx, validDetails("Deletion Supplier"), time.Now().UTC())
 	require.NoError(t, err)
@@ -282,6 +287,7 @@ func TestReplayedDeletionOperationIsCreatedClaimedAndCompletedOnce(t *testing.T)
 
 func TestDeletionRetryMetadataPendingBoundsAndTransitions(t *testing.T) {
 	repository, _ := migratedRepository(t)
+	createLookups(t, repository, validDetails(""))
 	ctx := context.Background()
 	created, err := repository.Create(ctx, validDetails("Retry Supplier"), time.Now().UTC())
 	require.NoError(t, err)
@@ -388,6 +394,24 @@ func validDetails(name string) supplier.Details {
 		Longitude:           103.773,
 		OpeningTime:         "09:00",
 		ClosingTime:         "18:00",
+	}
+}
+
+// createLookups creates the building and type of each details as live
+// lookups so administrator writes can assign them. Supplier writes never
+// create lookups. A name whose key already has a live row is left as it is.
+func createLookups(t testing.TB, repository *Repository, details ...supplier.Details) {
+	t.Helper()
+	for _, item := range details {
+		for kind, name := range map[supplier.LookupKind]string{
+			supplier.BuildingLookup:     item.Building,
+			supplier.SupplierTypeLookup: item.Type,
+		} {
+			_, err := repository.CreateLookup(context.Background(), kind, strings.TrimSpace(name), time.Now().UTC())
+			if conflict := (&supplier.LookupConflictError{}); !errors.As(err, &conflict) {
+				require.NoError(t, err)
+			}
+		}
 	}
 }
 
