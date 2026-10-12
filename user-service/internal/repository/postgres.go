@@ -39,7 +39,7 @@ var (
 	_ Auth0UserRepository = (*Postgres)(nil)
 )
 
-const columns = `id::text, COALESCE(auth0_subject, ''), username, email, role, active, display_name, mobile_number, created_at, updated_at`
+const columns = `id::text, COALESCE(auth0_subject, ''), username, email, active, display_name, mobile_number, created_at, updated_at`
 
 // FindByAuth0Subject returns a non-deleted account matching the Auth0 subject.
 // The returned account may be inactive.
@@ -134,7 +134,7 @@ func parseID(id string) (pgtype.UUID, error) {
 // scanUser reads an account row and translates database errors.
 func scanUser(row pgx.Row) (*User, error) {
 	var u User
-	if err := row.Scan(&u.ID, &u.Auth0Subject, &u.Username, &u.Email, &u.Role, &u.Active,
+	if err := row.Scan(&u.ID, &u.Auth0Subject, &u.Username, &u.Email, &u.Active,
 		&u.DisplayName, &u.Mobile, &u.CreatedAt, &u.UpdatedAt); err != nil {
 		return nil, translateError(err)
 	}

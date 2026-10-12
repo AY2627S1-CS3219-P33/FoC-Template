@@ -67,7 +67,7 @@ func TestAccountProfileReadAndUpdate(t *testing.T) {
 		{"trailing whitespace", "PATCH", "{\"display_name\":\"Alex\"} \n\t", "Alex", "123"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			repo := &profileRepositoryStub{user: repository.User{ID: "local-id", Username: "student", Email: "student@u.nus.edu", Role: "USER", Active: true, DisplayName: "Before", Mobile: "123"}}
+			repo := &profileRepositoryStub{user: repository.User{ID: "local-id", Username: "student", Email: "student@u.nus.edu", Active: true, DisplayName: "Before", Mobile: "123"}}
 			pro := &provisionerStub{accountID: "local-id"}
 			users := service.NewUserService(repo, nil)
 			res := httptest.NewRecorder()

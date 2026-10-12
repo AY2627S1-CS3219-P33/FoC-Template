@@ -7,7 +7,7 @@ Current implementation: `Postgres` uses pgx to provision active Auth0-backed USE
 | Requirements | Future persistence responsibility |
 | --- | --- |
 | F1.1.1, F1.9.1 | Enforce username, email, and external-identity uniqueness atomically, including concurrent requests. |
-| F1.1, F1.1.4, F1.3.1 | Store the Auth0 subject, email, profile, and activation state; support account lookup. The local role column is legacy/bootstrap data and does not authorize requests. |
+| F1.1, F1.1.4, F1.3.1 | Store the Auth0 subject, email, profile, and activation state; support account lookup. Auth0 owns user roles and authorization. |
 | F1.2.4, F1.3, F1.3.2, F1.10.4–F1.10.5 | Persist application account deletion/deactivation state; Auth0 owns session state and revocation. |
 | F1.4.1–F1.4.3 | Read user-owned profile fields and persist permitted edits. Do not store an authoritative credit balance here. |
 | F1.6.3, F1.6.6 | Auth0 stores administrator roles; user-service calls Auth0's Management API for role changes and enforces caller permissions from access-token claims. |

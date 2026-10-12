@@ -232,7 +232,7 @@ paths:
     put:
       tags: [Administrator management]
       summary: Grant the Auth0 Administrator role to a user
-      description: Requires the Auth0 permission users:manage:roles. The role change is written to Auth0 and does not update the legacy local role column.
+      description: Requires the Auth0 permission users:manage:roles. The role change is written to Auth0; user roles are not stored in the local database.
       security:
         - bearerAuth: []
       parameters:

@@ -1,4 +1,4 @@
-BEGIN;
+-- +goose Up
 
 CREATE TABLE accounts (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -19,4 +19,6 @@ CREATE TABLE accounts (
 CREATE UNIQUE INDEX accounts_username_unique ON accounts (lower(username));
 CREATE UNIQUE INDEX accounts_email_unique ON accounts (lower(email));
 
-COMMIT;
+-- +goose Down
+
+DROP TABLE accounts;

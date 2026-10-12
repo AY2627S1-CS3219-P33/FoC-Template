@@ -2,7 +2,7 @@
 
 These diagrams describe the current user-service implementation. Auth0 owns
 credentials, sessions, and RBAC roles; user-service owns local accounts,
-profiles, and account state. The local role column is legacy data only.
+profiles, and account state. User roles and permissions are stored in Auth0.
 
 ## 1. System architecture
 
@@ -104,7 +104,7 @@ flowchart LR
 
 The Auth0 Administrator role receives explicitly configured API permissions,
 including `users:manage:roles`. Services authorize from the token's permission
-claim; the local account role column is not an authorization source.
+claim; the local account schema contains no role column.
 
 ## 5. User provisioning sequence
 
@@ -183,21 +183,21 @@ sequenceDiagram
     Repository->>DB: Lock bootstrap coordination row
     Note over Repository,DB: Concurrent instances wait for this lock
     Service->>Repository: Read bootstrap state
-    Repository->>DB: Check completion and SUPER_ADMIN existence
+    Repository->>DB: Check completion and linked bootstrap account
     DB-->>Repository: Current state
-    Repository-->>Service: Completed? Administrator exists?
-    alt Bootstrap completed and administrator exists
+    Repository-->>Service: Completed? Bootstrap account exists?
+    alt Bootstrap completed and account exists
         Note over Service: No changes required
-    else Bootstrap incomplete and administrator exists
+    else Bootstrap incomplete and account exists
         Service->>Repository: MarkCompleted()
         Repository->>DB: Record completion timestamp
-    else Bootstrap incomplete and no administrator exists
+    else Bootstrap incomplete and no account exists
         Service->>Service: Validate bootstrap configuration
         Service->>Repository: CreateSuperAdmin()
-        Repository->>DB: Insert active SUPER_ADMIN
+        Repository->>DB: Insert active account and save bootstrap subject
         Service->>Repository: MarkCompleted()
         Repository->>DB: Record completion timestamp
-    else Bootstrap completed but administrator missing
+    else Bootstrap completed but account missing
         Service-->>Repository: Recovery required error
     end
     alt Workflow succeeds
@@ -222,7 +222,6 @@ erDiagram
         text auth0_subject UK
         text username UK
         text email UK
-        text role
         boolean active
         text display_name
         text mobile_number

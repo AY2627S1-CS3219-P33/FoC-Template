@@ -49,14 +49,14 @@ Before implementation, define cross-service coordination so a reservation or cou
 ## Initial super-administrator bootstrap — F1.8
 
 - **F1.8, F1.8.2:** Link initial bootstrap to an existing Auth0 identity supplied by deployment configuration.
-- **F1.8.1:** Create the initial account only if bootstrap has never completed and no super-administrator record exists. An inactive record still counts as an existing record.
+- **F1.8.1:** Create the initial account only if bootstrap has never completed and no linked bootstrap account exists. An inactive or soft-deleted account still counts as existing.
 - **F1.8.3:** Do not accept or store a bootstrap password locally.
-- **F1.8.4:** Never overwrite or reset an existing super administrator on later startups.
-- **F1.8.5:** Fail initialization with a configuration error for missing or invalid required bootstrap values while no super administrator exists.
+- **F1.8.4:** Never overwrite or reset the linked bootstrap account on later startups.
+- **F1.8.5:** Fail initialization with a configuration error for missing or invalid required bootstrap values while no bootstrap account exists.
 - **F1.8.6:** Never expose tokens or Auth0 configuration secrets in errors, logs, or audit output.
-- **F1.8.7:** Use an atomic repository transaction and durable initialization state to create at most one initial super administrator across concurrent startup instances.
+- **F1.8.7:** Use an atomic repository transaction and durable initialization state to link at most one initial administrator account across concurrent startup instances. Auth0 RBAC assignment remains a separate step.
 
-If initialization is already marked complete but no super-administrator record exists, F1.8.1 prohibits automatic recreation. An explicit recovery policy is still needed; do not silently reset bootstrap state.
+If initialization is already marked complete but its linked account is missing, F1.8.1 prohibits automatic recreation. An explicit recovery policy is still needed; do not silently reset bootstrap state.
 
 ## Additional super administrators — F1.9
 

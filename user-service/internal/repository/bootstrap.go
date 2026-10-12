@@ -11,7 +11,7 @@ import (
 // BootstrapTransaction exposes only the persistence operations needed by bootstrap.
 // Implementations hold the coordination row lock for the entire callback.
 type BootstrapTransaction interface {
-	State(context.Context) (completed, adminExists bool, err error)
+	State(context.Context) (completed, bootstrapAccountExists bool, err error)
 	CreateSuperAdmin(context.Context, CreateAuth0User) error
 	MarkCompleted(context.Context) error
 }
@@ -47,24 +47,28 @@ func (p *Postgres) WithBootstrapLock(ctx context.Context, fn func(BootstrapTrans
 	return nil
 }
 
-// State reports whether bootstrap has completed and whether any SUPER_ADMIN row exists,
-// including inactive or deleted accounts.
-func (b bootstrapTransaction) State(ctx context.Context) (completed, adminExists bool, err error) {
+// State reports whether bootstrap completed and its linked account still exists,
+// including inactive or soft-deleted accounts.
+func (b bootstrapTransaction) State(ctx context.Context) (completed, bootstrapAccountExists bool, err error) {
 	err = b.tx.QueryRow(ctx, `SELECT completed_at IS NOT NULL,
- EXISTS (SELECT 1 FROM accounts WHERE role = 'SUPER_ADMIN')
- FROM bootstrap_state WHERE name = 'bootstrap_is_completed'`).Scan(&completed, &adminExists)
+ EXISTS (SELECT 1 FROM accounts WHERE auth0_subject = bootstrap_state.bootstrap_subject)
+		FROM bootstrap_state WHERE name = 'bootstrap_is_completed'`).Scan(&completed, &bootstrapAccountExists)
 	if err != nil {
 		err = errors.New("read bootstrap state failed")
 	}
 	return
 }
 
-// CreateSuperAdmin inserts an active SUPER_ADMIN within the bootstrap transaction.
+// CreateSuperAdmin links an active local account and remembers the bootstrap identity.
 func (b bootstrapTransaction) CreateSuperAdmin(ctx context.Context, input CreateAuth0User) error {
-	_, err := b.tx.Exec(ctx, `INSERT INTO accounts (auth0_subject, username, email, role, active)
- VALUES ($1, $2, $3, 'SUPER_ADMIN', true)`, input.Subject, input.Username, input.Email)
+	_, err := b.tx.Exec(ctx, `INSERT INTO accounts (auth0_subject, username, email, active)
+ VALUES ($1, $2, $3, true)`, input.Subject, input.Username, input.Email)
 	if err != nil {
 		return translateError(err)
+	}
+	if _, err := b.tx.Exec(ctx, `UPDATE bootstrap_state SET bootstrap_subject = $1
+ WHERE name = 'bootstrap_is_completed' AND completed_at IS NULL`, input.Subject); err != nil {
+		return errors.New("record bootstrap identity failed")
 	}
 	return nil
 }

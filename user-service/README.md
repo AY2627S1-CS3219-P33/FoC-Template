@@ -2,7 +2,7 @@
 
 PostgreSQL-backed student-account service for the food-delivery platform. Auth0 owns registration, credentials, and sessions; this service validates access tokens, provisions local application accounts, and manages profile data. The browser application lives in [user-frontend](../user-frontend/README.md).
 
-Business-level deletion remains blocked until coordinated credit/errand checks and Auth0 session revocation are implemented. Auth0 RBAC protects self-service profile routes and administrator role changes. Auth0 owns authorization; the local account role column is legacy data and is not consulted for access decisions. Initial administrator bootstrap still links a deployment-supplied Auth0 identity locally. The service never receives or stores passwords.
+Business-level deletion remains blocked until coordinated credit/errand checks and Auth0 session revocation are implemented. Auth0 RBAC protects self-service profile routes and administrator role changes. Auth0 owns authorization; the local database does not store user roles. Initial administrator bootstrap links a deployment-supplied Auth0 identity locally. The service never receives or stores passwords.
 
 ## Structure
 
@@ -66,7 +66,7 @@ The user service owns:
 - Account activation and deactivation
 - Audit records related to user-management actions
 
-Auth0 owns roles and authorization policy. The account `role` column remains as legacy/bootstrap data only and is not consulted for protected operations.
+Auth0 owns roles and authorization policy. The `role` returned in profiles is derived from Auth0 permissions; the local accounts table stores no role column.
 
 The user service does not own:
 
@@ -129,16 +129,13 @@ The local endpoints are:
 
 Automatic provisioning never links an existing local account by email. A username or email conflict requires a future explicit account-linking workflow. The Auth0 nickname becomes the username; a missing or invalid nickname falls back to the email local part.
 
-Use a dedicated user-service database on PostgreSQL 16 or newer. Set `DATABASE_URL` through your environment/secret manager, then apply the initial migration once:
+Use a dedicated user-service database on PostgreSQL 16 or newer. Set `DATABASE_URL` through your environment/secret manager, then apply migrations with Goose:
 
 ```sh
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/000001_accounts.up.sql
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/000002_auth0_identities.up.sql
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/000003_auth0_only.up.sql
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migrations/000004_bootstrap_status.up.sql
+GOOSE_DRIVER=postgres GOOSE_DBSTRING="$DATABASE_URL" go run github.com/pressly/goose/v3/cmd/goose@v3.28.0 -dir migrations up
 ```
 
-Migrations are explicit, transactional SQL files; there is no automatic migration runner; bootstrap runs after migrations are applied. See [migration instructions](migrations/README.md) for rollback behavior.
+Apply migrations before starting the API; the service does not run DDL on startup. The existing local database needs a one-time Goose v4 baseline before the first `goose up`. See [migration instructions](migrations/README.md) for that baseline and rollback behavior.
 
 ### PostgreSQL integration tests
 
@@ -156,14 +153,14 @@ Build the container with `docker build -t user-service .`. Supply all variables 
 
 Prepare an existing Auth0 identity and set `BOOTSTRAP_AUTH0_SUBJECT` to its exact user ID, plus `BOOTSTRAP_USERNAME` and `BOOTSTRAP_EMAIL`. These trusted deployment values are required only when initial account creation is needed. Any valid email domain is allowed for this administrator; ordinary student signup retains its NUS policy. Bootstrap does not verify the identity remotely, create an Auth0 account, or accept a password.
 
-Apply all migrations, including `000004_bootstrap_status.up.sql`, before starting the API. From `user-service/`, you may also run `go run ./scripts/bootstrap-super-admin`. Both entrypoints load an optional `.env` without overriding supplied environment variables and run the same workflow with a 30-second deadline. The API accepts requests only after bootstrap succeeds.
+Apply all Goose migrations before starting the API. From `user-service/`, you may also run `go run ./scripts/bootstrap-super-admin`. Both entrypoints load an optional `.env` without overriding supplied environment variables and run the same workflow with a 30-second deadline. The API accepts requests only after bootstrap succeeds.
 
-Bootstrap locks a durable coordination row, inserts an active `SUPER_ADMIN`, and records completion in one transaction. Concurrent instances serialize; subsequent runs do not reset the account or completion timestamp. Existing super administrators, including inactive or deleted records, prevent creation and cause completion to be recorded if needed. Conflicting users are never promoted or overwritten. If completion exists but no super-administrator record remains, startup fails and requires explicit recovery; do not reset the flag automatically.
+Bootstrap locks a durable coordination row, links an active local account to the configured Auth0 subject, and records completion in one transaction. Concurrent instances serialize; subsequent runs do not reset the account or completion timestamp. The stored bootstrap subject is an initialization marker, not an authorization role. Conflicting users are never promoted or overwritten. If completion exists but its linked local account is missing, startup fails and requires explicit recovery; do not reset the flag automatically.
 
 This creates the local account only; it does not grant an Auth0 role. Assign the Auth0 Administrator role separately. Remove bootstrap configuration after successful initialization if desired. Errors omit configured values and database diagnostics.
 
 ## Administrator role changes
 
-`PUT /api/admin/users/{userID}/administrator` assigns the configured Auth0 Administrator role. `DELETE` on the same path assigns the configured User role first, then removes Administrator. Both endpoints require an active local account and the Auth0 API permission `users:manage:roles`; define this permission on the User Service API and grant it only to the Auth0 Administrator role. Profile role labels are derived from this permission. Local account role values are not used for authorization or returned as the user's role.
+`PUT /api/admin/users/{userID}/administrator` assigns the configured Auth0 Administrator role. `DELETE` on the same path assigns the configured User role first, then removes Administrator. Both endpoints require an active local account and the Auth0 API permission `users:manage:roles`; define this permission on the User Service API and grant it only to the Auth0 Administrator role. Profile role labels are derived from this permission; no role is stored in the local database.
 
 Configure `AUTH0_M2M_CLIENT_ID`, `AUTH0_M2M_CLIENT_SECRET`, `AUTH0_USER_ROLE_ID`, and `AUTH0_ADMIN_ROLE_ID` in the service environment. Authorize the M2M application for the Auth0 Management API with `update:users`; keep its secret server-side. If the credentials or role IDs are absent, the service starts normally and these endpoints return `503`. A demotion assigns User before removing Administrator, so a failed removal leaves the target with both roles rather than removing regular-user permissions. Role changes take effect in newly issued tokens; a target may need to renew their session before token permissions change.
