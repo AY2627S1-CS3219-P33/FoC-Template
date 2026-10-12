@@ -64,7 +64,10 @@ export class EmbeddedAuth {
         });
         return this.accept(result, this.cacheKey(this.defaultAudience, "openid profile email"));
       } finally {
-        window.history.replaceState({}, document.title, window.location.pathname + window.location.search);
+        const returnTo = sessionStorage.getItem("foc.auth.return_to");
+        sessionStorage.removeItem("foc.auth.return_to");
+        const path = returnTo === "/admin" ? returnTo : window.location.pathname;
+        window.history.replaceState({}, document.title, path + window.location.search);
       }
     }
     try {
@@ -106,6 +109,7 @@ export class EmbeddedAuth {
   }
 
   login(email: string, password: string): Promise<void> {
+    this.rememberReturnPath();
     return new Promise((_, reject) => {
       this.webAuth.login({ realm: this.connection, email: email.trim(), password }, (error) => {
         // Successful authentication navigates to the callback URL.
@@ -115,6 +119,7 @@ export class EmbeddedAuth {
   }
 
   signup(name: string, email: string, password: string): Promise<void> {
+    this.rememberReturnPath();
     // Preserve the current nickname-based provisioning seam. This is not an
     // Auth0 username identifier and does not guarantee name uniqueness.
     const options = {
@@ -142,7 +147,14 @@ export class EmbeddedAuth {
   }
 
   hostedLogin(signup = false): void {
+    this.rememberReturnPath();
     this.webAuth.authorize(signup ? { screen_hint: "signup" } : {});
+  }
+
+  private rememberReturnPath(): void {
+    if (window.location.pathname === "/admin") {
+      sessionStorage.setItem("foc.auth.return_to", "/admin");
+    }
   }
 
   logout(): void {
