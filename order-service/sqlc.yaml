@@ -1,0 +1,28 @@
+version: "2"
+# Two targets so each stream regenerates only its own package. Both read the
+# full migrations/ schema; every table is frozen in S0 (commit-plan.md).
+sql:
+  # Person A: errand lifecycle (Store implementation).
+  - engine: postgresql
+    schema: migrations
+    queries: queries/errands.sql
+    gen:
+      go:
+        package: errandgen
+        out: internal/database/errandgen
+        sql_package: pgx/v5
+        emit_interface: true
+        emit_json_tags: true
+        emit_empty_slices: true
+  # Person B: outbox, fences, reviews, audit and settings.
+  - engine: postgresql
+    schema: migrations
+    queries: queries/ops.sql
+    gen:
+      go:
+        package: opsgen
+        out: internal/database/opsgen
+        sql_package: pgx/v5
+        emit_interface: true
+        emit_json_tags: true
+        emit_empty_slices: true
