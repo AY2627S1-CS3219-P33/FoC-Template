@@ -106,6 +106,11 @@ func TestValidateListFilterAppliesPageBounds(t *testing.T) {
 	require.Error(t, ValidateListFilter(ListFilter{Limit: MaximumPageSize + 1}))
 	require.Error(t, ValidateListFilter(ListFilter{Limit: -1}))
 	require.Error(t, ValidateListFilter(ListFilter{Query: strings.Repeat("x", 121)}))
+	for _, sort := range append([]ListSort{""}, ListSorts...) {
+		require.NoError(t, ValidateListFilter(ListFilter{Sort: sort}))
+	}
+	require.Error(t, ValidateListFilter(ListFilter{Sort: "created"}))
+	require.Equal(t, SortName, (ListFilter{}).SortOrder())
 }
 
 func TestIdentifierValidationUsesUUIDs(t *testing.T) {
@@ -126,3 +131,61 @@ func violationFields(err *ValidationError) []string {
 }
 
 func pointer(value string) *string { return &value }
+
+// lookupKeyCases include non-ASCII letters, which LookupKey keeps, and
+// non-ASCII digits, which it drops like PostgreSQL's pg_c_utf8 [:alnum:].
+var lookupKeyCases = map[string]string{
+	"Com 2":                     "com2",
+	"Com2":                      "com2",
+	"  COM-2 ":                  "com2",
+	"Prince George's Park":      "princegeorgespark",
+	"Prince George\u2019s Park": "princegeorgespark",
+	"Food/Coffee":               "foodcoffee",
+	"innovation4.0":             "innovation40",
+	"Medicine+Science Library":  "medicinesciencelibrary",
+	"Café Été":                  "caféété",
+	"ÉCOLE":                     "école",
+	"中央图书馆 1":                   "中央图书馆1",
+	"Ⅷ Hall":                    "ⅷhall",
+	"हिंदी":                     "हिंदी",
+	"٣ Block":                   "block",
+	"---":                       "",
+}
+
+func TestLookupKeyKeepsUnicodeLettersAndDigitsOnly(t *testing.T) {
+	for input, expected := range lookupKeyCases {
+		require.Equal(t, expected, LookupKey(input), "LookupKey(%q)", input)
+	}
+}
+
+func TestValidateDetailsRequiresALookupKeyForBuildingAndType(t *testing.T) {
+	details := validDetails()
+	details.Building = "---"
+	details.Type = " / "
+
+	err := &ValidationError{}
+	require.ErrorAs(t, ValidateDetails(details), &err)
+	require.ElementsMatch(t, []FieldViolation{
+		{Field: "type", Message: "must contain a letter or digit"},
+		{Field: "building", Message: "must contain a letter or digit"},
+	}, err.Violations)
+
+	details.Building, details.Type = "", ""
+	require.ErrorAs(t, ValidateDetails(details), &err)
+	require.ElementsMatch(t, []FieldViolation{
+		{Field: "type", Message: "is required"},
+		{Field: "building", Message: "is required"},
+	}, err.Violations)
+}
+
+func TestPatchClearsTheIDOfAPatchedLookupOnly(t *testing.T) {
+	existing := validDetails()
+	existing.BuildingID, existing.TypeID = "building-id", "type-id"
+	building := "Com2"
+
+	updated := Patch{Building: &building}.Apply(existing)
+
+	require.Equal(t, "Com2", updated.Building)
+	require.Empty(t, updated.BuildingID)
+	require.Equal(t, "type-id", updated.TypeID)
+}

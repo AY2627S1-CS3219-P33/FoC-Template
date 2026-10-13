@@ -32,7 +32,12 @@ func (h Handler) list(response http.ResponseWriter, request *http.Request) {
 		return
 	}
 	parameters := request.URL.Query()
-	filter := supplier.ListFilter{Query: parameters.Get("q"), Type: parameters.Get("type"), Cursor: parameters.Get("cursor")}
+	filter := supplier.ListFilter{Query: parameters.Get("q"), Type: parameters.Get("type"), Building: parameters.Get("building"), Sort: supplier.ListSort(parameters.Get("sort")), Cursor: parameters.Get("cursor")}
+	// An explicit empty sort is not the omitted default.
+	if parameters.Has("sort") && filter.Sort == "" {
+		writeError(response, &supplier.ValidationError{Violations: []supplier.FieldViolation{supplier.InvalidSortViolation()}})
+		return
+	}
 	if parameters.Has("limit") {
 		var err error
 		filter.Limit, err = strconv.Atoi(parameters.Get("limit"))
@@ -73,7 +78,9 @@ type supplierResponse struct {
 	VersionID           supplier.VersionID  `json:"versionId"`
 	Name                string              `json:"name"`
 	Type                string              `json:"type"`
+	TypeID              string              `json:"typeId"`
 	Building            string              `json:"building"`
+	BuildingID          string              `json:"buildingId"`
 	Floor               string              `json:"floor"`
 	LocationDescription string              `json:"locationDescription"`
 	Latitude            float64             `json:"latitude"`
@@ -89,8 +96,8 @@ type supplierResponse struct {
 func project(item supplier.Supplier) supplierResponse {
 	return supplierResponse{
 		SupplierID: item.SupplierID, VersionID: item.VersionID,
-		Name: item.Details.Name, Type: item.Details.Type,
-		Building: item.Details.Building, Floor: item.Details.Floor,
+		Name: item.Details.Name, Type: item.Details.Type, TypeID: item.Details.TypeID,
+		Building: item.Details.Building, BuildingID: item.Details.BuildingID, Floor: item.Details.Floor,
 		LocationDescription: item.Details.LocationDescription,
 		Latitude:            item.Details.Latitude, Longitude: item.Details.Longitude,
 		OpeningTime: item.Details.OpeningTime, ClosingTime: item.Details.ClosingTime,

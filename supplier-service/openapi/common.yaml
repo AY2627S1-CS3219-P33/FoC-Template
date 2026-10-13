@@ -57,6 +57,29 @@ components:
       schema:
         type: string
         format: uuid
+    BuildingID:
+      name: buildingId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    SupplierTypeID:
+      name: supplierTypeId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    IncludeRetired:
+      name: includeRetired
+      in: query
+      description: >-
+        true also lists retired rows, marked retired true. Only true and
+        false are accepted.
+      schema:
+        type: boolean
+        default: false
     Query:
       name: q
       in: query
@@ -67,10 +90,38 @@ components:
     Type:
       name: type
       in: query
-      description: Exact, case-insensitive supplier type.
+      description: >-
+        Supplier type, matched by lookup key: case, spaces, and punctuation
+        are ignored, so "Food/Coffee" and "food coffee" are the same type.
       schema:
         type: string
         maxLength: 64
+    Building:
+      name: building
+      in: query
+      description: >-
+        Building, matched by lookup key: case, spaces, and punctuation are
+        ignored, so "COM-2" and "com 2" are the same building. An unknown or
+        retired building yields an empty page.
+      schema:
+        type: string
+        maxLength: 120
+    Sort:
+      name: sort
+      in: query
+      description: >-
+        Result ordering, applied before the cursor. name (default) orders by
+        normalized name then supplierId. type orders by the type's lookup key
+        (lower case, letters and digits only), then normalized name, then
+        supplierId. building orders by the building's lookup key, then
+        normalized name, then supplierId. These are
+        ascending; the "-" prefixed values reverse every key, giving the same
+        sequence backwards. A cursor is valid only with the sort that
+        produced it.
+      schema:
+        type: string
+        enum: [name, -name, type, -type, building, -building]
+        default: name
     Limit:
       name: limit
       in: query
@@ -212,7 +263,7 @@ components:
       allOf:
         - $ref: "#/components/schemas/SupplierFields"
         - type: object
-          required: [supplierId, versionId, available, createdAt, updatedAt]
+          required: [supplierId, versionId, buildingId, typeId, available, createdAt, updatedAt]
           properties:
             supplierId:
               type: string
@@ -221,6 +272,19 @@ components:
             versionId:
               type: string
               format: uuid
+              readOnly: true
+            buildingId:
+              type: string
+              format: uuid
+              description: >-
+                The building lookup row. building is its canonical name;
+                lookup names never change, so historical versions keep the
+                name they were created with.
+              readOnly: true
+            typeId:
+              type: string
+              format: uuid
+              description: The supplier-type lookup row; type is its canonical name.
               readOnly: true
             available:
               type: boolean
@@ -240,7 +304,7 @@ components:
       allOf:
         - $ref: "#/components/schemas/SupplierFields"
         - type: object
-          required: [supplierId, versionId, available, createdAt]
+          required: [supplierId, versionId, buildingId, typeId, available, createdAt]
           properties:
             supplierId:
               type: string
@@ -249,6 +313,19 @@ components:
             versionId:
               type: string
               format: uuid
+              readOnly: true
+            buildingId:
+              type: string
+              format: uuid
+              description: >-
+                The building lookup row. building is its canonical name;
+                lookup names never change, so historical versions keep the
+                name they were created with.
+              readOnly: true
+            typeId:
+              type: string
+              format: uuid
+              description: The supplier-type lookup row; type is its canonical name.
               readOnly: true
             available:
               type: boolean
@@ -272,6 +349,70 @@ components:
         nextCursor:
           type: string
           description: Omitted when there is no next page.
+
+    Lookup:
+      type: object
+      required: [id, name, retired]
+      properties:
+        id:
+          type: string
+          format: uuid
+          readOnly: true
+        name:
+          type: string
+          description: >-
+            Canonical display name. It never changes; supplier building and
+            type values are these names.
+          readOnly: true
+        retired:
+          type: boolean
+          description: >-
+            A retired row cannot be assigned to suppliers but still resolves
+            for versions that already reference it.
+          readOnly: true
+      additionalProperties: false
+
+    LookupList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          maxItems: 500
+          description: >-
+            Ordered by lookup key, then id. Unpaginated and capped at 500
+            rows.
+          items:
+            $ref: "#/components/schemas/Lookup"
+      additionalProperties: false
+
+    BuildingCreate:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          description: >-
+            Trimmed before storage and bounded after trimming. Must contain a
+            letter or digit.
+          minLength: 1
+          maxLength: 120
+          pattern: '\S'
+      additionalProperties: false
+
+    SupplierTypeCreate:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          description: >-
+            Trimmed before storage and bounded after trimming. Must contain a
+            letter or digit.
+          minLength: 1
+          maxLength: 64
+          pattern: '\S'
+      additionalProperties: false
 
     ErrorField:
       type: object
@@ -298,6 +439,12 @@ components:
             - SUPPLIER_NAME_CONFLICT
             - SUPPLIER_HAS_ACTIVE_ERRANDS
             - DELETION_FENCE_UNAVAILABLE
+            - BUILDING_NOT_FOUND
+            - BUILDING_CONFLICT
+            - BUILDING_IN_USE
+            - SUPPLIER_TYPE_NOT_FOUND
+            - SUPPLIER_TYPE_CONFLICT
+            - SUPPLIER_TYPE_IN_USE
             - DEPENDENCY_UNAVAILABLE
             - INTERNAL
         message:
@@ -414,6 +561,66 @@ components:
               - properties:
                   code:
                     const: DELETION_FENCE_UNAVAILABLE
+    BuildingNotFound:
+      description: No building has this id.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/Error"
+              - properties:
+                  code:
+                    const: BUILDING_NOT_FOUND
+    BuildingConflict:
+      description: A live building has the same lookup key; the message names it.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/Error"
+              - properties:
+                  code:
+                    const: BUILDING_CONFLICT
+    BuildingInUse:
+      description: The current version of a non-deleted supplier uses this building.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/Error"
+              - properties:
+                  code:
+                    const: BUILDING_IN_USE
+    SupplierTypeNotFound:
+      description: No supplier type has this id.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/Error"
+              - properties:
+                  code:
+                    const: SUPPLIER_TYPE_NOT_FOUND
+    SupplierTypeConflict:
+      description: A live supplier type has the same lookup key; the message names it.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/Error"
+              - properties:
+                  code:
+                    const: SUPPLIER_TYPE_CONFLICT
+    SupplierTypeInUse:
+      description: The current version of a non-deleted supplier uses this supplier type.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/Error"
+              - properties:
+                  code:
+                    const: SUPPLIER_TYPE_IN_USE
     DependencyUnavailable:
       description: A required dependency is unavailable.
       content:

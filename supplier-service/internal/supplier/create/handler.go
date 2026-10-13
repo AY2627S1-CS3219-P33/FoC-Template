@@ -68,7 +68,9 @@ type supplierResponse struct {
 	VersionID           supplier.VersionID  `json:"versionId"`
 	Name                string              `json:"name"`
 	Type                string              `json:"type"`
+	TypeID              string              `json:"typeId"`
 	Building            string              `json:"building"`
+	BuildingID          string              `json:"buildingId"`
 	Floor               string              `json:"floor"`
 	LocationDescription string              `json:"locationDescription"`
 	Latitude            float64             `json:"latitude"`
@@ -187,7 +189,9 @@ func (h Handler) create(response http.ResponseWriter, request *http.Request) {
 		VersionID:           created.VersionID,
 		Name:                created.Details.Name,
 		Type:                created.Details.Type,
+		TypeID:              created.Details.TypeID,
 		Building:            created.Details.Building,
+		BuildingID:          created.Details.BuildingID,
 		Floor:               created.Details.Floor,
 		LocationDescription: created.Details.LocationDescription,
 		Latitude:            created.Details.Latitude,

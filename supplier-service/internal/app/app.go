@@ -57,7 +57,7 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger, authOption
 	// to allow supplier deletion while the order-service fence is not yet implemented.
 	handler := NewHandler(logger, verifier, allReady{
 		readiness.NewPostgresChecker(pool, cfg.SeedNamespace), verifier,
-	}, repository, repository, repository, AllowAllDeletionFence{})
+	}, repository, repository, repository, repository, AllowAllDeletionFence{})
 
 	return &Application{
 		database: pool,

@@ -18,11 +18,13 @@ func TestListAndSearchPaginationAcrossOneThousandRecords(t *testing.T) {
 	insertCapacityRecords(t, pool, capacityRecordCount)
 
 	for _, test := range []struct {
-		name  string
-		query string
+		name     string
+		query    string
+		building string
 	}{
 		{name: "list"},
 		{name: "search", query: "capacity supplier"},
+		{name: "building", building: "com-3"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			seen := make(map[supplier.SupplierID]struct{}, capacityRecordCount)
@@ -30,7 +32,7 @@ func TestListAndSearchPaginationAcrossOneThousandRecords(t *testing.T) {
 			pages := 0
 			for {
 				page, err := repository.ListAvailable(context.Background(), supplier.ListFilter{
-					Query: test.query, Limit: 97, Cursor: cursor,
+					Query: test.query, Building: test.building, Limit: 97, Cursor: cursor,
 				})
 				require.NoError(t, err)
 				require.LessOrEqual(t, len(page.Items), 97)
@@ -100,22 +102,27 @@ func insertCapacityRecords(t testing.TB, pool *pgxpool.Pool, count int) {
 	require.NoError(t, err)
 
 	_, err = tx.Exec(ctx, `
+		WITH building AS (
+			INSERT INTO buildings (name) VALUES ('COM 3') RETURNING id
+		), supplier_type AS (
+			INSERT INTO supplier_types (name) VALUES ('food') RETURNING id
+		)
 		INSERT INTO supplier_versions (
-			version_id, supplier_id, name, supplier_type, building, floor,
+			version_id, supplier_id, name, supplier_type_id, building_id, floor,
 			location_description, latitude, longitude, opening_time, closing_time
 		)
 		SELECT current_version_id,
 		       supplier_id,
 		       current_normalized_name,
-		       'food',
-		       'COM 3',
+		       supplier_type.id,
+		       building.id,
 		       '1',
 		       'capacity fixture',
 		       1.294,
 		       103.773,
 		       time '09:00',
 		       time '18:00'
-		FROM suppliers
+		FROM suppliers, building, supplier_type
 	`)
 	require.NoError(t, err)
 	require.NoError(t, tx.Commit(ctx), fmt.Sprintf("insert %d capacity records", count))

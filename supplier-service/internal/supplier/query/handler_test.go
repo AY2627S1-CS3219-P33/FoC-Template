@@ -22,7 +22,8 @@ func catalogueItem() supplier.Supplier {
 	return supplier.Supplier{
 		SupplierID: testSupplierID, VersionID: "173fd7be-4f54-4f15-a8b1-58bd502344a0",
 		Details: supplier.Details{
-			Name: "The Deck", Type: "food", Building: "Arts Link", Floor: "2",
+			Name: "The Deck", Type: "food", TypeID: "0b7e4c39-2d6a-4f8e-a1c3-5e9d7b2f4c61",
+			Building: "Arts Link", BuildingID: "6f1c1a2e-3b0f-4a51-9d55-8f6c2d1e7a10", Floor: "2",
 			LocationDescription: "Beside the library", Latitude: 1.294, Longitude: 103.772,
 			OpeningTime: "08:00", ClosingTime: "20:00", ImageURL: &image,
 		},
@@ -35,7 +36,8 @@ func catalogueItem() supplier.Supplier {
 const itemJSON = `{
 	"supplierId":"29e9aa8b-5651-4981-8828-3fbb1b21fcb1",
 	"versionId":"173fd7be-4f54-4f15-a8b1-58bd502344a0",
-	"name":"The Deck", "type":"food", "building":"Arts Link", "floor":"2",
+	"name":"The Deck", "type":"food", "typeId":"0b7e4c39-2d6a-4f8e-a1c3-5e9d7b2f4c61",
+	"building":"Arts Link", "buildingId":"6f1c1a2e-3b0f-4a51-9d55-8f6c2d1e7a10", "floor":"2",
 	"locationDescription":"Beside the library", "latitude":1.294, "longitude":103.772,
 	"openingTime":"08:00", "closingTime":"20:00", "imageUrl":"https://example.com/supplier.png",
 	"available":true, "createdAt":"2026-09-30T08:15:00Z", "updatedAt":"2026-10-01T08:15:00Z"
@@ -47,10 +49,43 @@ func TestCatalogueHandlersReturnAllF211FieldsAndBothIdentifiers(t *testing.T) {
 	require.Equal(t, http.StatusOK, response.Code)
 	require.Equal(t, "application/json", response.Header().Get("Content-Type"))
 	require.JSONEq(t, itemJSON, response.Body.String())
-	response = serveCatalogue(reader, "/suppliers?q=++ARTS+++LINK++&type=FOOD&limit=100&cursor=previous", true)
+	response = serveCatalogue(reader, "/suppliers?q=++ARTS+++LINK++&type=FOOD&building=COM+3&limit=100&cursor=previous", true)
 	require.Equal(t, http.StatusOK, response.Code)
 	require.JSONEq(t, `{"items":[`+itemJSON+`],"nextCursor":"opaque"}`, response.Body.String())
-	require.Equal(t, supplier.ListFilter{Query: "arts link", Type: "food", Limit: 100, Cursor: "previous"}, reader.filter)
+	require.Equal(t, supplier.ListFilter{Query: "arts link", Type: "food", Building: "COM 3", Sort: supplier.SortName, Limit: 100, Cursor: "previous"}, reader.filter)
+}
+
+func TestListPassesSortAndDefaultsToName(t *testing.T) {
+	for target, expected := range map[string]supplier.ListSort{
+		"/suppliers":                supplier.SortName,
+		"/suppliers?sort=name":      supplier.SortName,
+		"/suppliers?sort=-name":     supplier.SortNameDesc,
+		"/suppliers?sort=type":      supplier.SortType,
+		"/suppliers?sort=-type":     supplier.SortTypeDesc,
+		"/suppliers?sort=building":  supplier.SortBuilding,
+		"/suppliers?sort=-building": supplier.SortBuildingDesc,
+	} {
+		reader := &readerStub{}
+		response := serveCatalogue(reader, target, true)
+		require.Equal(t, http.StatusOK, response.Code, target)
+		require.Equal(t, expected, reader.filter.Sort, target)
+	}
+}
+
+func TestListRejectsInvalidSortWithSortField(t *testing.T) {
+	for _, target := range []string{
+		"/suppliers?sort=", "/suppliers?sort=NAME", "/suppliers?sort=%2Bname",
+		"/suppliers?sort=-createdAt", "/suppliers?sort=BUILDING", "/suppliers?sort=createdAt",
+	} {
+		reader := &readerStub{}
+		response := serveCatalogue(reader, target, true)
+		require.Equal(t, http.StatusBadRequest, response.Code, target)
+		var result apperror.Error
+		require.NoError(t, json.Unmarshal(response.Body.Bytes(), &result))
+		require.Equal(t, apperror.InvalidArgument, result.Code)
+		require.Equal(t, []apperror.Field{{Field: "sort", Message: "must be one of name, -name, type, -type, building, -building"}}, result.Fields, target)
+		require.Zero(t, reader.calls)
+	}
 }
 
 func TestListReturnsEmptyArrayAndOmitsFinalCursor(t *testing.T) {
@@ -98,6 +133,8 @@ func TestCatalogueHandlersRejectInvalidParametersBeforeReading(t *testing.T) {
 		"/suppliers?q=" + url.QueryEscape(strings.Repeat(" ", 121)),
 		"/suppliers?type=" + strings.Repeat("x", 65),
 		"/suppliers?type=" + url.QueryEscape(strings.Repeat(" ", 65)),
+		"/suppliers?building=" + url.QueryEscape(strings.Repeat("界", 121)),
+		"/suppliers?building=" + url.QueryEscape(strings.Repeat(" ", 121)),
 		"/suppliers?cursor=" + strings.Repeat("x", 513),
 		"/suppliers/invalid",
 	} {

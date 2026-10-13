@@ -27,12 +27,95 @@ code. The machine-readable HTTP contract is [openapi.yaml](../openapi.yaml).
 All catalogue responses include both `supplierId` and `versionId`. An order
 stores both, with `versionId` being the authoritative pickup-details reference.
 
+## Buildings and supplier types
+
+Each version references a row of the `buildings` and `supplier_types` lookup
+tables instead of storing free text. Responses keep the `building` and `type`
+strings, which are the lookup's canonical name, and add `buildingId` and
+`typeId`. Writes still send `building` and `type` as strings; `buildingId`
+and `typeId` are read-only.
+
+- A lookup key is the name lowercased with everything except Unicode letters
+  and ASCII digits removed: `Com 2`, `Com2`, and `COM-2` are all `com2`, and
+  `Prince George's Park` matches its curly-apostrophe spelling. The SQL
+  function `normalize_lookup_key` and `supplier.LookupKey` must stay aligned.
+  A building or type with no letter or digit is invalid.
+- Lookup keys are unique among rows that are not retired. A write resolves a
+  name to the live row with the same key and responds with that row's
+  canonical name, so `com2` is returned as `Com 2`. Administrator writes may
+  only assign an existing, unretired row (see
+  [Validation and list behavior](#validation-and-list-behavior)); only the
+  seed import creates a row for a name with no live match, because it is
+  trusted bootstrap data that builds the initial lists.
+- A patch that omits `building` or `type` keeps the current row, even if it
+  has been retired since.
+- Lookup names are immutable, and rows are never deleted; the only permitted
+  change is setting `retired_at` once. A version must show the pickup details
+  of the errand it was selected for (F2.5.1) and stay addressable unchanged
+  after it is superseded (F2.5.3). If a name could change in place, every
+  historical version referencing it would change too. A rename is therefore
+  a new row, new supplier versions that reference it, and retirement of the
+  old row. Retired rows still resolve for existing versions.
+- Migration `00002` created one row per distinct key of the existing free
+  text. Its name is the most frequent spelling, then the spelling used by the
+  earliest version, so earlier versions now report that canonical spelling.
+
+### Managing the lists
+
+| Method and path | Permission | Result |
+| --- | --- | --- |
+| `GET /buildings`, `GET /supplier-types` | `suppliers:read` | `200 {items: [{id, name, retired}]}` |
+| `POST /buildings`, `POST /supplier-types` | `suppliers:manage` | `201` with the created row |
+| `DELETE /buildings/{buildingId}`, `DELETE /supplier-types/{supplierTypeId}` | `suppliers:manage` | `204`; the row is retired |
+
+- Lists return live rows ordered by lookup key, then `id`. With
+  `includeRetired=true` they also return retired rows with `retired: true`;
+  any value other than `true` or `false` is `INVALID_ARGUMENT`. Lists are
+  campus scale, so they are not paginated, but the server returns at most
+  500 rows.
+- `POST` takes `{name}`. The name is trimmed, must be at most 120 (building)
+  or 64 (type) characters after trimming, and must contain a letter or digit;
+  violations are `INVALID_ARGUMENT` with field `name`. A live row with the
+  same lookup key is `409 BUILDING_CONFLICT` or `SUPPLIER_TYPE_CONFLICT`, and
+  the message names the existing row, so `Com2` is rejected while `Com 2`
+  exists. The live-key unique index decides this, so concurrent creates of
+  one key produce exactly one row.
+- `DELETE` retires a row; rows are never deleted. It is
+  `409 BUILDING_IN_USE` or `SUPPLIER_TYPE_IN_USE` while the current version
+  of any non-deleted supplier references the row. Superseded versions and
+  deleted suppliers do not count; they keep showing the retired name. An
+  unknown ID is `404 BUILDING_NOT_FOUND` or `SUPPLIER_TYPE_NOT_FOUND`, and
+  retiring a retired row is `204` without changing it. Retirement releases
+  the lookup key, so a replacement row with the same key can be created.
+- There is no rename endpoint because names are immutable.
+- Retirement locks the row `FOR UPDATE`, checks use, and sets `retired_at`
+  in one transaction. Supplier writes resolve the row `FOR SHARE` in their
+  own transaction, so a write and a retirement of the same row serialise:
+  either the write commits first and retirement is rejected as in use, or
+  retirement commits first and the write no longer resolves the row.
+
 ## Validation and list behavior
 
 Create requires `name`, `type`, `building`, `floor`, `locationDescription`,
 `latitude`, `longitude`, `openingTime`, and `closingTime`. `imageUrl` is
 optional. Patch accepts those fields but rejects an empty object; setting
 `imageUrl` to `null` removes it. IDs are never patchable.
+
+`building` and `type` must each name an existing building and supplier type
+that is not retired. Rows are created through `POST /buildings` and
+`POST /supplier-types`; a supplier write never creates one. The value is
+matched by lookup key, so `com2`, ` COM-2 `, and `Com 2` all select the row
+named `Com 2`, and the response returns that canonical name. A value with no
+live match is `INVALID_ARGUMENT` with field `building` and message
+`must be an existing building`, or field `type` and message
+`must be an existing supplier type`. These are reported together with each
+other and with every other field violation. A retired row does not match, so
+assigning it is rejected the same way. A patch that omits `building` or
+`type` keeps the current row even if it has been retired since, so the
+supplier's other fields remain editable. The resolved rows are locked
+`FOR SHARE` in the write's transaction, so a concurrent retirement either
+waits and then finds the row in use, or commits first and the write is
+rejected.
 
 Coordinates use latitude `[-90, 90]` and longitude `[-180, 180]`. Times use
 24-hour `HH:MM` and must differ. Image URLs must be absolute HTTP(S) URLs. The
@@ -44,19 +127,47 @@ numeric value so an omitted coordinate cannot be mistaken for valid zero.
 
 - `q`: normalized, case-insensitive match against name, building, floor, or
   location description;
-- `type`: exact, case-insensitive type match;
+- `type`: type match by lookup key (see
+  [Buildings and supplier types](#buildings-and-supplier-types));
+- `building`: building match by lookup key, at most 120 characters, so
+  `com2`, `COM-2` and `Com 2` select the same building. A building that does
+  not exist or is retired yields an empty page rather than an error, as for
+  `type`. It combines with every other parameter;
+- `sort`: `name` (default), `-name`, `type`, `-type`, `building`, or
+  `-building`;
 - `limit`: 1-100, default 25;
 - `cursor`: an opaque continuation value returned as `nextCursor`.
 
-Results are ordered by normalized name and then `supplierId`, both ascending,
-before applying the cursor. Clients must not parse or construct cursors.
+Ordering is applied on the server before the cursor, so clients must not
+re-sort a partially loaded list:
+
+| `sort` | Order |
+| --- | --- |
+| `name` | normalized name, then `supplierId`, both ascending |
+| `-name` | normalized name, then `supplierId`, both descending |
+| `type` | type lookup key, then normalized name, then `supplierId`, all ascending |
+| `-type` | the `type` order with every key descending |
+| `building` | building lookup key, then normalized name, then `supplierId`, all ascending |
+| `-building` | the `building` order with every key descending |
+
+A `-` prefix reverses every key, so a descending list is exactly the
+ascending list read backwards; for example, `-type` also lists names Z-A within
+each type.
+
+Any other `sort` value, including an empty one, is rejected with
+`INVALID_ARGUMENT` and field `sort`. Clients must not parse or construct
+cursors. A cursor is bound to the normalized `q`, the `type` and `building`
+lookup keys, and the `sort` that produced it; reusing it with different values is rejected as
+`cursor is invalid`.
 `nextCursor` is omitted on the last page.
 
 ## Authorization and errors
 
-All supplier and version endpoints require a verified Auth0 access token for
-`https://api.foc.local/supplier-service` and explicit `suppliers:read`. Create,
-patch, and delete additionally require `suppliers:manage`. Auth0 administrator
+All supplier, version, building, and supplier-type endpoints require a
+verified Auth0 access token for `https://api.foc.local/supplier-service` and
+explicit `suppliers:read`. Create, patch, and delete of suppliers, and create
+and retire of buildings and supplier types, additionally require
+`suppliers:manage`. Auth0 administrator
 assignments must grant both permissions. `/readyz` is unauthenticated.
 Supplier use cases consume the trusted `auth.Principal`: Subject is Auth0
 `sub`, Permissions comes from the validated token, and Roles grants no access.
@@ -83,8 +194,8 @@ Not-found current and historical reads intentionally have distinct codes.
 | 400 | `INVALID_ARGUMENT` |
 | 401 | `UNAUTHENTICATED` |
 | 403 | `FORBIDDEN` |
-| 404 | `SUPPLIER_NOT_FOUND` or `SUPPLIER_VERSION_NOT_FOUND` |
-| 409 | `SUPPLIER_NAME_CONFLICT` or `SUPPLIER_HAS_ACTIVE_ERRANDS` |
+| 404 | `SUPPLIER_NOT_FOUND`, `SUPPLIER_VERSION_NOT_FOUND`, `BUILDING_NOT_FOUND`, or `SUPPLIER_TYPE_NOT_FOUND` |
+| 409 | `SUPPLIER_NAME_CONFLICT`, `SUPPLIER_HAS_ACTIVE_ERRANDS`, `BUILDING_CONFLICT`, `BUILDING_IN_USE`, `SUPPLIER_TYPE_CONFLICT`, or `SUPPLIER_TYPE_IN_USE` |
 | 500 | `INTERNAL` |
 | 503 | `DELETION_FENCE_UNAVAILABLE` or `DEPENDENCY_UNAVAILABLE` |
 

@@ -6,15 +6,24 @@ operations:
     description: >-
       Returns only the newest version of non-deleted suppliers. q performs a
       case-insensitive normalized search over name, building, floor, and
-      location description. type is an exact case-insensitive filter. Results
-      are ordered by normalized name and then supplierId, both ascending;
-      cursor values are opaque.
+      location description. type filters by type lookup key (case, spaces,
+      and punctuation ignored). sort selects the order: name (default) is
+      normalized name then supplierId; type is the type lookup key, then
+      normalized name, then supplierId; building is the building lookup key,
+      then normalized name, then supplierId.
+      Each is ascending, and its "-" prefixed form (-name, -type, -building)
+      reverses every key. Every order ends with supplierId, so pages are stable slices of one
+      sequence. Cursor values are opaque and bound to the filters and sort
+      that produced them; any other sort value is rejected as an invalid
+      sort field.
     x-required-permissions: [suppliers:read]
     security:
       - bearerAuth: []
     parameters:
       - $ref: ./common.yaml#/components/parameters/Query
       - $ref: ./common.yaml#/components/parameters/Type
+      - $ref: ./common.yaml#/components/parameters/Building
+      - $ref: ./common.yaml#/components/parameters/Sort
       - $ref: ./common.yaml#/components/parameters/Limit
       - $ref: ./common.yaml#/components/parameters/Cursor
     responses:

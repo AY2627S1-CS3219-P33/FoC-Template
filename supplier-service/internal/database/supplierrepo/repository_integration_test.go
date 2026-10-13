@@ -6,8 +6,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"os"
-	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -19,10 +17,12 @@ import (
 
 	"github.com/CS3219-AY2627S1/FoC-Template/supplier-service/internal/apperror"
 	"github.com/CS3219-AY2627S1/FoC-Template/supplier-service/internal/supplier"
+	"github.com/CS3219-AY2627S1/FoC-Template/supplier-service/migrations"
 )
 
 func TestConcurrentDuplicateCreatesUseDatabaseUniqueness(t *testing.T) {
 	repository, pool := migratedRepository(t)
+	createLookups(t, repository, validDetails(""))
 	ctx := context.Background()
 	start := make(chan struct{})
 	results := make(chan error, 2)
@@ -49,6 +49,7 @@ func TestConcurrentDuplicateCreatesUseDatabaseUniqueness(t *testing.T) {
 
 func TestConcurrentDuplicateRenamesRollbackLosingVersion(t *testing.T) {
 	repository, pool := migratedRepository(t)
+	createLookups(t, repository, validDetails(""))
 	ctx := context.Background()
 	first, err := repository.Create(ctx, validDetails("First Supplier"), time.Now().UTC())
 	require.NoError(t, err)
@@ -82,6 +83,7 @@ func TestConcurrentDuplicateRenamesRollbackLosingVersion(t *testing.T) {
 
 func TestConcurrentUpdatesValidateAgainstLatestLockedVersion(t *testing.T) {
 	repository, pool := migratedRepository(t)
+	createLookups(t, repository, validDetails(""))
 	ctx := context.Background()
 	created, err := repository.Create(ctx, validDetails("Concurrent Supplier"), time.Now().UTC())
 	require.NoError(t, err)
@@ -128,11 +130,13 @@ func TestConcurrentUpdatesValidateAgainstLatestLockedVersion(t *testing.T) {
 
 func TestStoredOrderVersionRemainsUnchangedAfterUpdateAndDeletion(t *testing.T) {
 	repository, _ := migratedRepository(t)
+	createLookups(t, repository, validDetails(""))
 	ctx := context.Background()
 	createdAt := time.Now().UTC()
 	originalDetails := validDetails("Order Pickup Supplier")
 	created, err := repository.Create(ctx, originalDetails, createdAt)
 	require.NoError(t, err)
+	require.Equal(t, originalDetails, withoutLookupIDs(t, created.Details))
 
 	// An order stores this immutable reference when it is created.
 	orderVersionID := created.VersionID
@@ -145,7 +149,7 @@ func TestStoredOrderVersionRemainsUnchangedAfterUpdateAndDeletion(t *testing.T) 
 
 	storedPickupAfterUpdate, err := repository.GetVersion(ctx, orderVersionID)
 	require.NoError(t, err)
-	require.Equal(t, originalDetails, storedPickupAfterUpdate.Details)
+	require.Equal(t, created.Details, storedPickupAfterUpdate.Details)
 	require.False(t, storedPickupAfterUpdate.Available)
 
 	operationID := supplier.DeletionOperationID(testUUID(t))
@@ -172,7 +176,7 @@ func TestStoredOrderVersionRemainsUnchangedAfterUpdateAndDeletion(t *testing.T) 
 	storedPickupAfterDeletion, err := repository.GetVersion(ctx, orderVersionID)
 	require.NoError(t, err)
 	require.Equal(t, storedPickupAfterUpdate, storedPickupAfterDeletion)
-	require.Equal(t, originalDetails, storedPickupAfterDeletion.Details)
+	require.Equal(t, created.Details, storedPickupAfterDeletion.Details)
 
 	deletedCurrentVersion, err := repository.GetVersion(ctx, updated.VersionID)
 	require.NoError(t, err)
@@ -188,6 +192,7 @@ func TestStoredOrderVersionRemainsUnchangedAfterUpdateAndDeletion(t *testing.T) 
 
 func TestReplayedDeletionOperationIsCreatedClaimedAndCompletedOnce(t *testing.T) {
 	repository, pool := migratedRepository(t)
+	createLookups(t, repository, validDetails(""))
 	ctx := context.Background()
 	created, err := repository.Create(ctx, validDetails("Deletion Supplier"), time.Now().UTC())
 	require.NoError(t, err)
@@ -282,6 +287,7 @@ func TestReplayedDeletionOperationIsCreatedClaimedAndCompletedOnce(t *testing.T)
 
 func TestDeletionRetryMetadataPendingBoundsAndTransitions(t *testing.T) {
 	repository, _ := migratedRepository(t)
+	createLookups(t, repository, validDetails(""))
 	ctx := context.Background()
 	created, err := repository.Create(ctx, validDetails("Retry Supplier"), time.Now().UTC())
 	require.NoError(t, err)
@@ -391,6 +397,36 @@ func validDetails(name string) supplier.Details {
 	}
 }
 
+// createLookups creates the building and type of each details as live
+// lookups so administrator writes can assign them. Supplier writes never
+// create lookups. A name whose key already has a live row is left as it is.
+func createLookups(t testing.TB, repository *Repository, details ...supplier.Details) {
+	t.Helper()
+	for _, item := range details {
+		for kind, name := range map[supplier.LookupKind]string{
+			supplier.BuildingLookup:     item.Building,
+			supplier.SupplierTypeLookup: item.Type,
+		} {
+			_, err := repository.CreateLookup(context.Background(), kind, strings.TrimSpace(name), time.Now().UTC())
+			if conflict := (&supplier.LookupConflictError{}); !errors.As(err, &conflict) {
+				require.NoError(t, err)
+			}
+		}
+	}
+}
+
+const uuidPattern = `^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`
+
+// withoutLookupIDs checks that both lookup IDs were resolved and returns the
+// details with them cleared, for comparison with input details.
+func withoutLookupIDs(t testing.TB, details supplier.Details) supplier.Details {
+	t.Helper()
+	require.Regexp(t, uuidPattern, details.BuildingID)
+	require.Regexp(t, uuidPattern, details.TypeID)
+	details.BuildingID, details.TypeID = "", ""
+	return details
+}
+
 func migratedRepository(t testing.TB) (*Repository, *pgxpool.Pool) {
 	t.Helper()
 	databaseURL := os.Getenv("TEST_DATABASE_URL")
@@ -422,28 +458,12 @@ func migratedRepository(t testing.TB) (*Repository, *pgxpool.Pool) {
 		_ = admin.Close(cleanupCtx)
 	})
 
-	_, sourceFile, _, ok := runtime.Caller(0)
-	require.True(t, ok)
-	migrationPath := filepath.Join(filepath.Dir(sourceFile), "..", "..", "..", "migrations", "00001_create_versioned_suppliers.sql")
-	migration, err := os.ReadFile(migrationPath)
-	require.NoError(t, err)
-	upSQL, err := migrationUp(string(migration))
+	upSQL, err := migrations.Up()
 	require.NoError(t, err)
 	_, err = pool.Exec(ctx, upSQL)
 	require.NoError(t, err)
 
 	return New(pool), pool
-}
-
-func migrationUp(migration string) (string, error) {
-	upMarker := "-- +goose Up"
-	downMarker := "-- +goose Down"
-	upAt := strings.Index(migration, upMarker)
-	downAt := strings.Index(migration, downMarker)
-	if upAt < 0 || downAt <= upAt {
-		return "", errors.New("migration is missing ordered up/down markers")
-	}
-	return migration[upAt+len(upMarker) : downAt], nil
 }
 
 func testUUID(t testing.TB) string {

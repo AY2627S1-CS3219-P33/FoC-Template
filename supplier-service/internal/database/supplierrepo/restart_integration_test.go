@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/CS3219-AY2627S1/FoC-Template/supplier-service/internal/supplier"
+	"github.com/CS3219-AY2627S1/FoC-Template/supplier-service/migrations"
 )
 
 // TestPersistenceSurvivesDatabaseAndServiceRestart is opt-in because it
@@ -51,12 +52,7 @@ func TestPersistenceSurvivesDatabaseAndServiceRestart(t *testing.T) {
 		}
 	})
 
-	_, sourceFile, _, ok := runtime.Caller(0)
-	require.True(t, ok)
-	migrationPath := filepath.Join(filepath.Dir(sourceFile), "..", "..", "..", "migrations", "00001_create_versioned_suppliers.sql")
-	migration, err := os.ReadFile(migrationPath)
-	require.NoError(t, err)
-	upSQL, err := migrationUp(string(migration))
+	upSQL, err := migrations.Up()
 	require.NoError(t, err)
 
 	poolConfig, err := pgxpool.ParseConfig(databaseURL)
@@ -68,6 +64,7 @@ func TestPersistenceSurvivesDatabaseAndServiceRestart(t *testing.T) {
 	require.NoError(t, err)
 
 	repository := New(pool)
+	createLookups(t, repository, validDetails(""))
 	createdAt := time.Now().UTC()
 	created, err := repository.Create(ctx, validDetails("Restart Supplier"), createdAt)
 	require.NoError(t, err)
@@ -86,6 +83,8 @@ func TestPersistenceSurvivesDatabaseAndServiceRestart(t *testing.T) {
 	pool.Close()
 	require.NoError(t, admin.Close(ctx))
 
+	_, sourceFile, _, ok := runtime.Caller(0)
+	require.True(t, ok)
 	composePath := filepath.Join(filepath.Dir(sourceFile), "..", "..", "..", "compose.test.yaml")
 	restartCtx, restartCancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer restartCancel()
