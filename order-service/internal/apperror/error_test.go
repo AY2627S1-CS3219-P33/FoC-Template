@@ -21,6 +21,7 @@ func TestHTTPStatusMapsEveryCode(t *testing.T) {
 		ErrandUnavailable:          http.StatusConflict,
 		InvalidTransition:          http.StatusConflict,
 		InsufficientCredits:        http.StatusConflict,
+		EditPending:                http.StatusConflict,
 		SupplierDeletionInProgress: http.StatusConflict,
 		SupplierUnavailable:        http.StatusUnprocessableEntity,
 		DependencyUnavailable:      http.StatusServiceUnavailable,

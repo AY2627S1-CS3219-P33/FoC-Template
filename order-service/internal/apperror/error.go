@@ -23,8 +23,12 @@ const (
 	NotEligible Code = "NOT_ELIGIBLE"
 	// CourierRestricted means the courier is temporarily barred from
 	// accepting errands after repeated withdrawals (F3.6.4).
-	CourierRestricted   Code = "COURIER_RESTRICTED"
+	CourierRestricted Code = "COURIER_RESTRICTED"
+	// InsufficientCredits is reported as the reason on a REJECTED errand or
+	// a rejected edit, not as an HTTP error.
 	InsufficientCredits Code = "INSUFFICIENT_CREDITS"
+	// EditPending means a reward change is still waiting for credit-service.
+	EditPending Code = "EDIT_PENDING"
 	// SupplierUnavailable means the supplier is missing, deleted or has no
 	// usable version for a new errand (F3.1.1).
 	SupplierUnavailable        Code = "SUPPLIER_UNAVAILABLE"
@@ -47,6 +51,7 @@ func Codes() []Code {
 		NotEligible,
 		CourierRestricted,
 		InsufficientCredits,
+		EditPending,
 		SupplierUnavailable,
 		SupplierDeletionInProgress,
 		DependencyUnavailable,
@@ -67,7 +72,7 @@ func HTTPStatus(code Code) int {
 	case ErrandNotFound:
 		return http.StatusNotFound
 	case ErrandChanged, ErrandUnavailable, InvalidTransition,
-		InsufficientCredits, SupplierDeletionInProgress:
+		InsufficientCredits, EditPending, SupplierDeletionInProgress:
 		return http.StatusConflict
 	case SupplierUnavailable:
 		return http.StatusUnprocessableEntity
