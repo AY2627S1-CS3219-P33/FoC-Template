@@ -12,6 +12,10 @@ const (
 	// ValidationFailed carries per-field details in Error.Fields (NFR2.2.1).
 	ValidationFailed Code = "VALIDATION_FAILED"
 	ErrandNotFound   Code = "ERRAND_NOT_FOUND"
+	// FenceNotFound means no supplier deletion fence has the operation ID.
+	FenceNotFound Code = "FENCE_NOT_FOUND"
+	// OutboxRowNotFound means no outbox row has the ID (admin replay, M6).
+	OutboxRowNotFound Code = "OUTBOX_ROW_NOT_FOUND"
 	// ErrandChanged means the caller's expectedVersion is stale (F3.3.7).
 	ErrandChanged Code = "ERRAND_CHANGED"
 	// ErrandUnavailable means the errand can no longer take this action,
@@ -45,6 +49,8 @@ func Codes() []Code {
 		Forbidden,
 		ValidationFailed,
 		ErrandNotFound,
+		FenceNotFound,
+		OutboxRowNotFound,
 		ErrandChanged,
 		ErrandUnavailable,
 		InvalidTransition,
@@ -69,7 +75,7 @@ func HTTPStatus(code Code) int {
 		return http.StatusUnauthorized
 	case Forbidden, NotEligible, CourierRestricted:
 		return http.StatusForbidden
-	case ErrandNotFound:
+	case ErrandNotFound, FenceNotFound, OutboxRowNotFound:
 		return http.StatusNotFound
 	case ErrandChanged, ErrandUnavailable, InvalidTransition,
 		InsufficientCredits, EditPending, SupplierDeletionInProgress:
