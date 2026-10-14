@@ -1,0 +1,149 @@
+openapi: 3.1.0
+
+info:
+  title: Friend on Campus Order Service API
+  version: 1.0.0
+  description: >-
+    Frozen errand lifecycle, administration and internal contract (S0).
+    Lifecycle rules follow Diagram 1 in references/order-requirements.md;
+    messaging, idempotency, locking and cache rules are in docs/contracts.md.
+    x-required-permissions names the token permission an operation needs and
+    x-required-relationship the caller's relationship to the errand, checked
+    against stored data (NFR3.3.2). Every action on an existing errand takes
+    expectedVersion.
+  license:
+    name: MIT
+    identifier: MIT
+
+servers:
+  - url: /order-service
+    description: API gateway route
+
+tags:
+  - name: Errands
+    description: Requesting, browsing and requester actions.
+  - name: Courier
+    description: Actions of the courier accepting or delivering an errand.
+  - name: My errands
+    description: The caller's own errand lists.
+  - name: Administration
+    description: Review, settings, logs, flags and failed outbox rows (errands:review).
+  - name: Internal
+    description: Service-to-service routes (service tokens with orders:internal only).
+  - name: Operations
+    description: Service health.
+
+paths:
+  /errands:
+    post:
+      $ref: ./openapi/errands.yaml#/operations/createErrand
+  /errands/open:
+    get:
+      $ref: ./openapi/errands.yaml#/operations/listOpenErrands
+  /errands/{errandId}:
+    get:
+      $ref: ./openapi/errands.yaml#/operations/getErrand
+    patch:
+      $ref: ./openapi/errands.yaml#/operations/editErrand
+  /errands/{errandId}/accept:
+    post:
+      $ref: ./openapi/errands.yaml#/operations/acceptErrand
+  /errands/{errandId}/cancel:
+    post:
+      $ref: ./openapi/errands.yaml#/operations/cancelErrand
+  /errands/{errandId}/confirm:
+    post:
+      $ref: ./openapi/errands.yaml#/operations/confirmErrand
+  /errands/{errandId}/dispute:
+    post:
+      $ref: ./openapi/errands.yaml#/operations/disputeErrand
+  /errands/{errandId}/withdraw:
+    post:
+      $ref: ./openapi/errands.yaml#/operations/withdrawErrand
+  /errands/{errandId}/pickup:
+    post:
+      $ref: ./openapi/errands.yaml#/operations/pickUpErrand
+  /errands/{errandId}/deliver:
+    post:
+      $ref: ./openapi/errands.yaml#/operations/deliverErrand
+  /errands/{errandId}/report-issue:
+    post:
+      $ref: ./openapi/errands.yaml#/operations/reportIssue
+  /me/errands/requested:
+    get:
+      $ref: ./openapi/errands.yaml#/operations/listRequestedErrands
+  /me/errands/delivering:
+    get:
+      $ref: ./openapi/errands.yaml#/operations/listDeliveringErrands
+  /me/errands/history:
+    get:
+      $ref: ./openapi/errands.yaml#/operations/listErrandHistory
+  /admin/reviews:
+    get:
+      $ref: ./openapi/admin.yaml#/operations/listReviews
+  /admin/reviews/{errandId}/resolve:
+    post:
+      $ref: ./openapi/admin.yaml#/operations/resolveReview
+  /admin/settings:
+    get:
+      $ref: ./openapi/admin.yaml#/operations/getSettings
+    put:
+      $ref: ./openapi/admin.yaml#/operations/putSettings
+  /admin/errand-events:
+    get:
+      $ref: ./openapi/admin.yaml#/operations/listErrandEvents
+  /admin/flags:
+    get:
+      $ref: ./openapi/admin.yaml#/operations/listFlags
+  /admin/outbox/failed:
+    get:
+      $ref: ./openapi/admin.yaml#/operations/listFailedOutboxRows
+  /admin/outbox/{id}/requeue:
+    post:
+      $ref: ./openapi/admin.yaml#/operations/requeueOutboxRow
+  /internal/supplier-fences/{operationId}:
+    get:
+      $ref: ./openapi/internal.yaml#/operations/inspectFence
+  /internal/supplier-fences/{operationId}/acquire:
+    post:
+      $ref: ./openapi/internal.yaml#/operations/acquireFence
+  /internal/supplier-fences/{operationId}/commit:
+    post:
+      $ref: ./openapi/internal.yaml#/operations/commitFence
+  /internal/supplier-fences/{operationId}/release:
+    post:
+      $ref: ./openapi/internal.yaml#/operations/releaseFence
+  /internal/users/{userId}/active-errands:
+    get:
+      $ref: ./openapi/internal.yaml#/operations/getUserActiveErrands
+  /readyz:
+    get:
+      $ref: ./openapi/common.yaml#/operations/readiness
+
+components:
+  schemas:
+    OpenErrandItem:
+      $ref: ./openapi/common.yaml#/components/schemas/OpenErrandItem
+    PublicErrandView:
+      $ref: ./openapi/common.yaml#/components/schemas/PublicErrandView
+    RequesterErrandView:
+      $ref: ./openapi/common.yaml#/components/schemas/RequesterErrandView
+    CourierErrandView:
+      $ref: ./openapi/common.yaml#/components/schemas/CourierErrandView
+    AdminErrandView:
+      $ref: ./openapi/common.yaml#/components/schemas/AdminErrandView
+    ErrandCreate:
+      $ref: ./openapi/common.yaml#/components/schemas/ErrandCreate
+    ErrandEdit:
+      $ref: ./openapi/common.yaml#/components/schemas/ErrandEdit
+    Fence:
+      $ref: ./openapi/common.yaml#/components/schemas/Fence
+    Settings:
+      $ref: ./openapi/common.yaml#/components/schemas/Settings
+    Error:
+      $ref: ./openapi/common.yaml#/components/schemas/Error
+  securitySchemes:
+    bearerAuth:
+      $ref: ./openapi/common.yaml#/components/securitySchemes/bearerAuth
+    serviceAuth:
+      $ref: ./openapi/common.yaml#/components/securitySchemes/serviceAuth

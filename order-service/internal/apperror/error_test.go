@@ -17,6 +17,8 @@ func TestHTTPStatusMapsEveryCode(t *testing.T) {
 		NotEligible:                http.StatusForbidden,
 		CourierRestricted:          http.StatusForbidden,
 		ErrandNotFound:             http.StatusNotFound,
+		FenceNotFound:              http.StatusNotFound,
+		OutboxRowNotFound:          http.StatusNotFound,
 		ErrandChanged:              http.StatusConflict,
 		ErrandUnavailable:          http.StatusConflict,
 		InvalidTransition:          http.StatusConflict,
