@@ -140,7 +140,7 @@ func (s *UserService) withBalance(ctx context.Context, u *repository.User) *Prof
 
 // profile converts a stored account to a profile without a credit balance.
 func profile(u *repository.User) *Profile {
-	return &Profile{ID: u.ID, Username: u.Username, Email: u.Email, Role: u.Role,
+	return &Profile{ID: u.ID, Username: u.Username, Email: u.Email,
 		Active: u.Active, DisplayName: u.DisplayName, Mobile: u.Mobile}
 }
 

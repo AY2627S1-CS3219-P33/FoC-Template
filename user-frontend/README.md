@@ -1,8 +1,9 @@
 # User Frontend
 
 Responsive SPA for the FoC **User Service**. It consumes the service's HTTP API to
-sign a user in, provision their local account, and manage profile information. It
-holds no business logic of its own — the user-service remains the source of truth.
+sign a user in, provision their local account, manage profile information, and
+provide an administrator user directory at `/admin`. It holds no business logic
+of its own — the user-service remains the source of truth.
 
 Built with Vite + React + TypeScript.
 
@@ -17,6 +18,7 @@ Built to the D1 presentation wireframes (User Service screens only):
 | slide 31 | Reset password + "check your inbox" | `src/pages/auth/ResetPassword.tsx` |
 | slides 33–34 | App shell: sidebar / mobile bottom nav, credit header, user footer | `src/components/AppShell.tsx` |
 | — | Profile (view + edit) | `src/pages/Profile.tsx` |
+| — | Admin user directory, search, role changes | `src/pages/admin/AdminUsersPage.tsx` |
 
 ## Requirements implemented
 
@@ -135,6 +137,15 @@ Auth0 application's:
 Open the generated HTTPS URL and sign in again. The Vite proxy still forwards
 `/api` to the user-service and `/supplier-service` to the supplier-service.
 The ngrok URL changes between sessions unless a reserved domain is used.
+
+### Admin user directory
+
+Open `http://localhost:5173/admin` while signed in. The screen requests a
+user-service token with the `users:manage:roles` permission, then uses the
+existing admin endpoints for role lists, exact email search, promotion, and
+demotion. The page waits for a permission-protected API response before showing
+any directory or role controls. The existing Auth0 API and role setup must grant
+`users:manage:roles` to the Administrator role.
 
 ## Scripts
 

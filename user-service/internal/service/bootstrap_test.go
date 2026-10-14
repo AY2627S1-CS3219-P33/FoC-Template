@@ -9,16 +9,16 @@ import (
 )
 
 type bootstrapStub struct {
-	completed, exists, created, marked bool
-	stateErr, createErr, markErr       error
-	input                              repository.CreateAuth0User
+	completed, bootstrapAccountExists, created, marked bool
+	stateErr, createErr, markErr                       error
+	input                                              repository.CreateAuth0User
 }
 
 func (b *bootstrapStub) WithBootstrapLock(ctx context.Context, fn func(repository.BootstrapTransaction) error) error {
 	return fn(b)
 }
 func (b *bootstrapStub) State(context.Context) (bool, bool, error) {
-	return b.completed, b.exists, b.stateErr
+	return b.completed, b.bootstrapAccountExists, b.stateErr
 }
 func (b *bootstrapStub) CreateSuperAdmin(_ context.Context, input repository.CreateAuth0User) error {
 	b.created = true
@@ -36,8 +36,8 @@ func TestBootstrapDecisions(t *testing.T) {
 		created, marked bool
 	}{
 		{name: "new", created: true, marked: true},
-		{name: "complete", stub: bootstrapStub{completed: true, exists: true}},
-		{name: "existing", stub: bootstrapStub{exists: true}, marked: true},
+		{name: "complete", stub: bootstrapStub{completed: true, bootstrapAccountExists: true}},
+		{name: "existing", stub: bootstrapStub{bootstrapAccountExists: true}, marked: true},
 		{name: "recovery", stub: bootstrapStub{completed: true}, wantErr: ErrBootstrapRecovery},
 		{name: "state failure", stub: bootstrapStub{stateErr: sentinel}, wantErr: sentinel},
 		{name: "insert failure", stub: bootstrapStub{createErr: sentinel}, wantErr: sentinel, created: true},
@@ -45,7 +45,7 @@ func TestBootstrapDecisions(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			input := repository.CreateAuth0User{Subject: "auth0|admin", Username: "Admin", Email: " ADMIN@EXAMPLE.COM "}
-			if tc.stub.exists || tc.stub.completed {
+			if tc.stub.bootstrapAccountExists || tc.stub.completed {
 				input = repository.CreateAuth0User{}
 			}
 			err := BootstrapSuperAdmin(context.Background(), &tc.stub, input)

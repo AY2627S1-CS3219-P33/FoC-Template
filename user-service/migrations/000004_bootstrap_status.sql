@@ -1,6 +1,6 @@
-BEGIN;
+-- +goose Up
 
-  CREATE TABLE bootstrap_state (
+CREATE TABLE bootstrap_state (
       name text PRIMARY KEY,
       completed_at timestamptz
   );
@@ -8,4 +8,6 @@ BEGIN;
   INSERT INTO bootstrap_state (name)
   VALUES ('bootstrap_is_completed');
 
-  COMMIT;
+-- +goose Down
+
+DROP TABLE bootstrap_state;

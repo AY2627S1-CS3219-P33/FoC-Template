@@ -29,9 +29,9 @@ type Handler struct {
 }
 
 // New creates a handler with public web assets and authenticated API routes.
-func New(authConfig AuthConfig, authentication *middleware.Auth0, provisioner Provisioner, userService *service.UserService) *Handler {
+func New(authConfig AuthConfig, authentication *middleware.Auth0, provisioner Provisioner, userService *service.UserService, administratorService *service.AdministratorService, adminUsersService *service.AdminUsersService) *Handler {
 	router := http.NewServeMux()
-	registerUserRoutes(router, authentication, provisioner, userService)
+	registerUserRoutes(router, authentication, provisioner, userService, administratorService, adminUsersService)
 	router.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
 	router.HandleFunc("GET /api/auth/config", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, authConfig)
@@ -116,11 +116,22 @@ func provision(w http.ResponseWriter, r *http.Request, provisioner Provisioner) 
 		writeProvisionError(w, err)
 		return
 	}
+	setAuthorizationRole(profile, r)
 	status := http.StatusOK
 	if created {
 		status = http.StatusCreated
 	}
 	writeJSON(w, status, profile)
+}
+
+func setAuthorizationRole(profile *service.Profile, req *http.Request) {
+	if profile == nil {
+		return
+	}
+	profile.Role = "USER"
+	if middleware.HasPermission(req.Context(), "users:manage:roles") {
+		profile.Role = "ADMIN"
+	}
 }
 
 // writeProvisionError maps provisioning failures to public JSON HTTP responses.

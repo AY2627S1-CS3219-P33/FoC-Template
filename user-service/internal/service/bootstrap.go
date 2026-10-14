@@ -10,23 +10,23 @@ import (
 	"user-service/internal/repository"
 )
 
-var ErrBootstrapRecovery = errors.New("bootstrap completed but no super administrator exists; explicit recovery required")
+var ErrBootstrapRecovery = errors.New("bootstrap completed but linked local account is missing; explicit recovery required")
 
 // BootstrapSuperAdmin links a deployment-supplied Auth0 identity to the initial
 // local administrator. It never creates an Auth0 identity or promotes a user.
 func BootstrapSuperAdmin(ctx context.Context, repo repository.BootstrapRepository, input repository.CreateAuth0User) error {
 	return repo.WithBootstrapLock(ctx, func(tx repository.BootstrapTransaction) error {
-		completed, exists, err := tx.State(ctx)
+		completed, bootstrapAccountExists, err := tx.State(ctx)
 		if err != nil {
 			return err
 		}
 		if completed {
-			if !exists {
+			if !bootstrapAccountExists {
 				return ErrBootstrapRecovery
 			}
 			return nil
 		}
-		if exists {
+		if bootstrapAccountExists {
 			return tx.MarkCompleted(ctx)
 		}
 		input.Subject = strings.TrimSpace(input.Subject)

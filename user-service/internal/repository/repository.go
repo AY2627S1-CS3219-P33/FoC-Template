@@ -20,7 +20,6 @@ type User struct {
 	Auth0Subject string
 	Username     string
 	Email        string
-	Role         string
 	Active       bool
 	DisplayName  string
 	Mobile       string

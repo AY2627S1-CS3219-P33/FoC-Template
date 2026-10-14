@@ -48,7 +48,7 @@ type balanceStub struct {
 func (b balanceStub) Balance(context.Context, string) (string, error) { return b.value, b.err }
 
 func TestProfileAndDeletionBoundaries(t *testing.T) {
-	repo := &repositorySpy{user: repository.User{ID: "self", Username: "student", Email: "student@u.nus.edu", Role: "USER", Active: true, Mobile: "12345678"}}
+	repo := &repositorySpy{user: repository.User{ID: "self", Username: "student", Email: "student@u.nus.edu", Active: true, Mobile: "12345678"}}
 	svc := NewUserService(repo, nil)
 	ctx := context.Background()
 	name := "New display name"
@@ -56,7 +56,7 @@ func TestProfileAndDeletionBoundaries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.DisplayName != name || result.Mobile != "12345678" || result.Role != "USER" || result.Email != repo.user.Email {
+	if result.DisplayName != name || result.Mobile != "12345678" || result.Email != repo.user.Email {
 		t.Fatal("partial update modified other fields")
 	}
 	if result.CreditBalance != nil {

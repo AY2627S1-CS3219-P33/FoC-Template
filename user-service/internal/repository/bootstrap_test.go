@@ -30,7 +30,7 @@ func TestBootstrapConcurrentAndRepeated(t *testing.T) {
 	wg.Wait()
 	var count int
 	var before, after time.Time
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM accounts WHERE role='SUPER_ADMIN' AND active AND auth0_subject='auth0|admin'`).Scan(&count); err != nil || count != 1 {
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM accounts a JOIN bootstrap_state b ON a.auth0_subject=b.bootstrap_subject WHERE a.active AND a.auth0_subject='auth0|admin'`).Scan(&count); err != nil || count != 1 {
 		t.Fatalf("account count %d: %v", count, err)
 	}
 	if err := pool.QueryRow(ctx, `SELECT completed_at FROM bootstrap_state`).Scan(&before); err != nil {
@@ -50,8 +50,11 @@ func TestBootstrapExistingAndRecovery(t *testing.T) {
 			pool := testDatabase(t)
 			ctx := context.Background()
 			repo := repository.NewPostgres(pool)
-			_, err := pool.Exec(ctx, `INSERT INTO accounts(auth0_subject,username,email,role,active,deleted_at)
-    VALUES('auth0|existing','existing','existing@example.com','SUPER_ADMIN',false,CASE WHEN $1 THEN now() ELSE NULL END)`, deleted)
+			_, err := pool.Exec(ctx, `INSERT INTO accounts(auth0_subject,username,email,active,deleted_at)
+    VALUES('auth0|existing','existing','existing@example.com',false,CASE WHEN $1 THEN now() ELSE NULL END)`, deleted)
+			if err == nil {
+				_, err = pool.Exec(ctx, `UPDATE bootstrap_state SET bootstrap_subject='auth0|existing'`)
+			}
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -104,7 +107,7 @@ func TestBootstrapConflictAndRollback(t *testing.T) {
 				t.Fatal("expected failure")
 			}
 			var admins, completed int
-			if err := pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM accounts WHERE role='SUPER_ADMIN'),(SELECT count(*) FROM bootstrap_state WHERE completed_at IS NOT NULL)`).Scan(&admins, &completed); err != nil || admins != 0 || completed != 0 {
+			if err := pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM accounts WHERE auth0_subject='auth0|admin'),(SELECT count(*) FROM bootstrap_state WHERE completed_at IS NOT NULL)`).Scan(&admins, &completed); err != nil || admins != 0 || completed != 0 {
 				t.Fatal("partial bootstrap persisted", err)
 			}
 			// The pool remains usable after a failed bootstrap.
@@ -140,8 +143,8 @@ func TestBootstrapCanceledCallbackReleasesConnection(t *testing.T) {
 	check, stop := context.WithTimeout(context.Background(), 3*time.Second)
 	defer stop()
 	if err := repo.WithBootstrapLock(check, func(tx repository.BootstrapTransaction) error {
-		completed, exists, err := tx.State(check)
-		if completed || exists {
+		completed, accountExists, err := tx.State(check)
+		if completed || accountExists {
 			t.Error("canceled transaction retained writes")
 		}
 		return err

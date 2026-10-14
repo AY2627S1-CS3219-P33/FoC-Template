@@ -64,9 +64,21 @@ func run() error {
 
 	userService := service.NewUserService(users, nil)
 	provisioner := service.NewAuth0Provisioner(users, userInfo)
+	var administratorService *service.AdministratorService
+	var adminUsersService *service.AdminUsersService
+	if cfg.Auth0M2MClientID != "" {
+		management, err := auth.NewManagementClient(cfg.Auth0Domain, cfg.Auth0M2MClientID, cfg.Auth0M2MClientSecret, &http.Client{Timeout: 5 * time.Second})
+		if err != nil {
+			return err
+		}
+		adminUsersService = service.NewAdminUsersService(management, cfg.Auth0UserRoleID, cfg.Auth0AdminRoleID)
+		if cfg.Auth0UserRoleID != "" && cfg.Auth0AdminRoleID != "" {
+			administratorService = service.NewAdministratorService(management, cfg.Auth0UserRoleID, cfg.Auth0AdminRoleID)
+		}
+	}
 	httpHandler := handler.New(handler.AuthConfig{
 		Domain: cfg.Auth0Domain, ClientID: cfg.Auth0ClientID, Audience: cfg.Auth0Audience,
-	}, authentication, provisioner, userService)
+	}, authentication, provisioner, userService, administratorService, adminUsersService)
 
 	server := &http.Server{
 		Addr:              cfg.HTTPAddress,

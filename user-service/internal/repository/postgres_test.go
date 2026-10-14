@@ -55,16 +55,31 @@ func testDatabase(t *testing.T) *pgxpool.Pool {
 		t.Fatal("create test pool failed")
 	}
 	t.Cleanup(pool.Close)
-	for _, migration := range []string{"000001_accounts.up.sql", "000002_auth0_identities.up.sql", "000003_auth0_only.up.sql", "000004_bootstrap_status.up.sql"} {
-		sql, err := os.ReadFile("../../migrations/" + migration)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := pool.Exec(ctx, string(sql)); err != nil {
+	for _, migration := range []string{"000001_accounts.sql", "000002_auth0_identities.sql", "000003_auth0_only.sql", "000004_bootstrap_status.sql", "000005_auth0_roles.sql"} {
+		if _, err := pool.Exec(ctx, readMigration(t, migration, "Up")); err != nil {
 			t.Fatalf("apply %s: %v", migration, err)
 		}
 	}
 	return pool
+}
+
+func readMigration(t *testing.T, file, direction string) string {
+	t.Helper()
+	content, err := os.ReadFile("../../migrations/" + file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, section, ok := strings.Cut(string(content), "-- +goose "+direction)
+	if !ok {
+		t.Fatalf("migration %s has no %s section", file, direction)
+	}
+	if direction == "Up" {
+		section, _, ok = strings.Cut(section, "-- +goose Down")
+		if !ok {
+			t.Fatalf("migration %s has no Down section", file)
+		}
+	}
+	return strings.TrimSpace(section)
 }
 
 func TestPostgresAccountCRUD(t *testing.T) {
@@ -78,7 +93,7 @@ func TestPostgresAccountCRUD(t *testing.T) {
 	if err != nil || !created {
 		t.Fatal(err)
 	}
-	if u.ID == "" || !u.Active || u.Role != "USER" || u.CreatedAt.IsZero() || u.UpdatedAt.IsZero() {
+	if u.ID == "" || !u.Active || u.CreatedAt.IsZero() || u.UpdatedAt.IsZero() {
 		t.Fatalf("incorrect defaults: %+v", u)
 	}
 	read, err := repo.FindByID(ctx, u.ID)
@@ -99,7 +114,7 @@ func TestPostgresAccountCRUD(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if updated.DisplayName != "" || updated.Mobile != mobile || updated.Role != "USER" || updated.Email != u.Email || updated.Username != u.Username {
+	if updated.DisplayName != "" || updated.Mobile != mobile || updated.Email != u.Email || updated.Username != u.Username {
 		t.Fatal("partial update affected protected or omitted fields")
 	}
 	if err := repo.SoftDelete(ctx, u.ID); err != nil {
@@ -207,7 +222,7 @@ func TestPostgresServiceFlow(t *testing.T) {
 	if err != nil || !created {
 		t.Fatal(err)
 	}
-	if u.Username != "Student" || u.Email != "student@u.nus.edu" || !u.Active || u.Role != "USER" {
+	if u.Username != "Student" || u.Email != "student@u.nus.edu" || !u.Active {
 		t.Fatal("Auth0 provisioning defaults incorrect")
 	}
 	name := "New name"
@@ -238,13 +253,15 @@ func TestPostgresServiceFlow(t *testing.T) {
 func TestPostgresMigrationRollback(t *testing.T) {
 	pool := testDatabase(t)
 	ctx := context.Background()
-	for _, migration := range []string{"000004_bootstrap_status.down.sql", "000003_auth0_only.down.sql", "000002_auth0_identities.down.sql", "000001_accounts.down.sql", "000001_accounts.up.sql", "000002_auth0_identities.up.sql", "000003_auth0_only.up.sql", "000004_bootstrap_status.up.sql"} {
-		sql, err := os.ReadFile("../../migrations/" + migration)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := pool.Exec(ctx, string(sql)); err != nil {
-			t.Fatalf("apply %s: %v", migration, err)
+	for _, migration := range []struct{ file, direction string }{
+		{"000005_auth0_roles.sql", "Down"}, {"000004_bootstrap_status.sql", "Down"},
+		{"000003_auth0_only.sql", "Down"}, {"000002_auth0_identities.sql", "Down"},
+		{"000001_accounts.sql", "Down"}, {"000001_accounts.sql", "Up"},
+		{"000002_auth0_identities.sql", "Up"}, {"000003_auth0_only.sql", "Up"},
+		{"000004_bootstrap_status.sql", "Up"}, {"000005_auth0_roles.sql", "Up"},
+	} {
+		if _, err := pool.Exec(ctx, readMigration(t, migration.file, migration.direction)); err != nil {
+			t.Fatalf("apply %s %s: %v", migration.file, migration.direction, err)
 		}
 	}
 	if _, _, err := repository.NewPostgres(pool).CreateAuth0(ctx, repository.CreateAuth0User{

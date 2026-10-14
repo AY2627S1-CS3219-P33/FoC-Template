@@ -12,6 +12,7 @@ tags:
   - name: Health
   - name: Authentication
   - name: Profile
+  - name: Administrator management
 
 paths:
   /health:
@@ -227,6 +228,152 @@ paths:
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
 
+  /api/admin/users/{userID}/administrator:
+    put:
+      tags: [Administrator management]
+      summary: Grant the Auth0 Administrator role to a user
+      description: Requires the Auth0 permission users:manage:roles. The role change is written to Auth0; user roles are not stored in the local database.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: userID
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Auth0 user ID, such as auth0|abc123.
+      responses:
+        '204':
+          description: Administrator role assigned.
+        '400':
+          description: Invalid Auth0 user ID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          description: Caller lacks users:manage:roles or has no active local account.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Auth0 user not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    delete:
+      tags: [Administrator management]
+      summary: Demote an administrator to a regular user
+      description: Requires the Auth0 permission users:manage:roles. The regular User role is assigned before the Administrator role is removed.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: userID
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Auth0 user ID, such as auth0|abc123.
+      responses:
+        '204':
+          description: User role assigned and Administrator role removed.
+        '400':
+          description: Invalid Auth0 user ID.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          description: Caller lacks users:manage:roles or has no active local account.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Auth0 user not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/admin/users:
+    get:
+      tags: [Administrator management]
+      summary: List or search Auth0 users
+      description: >-
+        Requires an active local account and the Auth0 permission users:manage:roles.
+        Use role=administrator or role=user for role membership lists. The User list
+        excludes users who also have the Administrator role. Role lists use cursor
+        pagination: pass next_cursor as cursor on the next request. Role lists can
+        return fewer than per_page users when filtering the overlapping roles.
+        Without role, the endpoint lists or searches the general Auth0 user directory
+        using offset pagination, limited to 1,000 search results by Auth0.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: per_page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 25
+        - name: email
+          in: query
+          description: Optional exact email search.
+          schema:
+            type: string
+            maxLength: 254
+        - name: role
+          in: query
+          description: Optional Auth0 role filter. Use cursor pagination for role lists; email search is exact.
+          schema:
+            type: string
+            enum: [administrator, user]
+        - name: cursor
+          in: query
+          description: next_cursor from the preceding role-filtered response. Do not combine with email.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: One page of Auth0 users; total is omitted for role-filtered results.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Auth0UsersPage'
+        '400':
+          description: Invalid pagination or email query.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          description: Caller lacks users:manage:roles or has no active local account.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
 components:
   securitySchemes:
     bearerAuth:
@@ -289,7 +436,8 @@ components:
           format: email
         role:
           type: string
-          enum: [USER, ADMIN, SUPER_ADMIN]
+          enum: [USER, ADMIN]
+          description: Derived from the Auth0 users:manage:roles permission; the local account role is ignored.
         active:
           type: boolean
         display_name:
@@ -301,6 +449,44 @@ components:
         credit_balance:
           type: [string, 'null']
           description: Credit balance when the optional credit integration is available; otherwise null.
+
+    Auth0UsersPage:
+      type: object
+      required: [users, page, per_page]
+      properties:
+        users:
+          type: array
+          items:
+            $ref: '#/components/schemas/Auth0User'
+        total:
+          type: integer
+          description: Total count for unfiltered or email-search results; omitted for role-filtered requests.
+        page:
+          type: integer
+        per_page:
+          type: integer
+        role:
+          type: string
+          enum: [administrator, user]
+        next_cursor:
+          type: string
+          description: Auth0 checkpoint for the next role-filtered page; omitted when no more results are available.
+    Auth0User:
+      type: object
+      required: [user_id, email]
+      properties:
+        user_id:
+          type: string
+        email:
+          type: string
+        name:
+          type: string
+        email_verified:
+          type: boolean
+        created_at:
+          type: string
+        last_login:
+          type: string
 
     ProfileUpdate:
       type: object

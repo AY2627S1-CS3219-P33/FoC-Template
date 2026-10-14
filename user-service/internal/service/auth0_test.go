@@ -32,7 +32,7 @@ func (r *auth0RepositorySpy) CreateAuth0(_ context.Context, input repository.Cre
 	}
 	return &repository.User{
 		ID: "account-id", Auth0Subject: input.Subject, Username: input.Username,
-		Email: input.Email, DisplayName: input.DisplayName, Role: "USER", Active: true,
+		Email: input.Email, DisplayName: input.DisplayName, Active: true,
 	}, true, nil
 }
 
@@ -104,7 +104,7 @@ func TestAuth0ProvisionRejectsUntrustedIdentity(t *testing.T) {
 func TestAuth0ProvisionReturnsExistingAccountWithoutUserInfo(t *testing.T) {
 	repo := &auth0RepositorySpy{user: &repository.User{
 		ID: "account-id", Auth0Subject: "auth0|student", Username: "student",
-		Email: "student@u.nus.edu", Role: "USER", Active: true,
+		Email: "student@u.nus.edu", Active: true,
 	}}
 	profiles := &userInfoStub{err: errors.New("must not be called")}
 	result, created, err := NewAuth0Provisioner(repo, profiles).Provision(context.Background(), "auth0|student", "token")

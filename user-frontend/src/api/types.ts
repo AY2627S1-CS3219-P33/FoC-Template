@@ -25,3 +25,18 @@ export interface ProfilePatch {
   display_name?: string;
   mobile_number?: string;
 }
+
+export interface AdminUser {
+  user_id: string;
+  email: string;
+  name?: string;
+}
+
+export interface AdminUsersPage {
+  users: AdminUser[];
+  total?: number;
+  page: number;
+  per_page: number;
+  role?: "administrator" | "user";
+  next_cursor?: string;
+}
