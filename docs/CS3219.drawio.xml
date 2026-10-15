@@ -1,0 +1,755 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="app.diagrams.net">
+  <diagram name="Page-1" id="2YJbzc7HLo99t_KrKnIp">
+    <mxGraphModel dx="11155" dy="6127" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="0" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="2" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#ffe6cc;strokeColor=#d79b00;" value="OrderCreated" vertex="1">
+          <mxGeometry height="120" width="120" x="280" y="680" as="geometry" />
+        </mxCell>
+        <mxCell id="3" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#ffe6cc;strokeColor=#d79b00;" value="OrderEdited" vertex="1">
+          <mxGeometry height="120" width="120" x="-600" y="1240" as="geometry" />
+        </mxCell>
+        <mxCell id="4" edge="1" parent="1" source="5" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="30">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="5" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#ffe6cc;strokeColor=#d79b00;" value="CreditReserved&lt;div&gt;Failed&lt;/div&gt;" vertex="1">
+          <mxGeometry height="120" width="120" x="-360" y="440" as="geometry" />
+        </mxCell>
+        <mxCell id="6" edge="1" parent="1" source="7" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="11">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="7" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#ffe6cc;strokeColor=#d79b00;" value="CreditReserved&lt;div&gt;Success&lt;/div&gt;" vertex="1">
+          <mxGeometry height="120" width="120" x="-360" y="680" as="geometry" />
+        </mxCell>
+        <mxCell id="8" edge="1" parent="1" source="9" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;curved=1;curveGeometry=1;" target="13">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="9" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Requester Submits Order" vertex="1">
+          <mxGeometry height="120" width="120" x="-760" y="80" as="geometry" />
+        </mxCell>
+        <mxCell id="10" edge="1" parent="1" source="11" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="26">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="11" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#e1d5e7;strokeColor=#9673a6;" value="Whenever Credit is reserved succesfully, ceate the order" vertex="1">
+          <mxGeometry height="120" width="120" x="-200" y="680" as="geometry" />
+        </mxCell>
+        <mxCell id="12" edge="1" parent="1" source="13" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;curved=1;curveGeometry=1;" target="15">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="13" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#fff2cc;strokeColor=#d6b656;" value="Order&lt;div&gt;Validate order&lt;/div&gt;" vertex="1">
+          <mxGeometry height="120" width="120" x="-600" y="80" as="geometry" />
+        </mxCell>
+        <mxCell id="14" edge="1" parent="1" source="15" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" target="17">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="15" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#ffe6cc;strokeColor=#d79b00;" value="OrderValidated" vertex="1">
+          <mxGeometry height="120" width="120" x="-440" y="80" as="geometry" />
+        </mxCell>
+        <mxCell id="16" edge="1" parent="1" source="17" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="19">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="17" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#e1d5e7;strokeColor=#9673a6;" value="Whenever an Order is validated, reserve credit" vertex="1">
+          <mxGeometry height="120" width="120" x="-600" y="280" as="geometry" />
+        </mxCell>
+        <mxCell id="18" edge="1" parent="1" source="19" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;curved=1;curveGeometry=1;" target="24">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="19" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Reserve Credits" vertex="1">
+          <mxGeometry height="120" width="120" x="-760" y="560" as="geometry" />
+        </mxCell>
+        <mxCell id="20" edge="1" parent="1" source="24" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;" target="5">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="21" connectable="0" parent="20" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" value="Insufficient Credits" vertex="1">
+          <mxGeometry relative="1" x="0.0479" y="-1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="22" edge="1" parent="1" source="24" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;" target="7">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="23" connectable="0" parent="22" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" value="Enough Credits" vertex="1">
+          <mxGeometry relative="1" x="0.1502" y="-3" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="24" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#fff2cc;strokeColor=#d6b656;" value="Credit&lt;div&gt;Check the balance of user&lt;/div&gt;" vertex="1">
+          <mxGeometry height="120" width="120" x="-600" y="560" as="geometry" />
+        </mxCell>
+        <mxCell id="25" edge="1" parent="1" source="26" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="28">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="26" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Create Order" vertex="1">
+          <mxGeometry height="120" width="120" x="-40" y="680" as="geometry" />
+        </mxCell>
+        <mxCell id="27" edge="1" parent="1" source="28" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;" target="2">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="28" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#fff2cc;strokeColor=#d6b656;" value="Order" vertex="1">
+          <mxGeometry height="120" width="120" x="120" y="680" as="geometry" />
+        </mxCell>
+        <mxCell id="29" edge="1" parent="1" source="30" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="32">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="30" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#e1d5e7;strokeColor=#9673a6;" value="Whenever Credit fail to reserve, send notifcation to use" vertex="1">
+          <mxGeometry height="120" width="120" x="-200" y="440" as="geometry" />
+        </mxCell>
+        <mxCell id="31" edge="1" parent="1" source="32" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="34">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="32" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Notify User insufficient balance" vertex="1">
+          <mxGeometry height="120" width="120" x="-40" y="440" as="geometry" />
+        </mxCell>
+        <mxCell id="33" edge="1" parent="1" source="34" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="35">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="34" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#fff2cc;strokeColor=#d6b656;" value="Notification" vertex="1">
+          <mxGeometry height="120" width="120" x="120" y="440" as="geometry" />
+        </mxCell>
+        <mxCell id="35" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#ffe6cc;strokeColor=#d79b00;" value="User Notified of Failure" vertex="1">
+          <mxGeometry height="120" width="120" x="280" y="440" as="geometry" />
+        </mxCell>
+        <mxCell id="36" edge="1" parent="1" source="37" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;" target="42" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="37" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Requester Edits Order" vertex="1">
+          <mxGeometry height="120" width="120" x="-1480" y="1080" as="geometry" />
+        </mxCell>
+        <mxCell id="38" edge="1" parent="1" source="42" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="39" connectable="0" parent="38" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" value="Order is OPEN, Amount&amp;nbsp;&lt;div&gt;of Credit unchanged&lt;/div&gt;" vertex="1">
+          <mxGeometry relative="1" x="0.0431" y="-2" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="40" edge="1" parent="1" source="42" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;" target="44">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="41" connectable="0" parent="40" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" value="Order is OPEN, Amount&amp;nbsp;&lt;div&gt;of Credit changed&lt;/div&gt;" vertex="1">
+          <mxGeometry relative="1" x="0.0541" y="-3" as="geometry">
+            <mxPoint y="4" as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="42" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#fff2cc;strokeColor=#d6b656;" value="Order&lt;div&gt;Is the Order still in OPEN state?&lt;/div&gt;" vertex="1">
+          <mxGeometry height="120" width="120" x="-1320" y="1080" as="geometry" />
+        </mxCell>
+        <mxCell id="43" edge="1" parent="1" source="44" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;" target="46">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="44" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#ffe6cc;strokeColor=#d79b00;" value="OrderCreditEdited" vertex="1">
+          <mxGeometry height="120" width="120" x="-1080" y="960" as="geometry" />
+        </mxCell>
+        <mxCell id="45" edge="1" parent="1" source="46" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;" target="48">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="46" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#e1d5e7;strokeColor=#9673a6;" value="Whenever an Order Edit requires a credit update, Update Credit Reservation" vertex="1">
+          <mxGeometry height="120" width="120" x="-920" y="960" as="geometry" />
+        </mxCell>
+        <mxCell id="47" edge="1" parent="1" source="48" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;" target="59">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="48" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Update Credit Reservation" vertex="1">
+          <mxGeometry height="120" width="120" x="-760" y="960" as="geometry" />
+        </mxCell>
+        <mxCell id="49" edge="1" parent="1" source="50" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="65">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="50" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#ffe6cc;strokeColor=#d79b00;" value="CreditReserved&lt;div&gt;Failed&lt;/div&gt;" vertex="1">
+          <mxGeometry height="120" width="120" x="-360" y="840" as="geometry" />
+        </mxCell>
+        <mxCell id="51" edge="1" parent="1" source="52" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="54">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="52" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#ffe6cc;strokeColor=#d79b00;" value="CreditReserved&lt;div&gt;Success&lt;/div&gt;" vertex="1">
+          <mxGeometry height="120" width="120" x="-360" y="1080" as="geometry" />
+        </mxCell>
+        <mxCell id="53" edge="1" parent="1" source="54" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="61">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="54" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#e1d5e7;strokeColor=#9673a6;" value="Whenever Credit is reserved succesfully, confirm order edit" vertex="1">
+          <mxGeometry height="120" width="120" x="-200" y="1080" as="geometry" />
+        </mxCell>
+        <mxCell id="55" edge="1" parent="1" source="59" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;" target="50">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="56" connectable="0" parent="55" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" value="Insufficient Credits" vertex="1">
+          <mxGeometry relative="1" x="0.0479" y="-1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="57" edge="1" parent="1" source="59" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;" target="52">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="58" connectable="0" parent="57" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" value="Enough Credits" vertex="1">
+          <mxGeometry relative="1" x="0.1502" y="-3" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="59" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#fff2cc;strokeColor=#d6b656;" value="Credit&lt;div&gt;Check the balance of user&lt;/div&gt;" vertex="1">
+          <mxGeometry height="120" width="120" x="-600" y="960" as="geometry" />
+        </mxCell>
+        <mxCell id="60" edge="1" parent="1" source="61" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="63">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="61" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Confirm Order Edit" vertex="1">
+          <mxGeometry height="120" width="120" x="-40" y="1080" as="geometry" />
+        </mxCell>
+        <mxCell id="62" edge="1" parent="1" source="63" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=1;entryY=0.5;entryDx=0;entryDy=0;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" target="3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="63" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#fff2cc;strokeColor=#d6b656;" value="Order" vertex="1">
+          <mxGeometry height="120" width="120" x="120" y="1080" as="geometry" />
+        </mxCell>
+        <mxCell id="64" edge="1" parent="1" source="65" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="67">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="65" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#e1d5e7;strokeColor=#9673a6;" value="Whenever Credit fail to reserve, send notifcation to use" vertex="1">
+          <mxGeometry height="120" width="120" x="-200" y="840" as="geometry" />
+        </mxCell>
+        <mxCell id="66" edge="1" parent="1" source="67" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="69">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="67" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Notify User insufficient balance" vertex="1">
+          <mxGeometry height="120" width="120" x="-40" y="840" as="geometry" />
+        </mxCell>
+        <mxCell id="68" edge="1" parent="1" source="69" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="70">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="69" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#fff2cc;strokeColor=#d6b656;" value="Notification" vertex="1">
+          <mxGeometry height="120" width="120" x="120" y="840" as="geometry" />
+        </mxCell>
+        <mxCell id="70" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#ffe6cc;strokeColor=#d79b00;" value="User Notified of Failure" vertex="1">
+          <mxGeometry height="120" width="120" x="280" y="840" as="geometry" />
+        </mxCell>
+        <mxCell id="71" edge="1" parent="1" source="72" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;curved=1;curveGeometry=1;" target="77">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="72" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Courier Accepts Order" vertex="1">
+          <mxGeometry height="120" width="120" x="-1480" y="1600" as="geometry" />
+        </mxCell>
+        <mxCell id="73" edge="1" parent="1" source="77" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;curved=1;curveGeometry=1;" target="78">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="74" connectable="0" parent="73" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" value="Order in OPEN state" vertex="1">
+          <mxGeometry relative="1" x="0.0837" y="-1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="75" edge="1" parent="1" source="77" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="80">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="76" connectable="0" parent="75" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" value="Order not in OPEN state" vertex="1">
+          <mxGeometry relative="1" x="0.0481" y="2" as="geometry">
+            <mxPoint y="-5" as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="77" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#fff2cc;strokeColor=#d6b656;" value="Order&lt;div&gt;Is the order still in OPEN state?&lt;/div&gt;" vertex="1">
+          <mxGeometry height="120" width="120" x="-1320" y="1600" as="geometry" />
+        </mxCell>
+        <mxCell id="78" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#ffe6cc;strokeColor=#d79b00;" value="OrderAssigned" vertex="1">
+          <mxGeometry height="120" width="120" x="-1080" y="1720" as="geometry" />
+        </mxCell>
+        <mxCell id="79" edge="1" parent="1" source="80" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="82">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="80" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#ffe6cc;strokeColor=#d79b00;" value="Order already taken, cancelled or expired" vertex="1">
+          <mxGeometry height="120" width="120" x="-1080" y="1480" as="geometry" />
+        </mxCell>
+        <mxCell id="81" edge="1" parent="1" source="82" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="84">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="82" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#e1d5e7;strokeColor=#9673a6;" value="Whenever Assignment is rejected, notify courier" vertex="1">
+          <mxGeometry height="120" width="120" x="-920" y="1480" as="geometry" />
+        </mxCell>
+        <mxCell id="83" edge="1" parent="1" source="84" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="86">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="84" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Notify courier" vertex="1">
+          <mxGeometry height="120" width="120" x="-760" y="1480" as="geometry" />
+        </mxCell>
+        <mxCell id="85" edge="1" parent="1" source="86" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="87">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="86" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#fff2cc;strokeColor=#d6b656;" value="Notification" vertex="1">
+          <mxGeometry height="120" width="120" x="-600" y="1480" as="geometry" />
+        </mxCell>
+        <mxCell id="87" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#ffe6cc;strokeColor=#d79b00;" value="CourierNotified" vertex="1">
+          <mxGeometry height="120" width="120" x="-440" y="1480" as="geometry" />
+        </mxCell>
+        <mxCell id="88" edge="1" parent="1" source="89" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;curved=1;curveGeometry=1;" target="94">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="89" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Requester Cancels Order" vertex="1">
+          <mxGeometry height="120" width="120" x="-1480" y="2080" as="geometry" />
+        </mxCell>
+        <mxCell id="90" edge="1" parent="1" source="94" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;curved=1;curveGeometry=1;" target="96">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="91" connectable="0" parent="90" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" value="Order in OPEN state" vertex="1">
+          <mxGeometry relative="1" x="0.0837" y="-1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="92" edge="1" parent="1" source="94" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="98">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="93" connectable="0" parent="92" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" value="Order not in OPEN state" vertex="1">
+          <mxGeometry relative="1" x="0.0481" y="2" as="geometry">
+            <mxPoint y="-5" as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="94" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#fff2cc;strokeColor=#d6b656;" value="Order&lt;div&gt;Is the order still in OPEN state?&lt;/div&gt;" vertex="1">
+          <mxGeometry height="120" width="120" x="-1320" y="2080" as="geometry" />
+        </mxCell>
+        <mxCell id="95" edge="1" parent="1" source="96" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="101">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="96" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#ffe6cc;strokeColor=#d79b00;" value="OrderCancelled" vertex="1">
+          <mxGeometry height="120" width="120" x="-1080" y="2200" as="geometry" />
+        </mxCell>
+        <mxCell id="97" edge="1" parent="1" source="98" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="107">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="98" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#ffe6cc;strokeColor=#d79b00;" value="Order already assigned to a courier" vertex="1">
+          <mxGeometry height="120" width="120" x="-1080" y="1960" as="geometry" />
+        </mxCell>
+        <mxCell id="99" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#ffe6cc;strokeColor=#d79b00;" value="CreditRefunded" vertex="1">
+          <mxGeometry height="120" width="120" x="-440" y="2200" as="geometry" />
+        </mxCell>
+        <mxCell id="100" edge="1" parent="1" source="101" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="103">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="101" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#e1d5e7;strokeColor=#9673a6;" value="Whenever Order is cancelled, refund credit to the user" vertex="1">
+          <mxGeometry height="120" width="120" x="-920" y="2200" as="geometry" />
+        </mxCell>
+        <mxCell id="102" edge="1" parent="1" source="103" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="105">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="103" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Refund Credits" vertex="1">
+          <mxGeometry height="120" width="120" x="-760" y="2200" as="geometry" />
+        </mxCell>
+        <mxCell id="104" edge="1" parent="1" source="105" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;" target="99">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="105" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#fff2cc;strokeColor=#d6b656;" value="Credit" vertex="1">
+          <mxGeometry height="120" width="120" x="-600" y="2200" as="geometry" />
+        </mxCell>
+        <mxCell id="106" edge="1" parent="1" source="107" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="109">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="107" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#e1d5e7;strokeColor=#9673a6;" value="Whenever Cancellation is rejected, notify the requester" vertex="1">
+          <mxGeometry height="120" width="120" x="-920" y="1960" as="geometry" />
+        </mxCell>
+        <mxCell id="108" edge="1" parent="1" source="109" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="111">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="109" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Notify requester" vertex="1">
+          <mxGeometry height="120" width="120" x="-760" y="1960" as="geometry" />
+        </mxCell>
+        <mxCell id="110" edge="1" parent="1" source="111" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="112">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="111" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#fff2cc;strokeColor=#d6b656;" value="Notification" vertex="1">
+          <mxGeometry height="120" width="120" x="-600" y="1960" as="geometry" />
+        </mxCell>
+        <mxCell id="112" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#ffe6cc;strokeColor=#d79b00;" value="RequesterNotified" vertex="1">
+          <mxGeometry height="120" width="120" x="-440" y="1960" as="geometry" />
+        </mxCell>
+        <mxCell id="113" edge="1" parent="1" source="114" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;curved=1;curveGeometry=1;" target="119">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="114" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Courier Picks Up Order" vertex="1">
+          <mxGeometry height="120" width="120" x="-1480" y="2560" as="geometry" />
+        </mxCell>
+        <mxCell id="115" edge="1" parent="1" source="119" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;curved=1;curveGeometry=1;" target="120">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="116" connectable="0" parent="115" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" value="Order in ASSIGNED state" vertex="1">
+          <mxGeometry relative="1" x="0.0837" y="-1" as="geometry">
+            <mxPoint as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="117" edge="1" parent="1" source="119" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="122">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="118" connectable="0" parent="117" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" value="Order not in&amp;nbsp;&lt;div&gt;ASSIGNED state&lt;/div&gt;" vertex="1">
+          <mxGeometry relative="1" x="0.0481" y="2" as="geometry">
+            <mxPoint y="-5" as="offset" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="119" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#fff2cc;strokeColor=#d6b656;" value="Order&lt;div&gt;Is the order still in ASSIGNED state?&lt;/div&gt;" vertex="1">
+          <mxGeometry height="120" width="120" x="-1320" y="2560" as="geometry" />
+        </mxCell>
+        <mxCell id="120" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#ffe6cc;strokeColor=#d79b00;" value="OrderPickedUp" vertex="1">
+          <mxGeometry height="120" width="120" x="-1080" y="2680" as="geometry" />
+        </mxCell>
+        <mxCell id="121" edge="1" parent="1" source="122" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;" target="124">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="122" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#ffe6cc;strokeColor=#d79b00;" value="Order pickup rejected (expired or cancelled)" vertex="1">
+          <mxGeometry height="120" width="120" x="-1080" y="2440" as="geometry" />
+        </mxCell>
+        <mxCell id="123" edge="1" parent="1" source="124" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="126">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="124" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#e1d5e7;strokeColor=#9673a6;" value="Whenever Order expires or cancelled during pickup, notify the courier" vertex="1">
+          <mxGeometry height="120" width="120" x="-920" y="2440" as="geometry" />
+        </mxCell>
+        <mxCell id="125" edge="1" parent="1" source="126" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="128">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="126" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Notify courier" vertex="1">
+          <mxGeometry height="120" width="120" x="-760" y="2440" as="geometry" />
+        </mxCell>
+        <mxCell id="127" edge="1" parent="1" source="128" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="129">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="128" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#fff2cc;strokeColor=#d6b656;" value="Notification" vertex="1">
+          <mxGeometry height="120" width="120" x="-600" y="2440" as="geometry" />
+        </mxCell>
+        <mxCell id="129" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#ffe6cc;strokeColor=#d79b00;" value="CourierNotified" vertex="1">
+          <mxGeometry height="120" width="120" x="-440" y="2440" as="geometry" />
+        </mxCell>
+        <mxCell id="130" edge="1" parent="1" source="131" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="133">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="131" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Expire Orders from OPEN state" vertex="1">
+          <mxGeometry height="120" width="120" x="-1480" y="3360" as="geometry" />
+        </mxCell>
+        <mxCell id="132" edge="1" parent="1" source="133" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="135">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="133" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#fff2cc;strokeColor=#d6b656;" value="Order" vertex="1">
+          <mxGeometry height="120" width="120" x="-1320" y="3360" as="geometry" />
+        </mxCell>
+        <mxCell id="134" edge="1" parent="1" source="135" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="144">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="135" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#ffe6cc;strokeColor=#d79b00;" value="OrderExpired" vertex="1">
+          <mxGeometry height="120" width="120" x="-1160" y="3360" as="geometry" />
+        </mxCell>
+        <mxCell id="136" edge="1" parent="1" source="137" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="139">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="137" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Expire Orders from ASSIGNED state" vertex="1">
+          <mxGeometry height="120" width="120" x="-1480" y="3560" as="geometry" />
+        </mxCell>
+        <mxCell id="138" edge="1" parent="1" source="139" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="142">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="139" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#fff2cc;strokeColor=#d6b656;" value="Order" vertex="1">
+          <mxGeometry height="120" width="120" x="-1320" y="3560" as="geometry" />
+        </mxCell>
+        <mxCell id="140" edge="1" parent="1" source="142" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="152">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="141" edge="1" parent="1" source="142" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;" target="164">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="142" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#ffe6cc;strokeColor=#d79b00;" value="OrderExpired" vertex="1">
+          <mxGeometry height="120" width="120" x="-1160" y="3560" as="geometry" />
+        </mxCell>
+        <mxCell id="143" edge="1" parent="1" source="144" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="146">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="144" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#e1d5e7;strokeColor=#9673a6;" value="Whenever Order is expired from OPEN state, notify the requester only" vertex="1">
+          <mxGeometry height="120" width="120" x="-1000" y="3360" as="geometry" />
+        </mxCell>
+        <mxCell id="145" edge="1" parent="1" source="146" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="148">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="146" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Notify requester" vertex="1">
+          <mxGeometry height="120" width="120" x="-840" y="3360" as="geometry" />
+        </mxCell>
+        <mxCell id="147" edge="1" parent="1" source="148" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="149">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="148" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#fff2cc;strokeColor=#d6b656;" value="Notification" vertex="1">
+          <mxGeometry height="120" width="120" x="-680" y="3360" as="geometry" />
+        </mxCell>
+        <mxCell id="149" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#ffe6cc;strokeColor=#d79b00;" value="RequesterNotified" vertex="1">
+          <mxGeometry height="120" width="120" x="-520" y="3360" as="geometry" />
+        </mxCell>
+        <mxCell id="150" edge="1" parent="1" source="152" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="154">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="151" edge="1" parent="1" source="152" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="159">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="152" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#e1d5e7;strokeColor=#9673a6;" value="Whenever Order is expired from ASSIGNED state, notify the requester and courier" vertex="1">
+          <mxGeometry height="120" width="120" x="-1000" y="3560" as="geometry" />
+        </mxCell>
+        <mxCell id="153" edge="1" parent="1" source="154" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="156">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="154" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Notify requester" vertex="1">
+          <mxGeometry height="120" width="120" x="-840" y="3560" as="geometry" />
+        </mxCell>
+        <mxCell id="155" edge="1" parent="1" source="156" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="157">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="156" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#fff2cc;strokeColor=#d6b656;" value="Notification" vertex="1">
+          <mxGeometry height="120" width="120" x="-680" y="3560" as="geometry" />
+        </mxCell>
+        <mxCell id="157" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#ffe6cc;strokeColor=#d79b00;" value="RequesterNotified" vertex="1">
+          <mxGeometry height="120" width="120" x="-520" y="3560" as="geometry" />
+        </mxCell>
+        <mxCell id="158" edge="1" parent="1" source="159" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="161">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="159" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Notify courier" vertex="1">
+          <mxGeometry height="120" width="120" x="-840" y="3720" as="geometry" />
+        </mxCell>
+        <mxCell id="160" edge="1" parent="1" source="161" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="162">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="161" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#fff2cc;strokeColor=#d6b656;" value="Notification" vertex="1">
+          <mxGeometry height="120" width="120" x="-680" y="3720" as="geometry" />
+        </mxCell>
+        <mxCell id="162" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#ffe6cc;strokeColor=#d79b00;" value="CourierNotified" vertex="1">
+          <mxGeometry height="120" width="120" x="-520" y="3720" as="geometry" />
+        </mxCell>
+        <mxCell id="163" edge="1" parent="1" source="164" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="166">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="164" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Forcefully withdrawn Order" vertex="1">
+          <mxGeometry height="120" width="120" x="-1160" y="3880" as="geometry" />
+        </mxCell>
+        <mxCell id="165" edge="1" parent="1" source="166" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="167">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="166" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#fff2cc;strokeColor=#d6b656;" value="Order" vertex="1">
+          <mxGeometry height="120" width="120" x="-1000" y="3880" as="geometry" />
+        </mxCell>
+        <mxCell id="167" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#ffe6cc;strokeColor=#d79b00;" value="OrderWithdrawn" vertex="1">
+          <mxGeometry height="120" width="120" x="-840" y="3880" as="geometry" />
+        </mxCell>
+        <mxCell id="168" edge="1" parent="1" source="169" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="171">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="169" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Withdraw Order by courier" vertex="1">
+          <mxGeometry height="120" width="120" x="-1480" y="4120" as="geometry" />
+        </mxCell>
+        <mxCell id="170" edge="1" parent="1" source="171" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="172">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="171" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#fff2cc;strokeColor=#d6b656;" value="Order" vertex="1">
+          <mxGeometry height="120" width="120" x="-1320" y="4120" as="geometry" />
+        </mxCell>
+        <mxCell id="172" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#ffe6cc;strokeColor=#d79b00;" value="OrderWithdrawn" vertex="1">
+          <mxGeometry height="120" width="120" x="-1160" y="4120" as="geometry" />
+        </mxCell>
+        <mxCell id="173" edge="1" parent="1" source="174" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="176">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="174" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Mark Order as Delivered" vertex="1">
+          <mxGeometry height="120" width="120" x="-1480" y="4360" as="geometry" />
+        </mxCell>
+        <mxCell id="175" edge="1" parent="1" source="176" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="177">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="176" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#fff2cc;strokeColor=#d6b656;" value="Order" vertex="1">
+          <mxGeometry height="120" width="120" x="-1320" y="4360" as="geometry" />
+        </mxCell>
+        <mxCell id="177" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#ffe6cc;strokeColor=#d79b00;" value="OrderDelivered" vertex="1">
+          <mxGeometry height="120" width="120" x="-1160" y="4360" as="geometry" />
+        </mxCell>
+        <mxCell id="178" edge="1" parent="1" source="179" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="181">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="179" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Report Delivery Issue" vertex="1">
+          <mxGeometry height="120" width="120" x="-1480" y="2880" as="geometry" />
+        </mxCell>
+        <mxCell id="180" edge="1" parent="1" source="181" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="183">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="181" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#fff2cc;strokeColor=#d6b656;" value="Order" vertex="1">
+          <mxGeometry height="120" width="120" x="-1320" y="2880" as="geometry" />
+        </mxCell>
+        <mxCell id="182" edge="1" parent="1" source="183" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="186">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="183" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#ffe6cc;strokeColor=#d79b00;" value="ReviewRequired" vertex="1">
+          <mxGeometry height="120" width="120" x="-1160" y="2880" as="geometry" />
+        </mxCell>
+        <mxCell id="184" edge="1" parent="1" source="186" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="188">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="185" edge="1" parent="1" source="186" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="193">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="186" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#e1d5e7;strokeColor=#9673a6;" value="Whenever Order requires a review, notify the Requester and Admin" vertex="1">
+          <mxGeometry height="120" width="120" x="-1000" y="2880" as="geometry" />
+        </mxCell>
+        <mxCell id="187" edge="1" parent="1" source="188" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="190">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="188" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Notify requester" vertex="1">
+          <mxGeometry height="120" width="120" x="-840" y="2880" as="geometry" />
+        </mxCell>
+        <mxCell id="189" edge="1" parent="1" source="190" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="191">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="190" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#fff2cc;strokeColor=#d6b656;" value="Notification" vertex="1">
+          <mxGeometry height="120" width="120" x="-680" y="2880" as="geometry" />
+        </mxCell>
+        <mxCell id="191" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#ffe6cc;strokeColor=#d79b00;" value="RequesterNotified" vertex="1">
+          <mxGeometry height="120" width="120" x="-520" y="2880" as="geometry" />
+        </mxCell>
+        <mxCell id="192" edge="1" parent="1" source="193" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="195">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="193" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Notify Admin" vertex="1">
+          <mxGeometry height="120" width="120" x="-840" y="3040" as="geometry" />
+        </mxCell>
+        <mxCell id="194" edge="1" parent="1" source="195" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="196">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="195" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#fff2cc;strokeColor=#d6b656;" value="Notification" vertex="1">
+          <mxGeometry height="120" width="120" x="-680" y="3040" as="geometry" />
+        </mxCell>
+        <mxCell id="196" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#ffe6cc;strokeColor=#d79b00;" value="AdminNotified" vertex="1">
+          <mxGeometry height="120" width="120" x="-520" y="3040" as="geometry" />
+        </mxCell>
+        <mxCell id="197" edge="1" parent="1" source="198" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="200">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="198" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Passed Delivery Deadline" vertex="1">
+          <mxGeometry height="120" width="120" x="-280" y="2880" as="geometry" />
+        </mxCell>
+        <mxCell id="199" edge="1" parent="1" source="200" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="202">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="200" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#fff2cc;strokeColor=#d6b656;" value="Order" vertex="1">
+          <mxGeometry height="120" width="120" x="-120" y="2880" as="geometry" />
+        </mxCell>
+        <mxCell id="201" edge="1" parent="1" source="202" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="205">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="202" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#ffe6cc;strokeColor=#d79b00;" value="ReviewRequired" vertex="1">
+          <mxGeometry height="120" width="120" x="40" y="2880" as="geometry" />
+        </mxCell>
+        <mxCell id="203" edge="1" parent="1" source="205" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="207">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="204" edge="1" parent="1" source="205" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="212">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="205" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#e1d5e7;strokeColor=#9673a6;" value="Whenever Order requires a review, notify the Requester and Admin" vertex="1">
+          <mxGeometry height="120" width="120" x="200" y="2880" as="geometry" />
+        </mxCell>
+        <mxCell id="206" edge="1" parent="1" source="207" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="209">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="207" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Notify requester" vertex="1">
+          <mxGeometry height="120" width="120" x="360" y="2880" as="geometry" />
+        </mxCell>
+        <mxCell id="208" edge="1" parent="1" source="209" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="210">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="209" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#fff2cc;strokeColor=#d6b656;" value="Notification" vertex="1">
+          <mxGeometry height="120" width="120" x="520" y="2880" as="geometry" />
+        </mxCell>
+        <mxCell id="210" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#ffe6cc;strokeColor=#d79b00;" value="RequesterNotified" vertex="1">
+          <mxGeometry height="120" width="120" x="680" y="2880" as="geometry" />
+        </mxCell>
+        <mxCell id="211" edge="1" parent="1" source="212" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="214">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="212" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Notify Admin" vertex="1">
+          <mxGeometry height="120" width="120" x="360" y="3040" as="geometry" />
+        </mxCell>
+        <mxCell id="213" edge="1" parent="1" source="214" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="215">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="214" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#fff2cc;strokeColor=#d6b656;" value="Notification" vertex="1">
+          <mxGeometry height="120" width="120" x="520" y="3040" as="geometry" />
+        </mxCell>
+        <mxCell id="215" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#ffe6cc;strokeColor=#d79b00;" value="AdminNotified" vertex="1">
+          <mxGeometry height="120" width="120" x="680" y="3040" as="geometry" />
+        </mxCell>
+        <mxCell id="216" edge="1" parent="1" source="217" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="219">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="217" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Requester Disputes Delivery" vertex="1">
+          <mxGeometry height="120" width="120" x="-1480" y="4600" as="geometry" />
+        </mxCell>
+        <mxCell id="218" edge="1" parent="1" source="219" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="221">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="219" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#fff2cc;strokeColor=#d6b656;" value="Order" vertex="1">
+          <mxGeometry height="120" width="120" x="-1320" y="4600" as="geometry" />
+        </mxCell>
+        <mxCell id="220" edge="1" parent="1" source="221" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="223">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="221" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#ffe6cc;strokeColor=#d79b00;" value="ReviewRequired" vertex="1">
+          <mxGeometry height="120" width="120" x="-1160" y="4600" as="geometry" />
+        </mxCell>
+        <mxCell id="222" edge="1" parent="1" source="223" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="225">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="223" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#e1d5e7;strokeColor=#9673a6;" value="Whenever Order requires a review, notify Admin" vertex="1">
+          <mxGeometry height="120" width="120" x="-1000" y="4600" as="geometry" />
+        </mxCell>
+        <mxCell id="224" edge="1" parent="1" source="225" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="227">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="225" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Notify Admin" vertex="1">
+          <mxGeometry height="120" width="120" x="-840" y="4600" as="geometry" />
+        </mxCell>
+        <mxCell id="226" edge="1" parent="1" source="227" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="228">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="227" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#fff2cc;strokeColor=#d6b656;" value="Notification" vertex="1">
+          <mxGeometry height="120" width="120" x="-680" y="4600" as="geometry" />
+        </mxCell>
+        <mxCell id="228" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#ffe6cc;strokeColor=#d79b00;" value="AdminNotified" vertex="1">
+          <mxGeometry height="120" width="120" x="-520" y="4600" as="geometry" />
+        </mxCell>
+        <mxCell id="229" edge="1" parent="1" source="230" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="232">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="230" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Requester Accepts Delivery" vertex="1">
+          <mxGeometry height="120" width="120" x="-1480" y="4800" as="geometry" />
+        </mxCell>
+        <mxCell id="231" edge="1" parent="1" source="232" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="234">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="232" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#fff2cc;strokeColor=#d6b656;" value="Order" vertex="1">
+          <mxGeometry height="120" width="120" x="-1320" y="4800" as="geometry" />
+        </mxCell>
+        <mxCell id="233" edge="1" parent="1" source="234" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="236">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="234" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#ffe6cc;strokeColor=#d79b00;" value="DeliveryCompleted" vertex="1">
+          <mxGeometry height="120" width="120" x="-1160" y="4800" as="geometry" />
+        </mxCell>
+        <mxCell id="235" edge="1" parent="1" source="236" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="238">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="236" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#e1d5e7;strokeColor=#9673a6;" value="Whenever a delivery is completed, payout the courier" vertex="1">
+          <mxGeometry height="120" width="120" x="-1000" y="4800" as="geometry" />
+        </mxCell>
+        <mxCell id="237" edge="1" parent="1" source="238" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="240">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="238" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Transfer Credit" vertex="1">
+          <mxGeometry height="120" width="120" x="-840" y="4800" as="geometry" />
+        </mxCell>
+        <mxCell id="239" edge="1" parent="1" source="240" style="edgeStyle=orthogonalEdgeStyle;curved=1;rounded=0;curveGeometry=1;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="241">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="240" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#fff2cc;strokeColor=#d6b656;" value="Credit&lt;div&gt;Takes reserved credit and transfer to courier&lt;/div&gt;" vertex="1">
+          <mxGeometry height="120" width="120" x="-680" y="4800" as="geometry" />
+        </mxCell>
+        <mxCell id="241" parent="1" style="whiteSpace=wrap;html=1;aspect=fixed;fillColor=#ffe6cc;strokeColor=#d79b00;" value="CreditTransferred" vertex="1">
+          <mxGeometry height="120" width="120" x="-520" y="4800" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
