@@ -21,6 +21,10 @@ CREATE TABLE errands (
     delivery_detail text NOT NULL,
     items jsonb NOT NULL,
     notes text NOT NULL DEFAULT '',
+    -- The person the courier contacts, chosen by the requester (NFR3.6.4).
+    -- No user-service lookup: the requester may name someone else.
+    contact_name text NOT NULL,
+    contact_mobile text NOT NULL,
     reward integer NOT NULL,
     acceptance_deadline timestamptz NOT NULL,
     pickup_deadline timestamptz,
@@ -46,6 +50,9 @@ CREATE TABLE errands (
     CONSTRAINT errands_reward_positive CHECK (reward > 0),
     CONSTRAINT errands_items_not_empty CHECK (
         jsonb_typeof(items) = 'array' AND jsonb_array_length(items) >= 1
+    ),
+    CONSTRAINT errands_contact_present CHECK (
+        btrim(contact_name) <> '' AND btrim(contact_mobile) <> ''
     ),
     CONSTRAINT errands_courier_when_assigned CHECK (
         status NOT IN ('ASSIGNED', 'PICKED_UP', 'DELIVERED', 'REVIEW_REQUIRED')

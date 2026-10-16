@@ -203,6 +203,27 @@ components:
       maxLength: 500
       description: Optional delivery instructions. Never shown in the open list.
 
+    ContactName:
+      type: string
+      minLength: 1
+      maxLength: 100
+      pattern: '\S'
+      description: >-
+        Who the courier contacts about the errand, chosen by the requester
+        (NFR3.6.4). It need not be the requester; clients prefill it from the
+        requester's profile (NFR2.6.1). Same limits as a user-service display
+        name: not blank, no control characters.
+
+    ContactMobile:
+      type: string
+      minLength: 1
+      maxLength: 32
+      pattern: '\S'
+      description: >-
+        The contact person's mobile number. Same limits as a user-service
+        mobile number: not blank, no control characters; the format is not
+        checked.
+
     AcceptanceDeadline:
       type: string
       format: date-time
@@ -249,29 +270,22 @@ components:
           type: string
       additionalProperties: false
 
-    UserContact:
-      type: object
-      description: >-
-        The other party of an errand. Returned only while the errand is
-        ASSIGNED, PICKED_UP, DELIVERED or REVIEW_REQUIRED (NFR3.6.4). Omitted
-        when user-service has no such user.
-      required: [userId, displayName, mobile]
-      properties:
-        userId:
-          type: string
-        displayName:
-          type: string
-        mobile:
-          type: string
-      additionalProperties: false
-
     ErrandCreate:
       type: object
       description: >-
-        Five mandatory inputs (NFR2.6). The pickup location is resolved to the
-        supplier's current version at submission (F2.5.2); deliveryBuildingId
-        must be an existing building that is not retired.
-      required: [supplierId, deliveryBuildingId, deliveryDetail, items, reward]
+        Seven mandatory fields, of which the requester types at most five:
+        contactName and contactMobile are prefilled from the profile
+        (NFR2.6, NFR2.6.1). The pickup location is resolved to the
+        supplier's current version at submission (F2.5.2);
+        deliveryBuildingId must be an existing building that is not retired.
+      required:
+        - supplierId
+        - deliveryBuildingId
+        - deliveryDetail
+        - items
+        - reward
+        - contactName
+        - contactMobile
       properties:
         supplierId:
           type: string
@@ -285,6 +299,10 @@ components:
           $ref: "#/components/schemas/Items"
         notes:
           $ref: "#/components/schemas/Notes"
+        contactName:
+          $ref: "#/components/schemas/ContactName"
+        contactMobile:
+          $ref: "#/components/schemas/ContactMobile"
         reward:
           $ref: "#/components/schemas/Reward"
         acceptanceDeadline:
@@ -318,6 +336,10 @@ components:
           $ref: "#/components/schemas/Items"
         notes:
           $ref: "#/components/schemas/Notes"
+        contactName:
+          $ref: "#/components/schemas/ContactName"
+        contactMobile:
+          $ref: "#/components/schemas/ContactMobile"
         reward:
           $ref: "#/components/schemas/Reward"
         acceptanceDeadline:
@@ -532,6 +554,8 @@ components:
         - deliveryDetail
         - items
         - notes
+        - contactName
+        - contactMobile
         - reward
         - acceptanceDeadline
         - requestedAt
@@ -552,6 +576,10 @@ components:
           $ref: "#/components/schemas/Items"
         notes:
           type: string
+        contactName:
+          type: string
+        contactMobile:
+          type: string
         reward:
           type: integer
         acceptanceDeadline:
@@ -564,19 +592,22 @@ components:
 
     RequesterErrandView:
       description: >-
-        The errand as its requester sees it. courier is present only while
-        the errand is ASSIGNED, PICKED_UP, DELIVERED or REVIEW_REQUIRED
-        (NFR3.6.4, F3.11.1).
+        The errand as its requester sees it, including the contact person
+        they chose. Nothing about the courier is returned besides the
+        status: contact is one-way, courier to requester (NFR3.6.3,
+        NFR3.6.4).
       allOf:
         - $ref: "#/components/schemas/ErrandFields"
         - type: object
-          required: [viewerRole]
+          required: [viewerRole, contactName, contactMobile]
           properties:
             viewerRole:
               type: string
               const: REQUESTER
-            courier:
-              $ref: "#/components/schemas/UserContact"
+            contactName:
+              type: string
+            contactMobile:
+              type: string
             pendingEdit:
               $ref: "#/components/schemas/PendingEdit"
             rejectionReason:
@@ -595,9 +626,10 @@ components:
     CourierErrandView:
       description: >-
         The errand as its assigned courier sees it, including the
-        requester's notes (F3.12). requester is present only while the
+        requester's notes (F3.12). contactName and contactMobile, the
+        contact person the requester chose, are present only while the
         errand is ASSIGNED, PICKED_UP, DELIVERED or REVIEW_REQUIRED
-        (NFR3.6.4).
+        (NFR3.6.4). The requester's own identity is never returned.
       allOf:
         - $ref: "#/components/schemas/ErrandFields"
         - type: object
@@ -606,8 +638,10 @@ components:
             viewerRole:
               type: string
               const: COURIER
-            requester:
-              $ref: "#/components/schemas/UserContact"
+            contactName:
+              type: string
+            contactMobile:
+              type: string
       unevaluatedProperties: false
 
     ErrandView:
@@ -708,7 +742,8 @@ components:
     AdminErrandView:
       description: >-
         The errand as an administrator sees it in review (F6.1.1). Users are
-        identified by ID only; contact details are not returned (NFR3.6.3).
+        identified by ID only; the contact person is not returned
+        (NFR3.6.3).
       allOf:
         - $ref: "#/components/schemas/ErrandFields"
         - type: object

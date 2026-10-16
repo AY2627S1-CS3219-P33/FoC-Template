@@ -88,19 +88,31 @@ How the 409s divide (F3.3.7):
 NFR3.6.4 is enforced by giving each viewer its own response schema, so a
 field that a viewer must not see does not exist in that schema.
 
-| Schema | Who gets it | Requester identity | Notes | Contact of the other party |
+| Schema | Who gets it | Requester identity | Notes | Contact person |
 | --- | --- | --- | --- | --- |
 | `OpenErrandItem` | any user, `GET /errands/open` | never | never | never |
 | `PublicErrandView` | `GET /errands/{id}` by anyone else, only while `OPEN` | never | never | never |
-| `RequesterErrandView` | the requester | (own) | yes | courier's, only while `ASSIGNED`, `PICKED_UP`, `DELIVERED` or `REVIEW_REQUIRED` |
-| `CourierErrandView` | the assigned courier | only as the contact below | yes (F3.12) | requester's, only in the same four states |
+| `RequesterErrandView` | the requester | (own) | yes | yes (their own choice) |
+| `CourierErrandView` | the assigned courier | never | yes (F3.12) | only while `ASSIGNED`, `PICKED_UP`, `DELIVERED` or `REVIEW_REQUIRED` |
 | `AdminErrandView` | admins, review list and resolution | `requesterId` and `courierId` only | yes | never |
 
 `GET /errands/{id}` returns `ERRAND_NOT_FOUND` to anyone who is neither the
 requester nor the assigned courier once the errand has left `OPEN`, so the
 existence of an assigned errand is not disclosed. A courier who withdrew is
-no longer the assigned courier. Contact details come from user-service at
-read time (`UserDirectory`) and are never stored on the errand.
+no longer the assigned courier.
+
+**Contact is one-way, courier to requester.** The requester names a contact
+person (`contactName`, `contactMobile`) on creation and may change it while
+the errand is `OPEN`, like any other field. It is stored on the errand, need
+not be the requester, and is not checked against user-service. The requester
+is shown nothing about the courier besides the status: the courier's mobile
+is not needed for any requester operation (NFR3.6.3), because status, events
+(F5.1), deadlines (F3.8) and problem reports (F3.10) cover it. Order-service
+therefore never calls user-service.
+
+The contact person is never logged, never cached and never published:
+`errand.edit_requested` carries `pendingEdit` without `contactName` and
+`contactMobile`.
 
 ## Idempotency keys
 
@@ -787,10 +799,9 @@ always the source of truth.
 | `order:open-errands:v1` | JSON array of `errand.OpenErrandView`: every open errand with `acceptance_deadline > now()` | set by A3, 1–2 s | B2b adapter, A3 reads and fills it |
 | `order:supplier:{supplierId}:v{versionId}` | supplier-service `SupplierVersion` | none (versions are immutable) | B2c |
 | `order:buildings` | supplier-service building list | 5 min | B2c |
-| `order:user:{userId}` | `errand.UserContact` | 2 min | B2c |
 
 The open-errand value holds only the redacted projection: no requester
-identity and no notes (NFR3.6.4, NFR3.6.3), enforced by the type and its test
+identity, no notes and no contact person (NFR3.6.4, NFR3.6.3), enforced by the type and its test
 in `internal/errand`. Courier coordinates are never cached; filtering,
 distance ordering and pagination run per request on the cached set. On a miss
 A3 loads the set through a `singleflight` group, so concurrent misses cause
@@ -816,7 +827,6 @@ audit rows.
 for narrower grants, split it into `orders:fence` and `orders:user-activity`
 in a joint contract commit; the routes do not change.
 
-Order-service calls out with its own M2M client: supplier-service
+Order-service calls out with its own M2M client to supplier-service only
 (`GET /suppliers/{id}`, `GET /supplier-versions/{versionId}`,
-`GET /buildings`, needing `suppliers:read`) and user-service (contact lookup,
-gate C5).
+`GET /buildings`, needing `suppliers:read`).

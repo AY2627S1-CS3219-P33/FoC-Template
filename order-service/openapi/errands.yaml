@@ -141,7 +141,8 @@ operations:
       The requester gets RequesterErrandView and the assigned courier gets
       CourierErrandView, in any state. Any other caller gets PublicErrandView
       while the errand is OPEN and ERRAND_NOT_FOUND otherwise; this includes
-      a courier who withdrew. Contact details follow NFR3.6.4.
+      a courier who withdrew. The courier view carries the contact person
+      only while the errand is assigned (NFR3.6.4).
     x-required-permissions: [errands:use]
     x-required-relationship: requester, assigned courier, or any user while OPEN
     security:
@@ -173,9 +174,10 @@ operations:
     tags: [Errands]
     summary: Edit an open errand
     description: >-
-      Only while OPEN (F3.4). An edit that leaves the reward unchanged is
-      applied at once: 200, version + 1. An edit that changes the reward is
-      stored as pendingEdit and waits for credit-service to adjust the
+      Only while OPEN (F3.4); this includes the contact person. An edit that
+      leaves the reward unchanged is applied at once: 200, version + 1. An
+      edit that changes the reward is stored as pendingEdit and waits for
+      credit-service to adjust the
       reservation: 202, version unchanged, and couriers can still accept the
       current details. When credit-service confirms, the whole edit is applied
       (version + 1); when it refuses, or no answer arrives in time, the edit
@@ -651,11 +653,11 @@ operations:
     description: >-
       Terminal errands the caller requested or delivered, most recently
       updated first (F3.13). Each item is the requester or courier view
-      according to the caller's role in that errand. Contact details are
-      never returned for terminal errands (NFR3.6.4). Pickup details come
-      from the stored supplier version, so they stay readable after the
-      supplier is deleted (F2.4.3). An errand the caller withdrew from is
-      not listed.
+      according to the caller's role in that errand. The courier view never
+      carries the contact person for terminal errands (NFR3.6.4). Pickup
+      details come from the stored supplier version, so they stay readable
+      after the supplier is deleted (F2.4.3). An errand the caller withdrew
+      from is not listed.
     x-required-permissions: [errands:use]
     x-required-relationship: requester or courier (implicit, from the token)
     security:

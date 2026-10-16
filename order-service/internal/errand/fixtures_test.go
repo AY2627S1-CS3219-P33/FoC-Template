@@ -42,6 +42,8 @@ func details(reward int, deadline time.Time) errand.Details {
 		DeliveryDetail:           "Level 2 lounge",
 		Items:                    json.RawMessage(`[{"description":"iced latte"}]`),
 		Notes:                    "less sugar",
+		ContactName:              "Alex Tan",
+		ContactMobile:            "+65 9123 4567",
 		Reward:                   reward,
 		AcceptanceDeadline:       deadline,
 	}

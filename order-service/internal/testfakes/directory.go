@@ -105,46 +105,6 @@ func (g *FakeSupplierGate) ListBuildings(context.Context) ([]errand.Building, er
 	return slices.Clone(g.buildings), nil
 }
 
-// FakeUserDirectory is an errand.UserDirectory over in-memory contacts.
-type FakeUserDirectory struct {
-	Faults
-	CallLog
-
-	mu       sync.Mutex
-	contacts map[string]errand.UserContact
-}
-
-var _ errand.UserDirectory = (*FakeUserDirectory)(nil)
-
-func NewFakeUserDirectory() *FakeUserDirectory {
-	return &FakeUserDirectory{contacts: map[string]errand.UserContact{}}
-}
-
-// AddUser stores or replaces a contact.
-func (d *FakeUserDirectory) AddUser(c errand.UserContact) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	d.contacts[c.UserID] = c
-}
-
-// RemoveUser makes GetContact report userID as not found.
-func (d *FakeUserDirectory) RemoveUser(userID string) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	delete(d.contacts, userID)
-}
-
-func (d *FakeUserDirectory) GetContact(_ context.Context, userID string) (errand.UserContact, bool, error) {
-	d.record("GetContact", userID)
-	if err := d.fault("GetContact"); err != nil {
-		return errand.UserContact{}, false, err
-	}
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	c, ok := d.contacts[userID]
-	return c, ok, nil
-}
-
 // FakeSettings is an errand.Settings holding one SystemSettings value,
 // DefaultSystemSettings until Set.
 type FakeSettings struct {

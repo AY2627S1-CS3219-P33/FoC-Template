@@ -233,7 +233,12 @@ func TestPendingRewardEdit_F4_4(t *testing.T) {
 			ErrandID: errandID, ErrandVersion: baseVersion, RequesterID: requesterID,
 			NewAmount: newReward, Seq: errand.AdjustSeq(baseVersion),
 		}, creditPayload(t, tr.Outbox, errand.KindCreditAdjust))
-		require.Equal(t, &edit, eventPayload(t, tr.Outbox, errand.ErrandEditRequested).PendingEdit)
+		event := eventPayload(t, tr.Outbox, errand.ErrandEditRequested)
+		published := edit.WithoutContact()
+		require.Equal(t, &published, event.PendingEdit, "the contact person never goes on the broker")
+		raw, err := json.Marshal(event)
+		require.NoError(t, err)
+		require.NotContains(t, string(raw), "contact")
 
 		after := tr.ApplyTo(e)
 		require.Equal(t, e.Details, after.Details, "current details are unchanged until credit confirms")
