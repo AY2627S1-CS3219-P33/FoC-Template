@@ -1,0 +1,704 @@
+asyncapi: 3.0.0
+info:
+  title: Friend on Campus service messaging
+  version: 0.1.0
+  description: |
+    Shared application-level messaging contract for FoC services over RabbitMQ
+    using AMQP 0-9-1. The routing keys and workflows are derived from
+    `CS3219.drawio.xml`. Payload field choices are an initial contract proposal
+    and should be confirmed by the order and credit owners before implementation.
+
+    Suggested durable queues (declared by consuming applications):
+    `credit-service.commands` binds to `credit.reserve`,
+    `credit.reservation.update`, `credit.refund`, and `credit.transfer`;
+    `order-service.credit-outcomes` binds to `credit.reserved`,
+    `credit.reservation-failed`, `credit.refunded`, and `credit.transferred`;
+    `credit-service.order-events` binds to `order.cancelled`, `order.expired`,
+    and `order.delivery-completed`; `notification-service.requests` binds to
+    `notification.requested`.
+servers:
+  local:
+    host: queue-service:5672
+    protocol: amqp
+    protocolVersion: '0.9.1'
+    description: RabbitMQ on the local Docker Compose network.
+defaultContentType: application/json
+channels:
+  creditReserve:
+    address: credit.reserve
+    description: Order service requests an idempotent reservation for an order.
+    messages:
+      reserveCredit:
+        $ref: '#/components/messages/ReserveCredit'
+    bindings:
+      amqp:
+        is: routingKey
+        exchange:
+          name: foc.commands
+          type: topic
+          durable: true
+          autoDelete: false
+          vhost: /
+        bindingVersion: '0.3.0'
+  creditReservationUpdate:
+    address: credit.reservation.update
+    description: Order service requests changing the reserved amount to the supplied target amount.
+    messages:
+      updateCreditReservation:
+        $ref: '#/components/messages/UpdateCreditReservation'
+    bindings:
+      amqp:
+        is: routingKey
+        exchange:
+          name: foc.commands
+          type: topic
+          durable: true
+          autoDelete: false
+          vhost: /
+        bindingVersion: '0.3.0'
+  creditRefund:
+    address: credit.refund
+    description: Order service requests releasing a requester's reservation after cancellation or expiry.
+    messages:
+      refundCredit:
+        $ref: '#/components/messages/RefundCredit'
+    bindings:
+      amqp:
+        is: routingKey
+        exchange:
+          name: foc.commands
+          type: topic
+          durable: true
+          autoDelete: false
+          vhost: /
+        bindingVersion: '0.3.0'
+  creditTransfer:
+    address: credit.transfer
+    description: Order service requests transferring reserved credits to the courier after delivery completion.
+    messages:
+      transferCredit:
+        $ref: '#/components/messages/TransferCredit'
+    bindings:
+      amqp:
+        is: routingKey
+        exchange:
+          name: foc.commands
+          type: topic
+          durable: true
+          autoDelete: false
+          vhost: /
+        bindingVersion: '0.3.0'
+  creditReserved:
+    address: credit.reserved
+    description: Credit service reports that the reservation succeeded.
+    messages:
+      creditReserved:
+        $ref: '#/components/messages/CreditReserved'
+    bindings:
+      amqp:
+        is: routingKey
+        exchange:
+          name: foc.events
+          type: topic
+          durable: true
+          autoDelete: false
+          vhost: /
+        bindingVersion: '0.3.0'
+  creditReservationFailed:
+    address: credit.reservation-failed
+    description: Credit service reports that reservation or adjustment failed.
+    messages:
+      creditReservationFailed:
+        $ref: '#/components/messages/CreditReservationFailed'
+    bindings:
+      amqp:
+        is: routingKey
+        exchange:
+          name: foc.events
+          type: topic
+          durable: true
+          autoDelete: false
+          vhost: /
+        bindingVersion: '0.3.0'
+  creditRefunded:
+    address: credit.refunded
+    description: Credit service reports that a reservation was released.
+    messages:
+      creditRefunded:
+        $ref: '#/components/messages/CreditRefunded'
+    bindings:
+      amqp:
+        is: routingKey
+        exchange:
+          name: foc.events
+          type: topic
+          durable: true
+          autoDelete: false
+          vhost: /
+        bindingVersion: '0.3.0'
+  creditTransferred:
+    address: credit.transferred
+    description: Credit service reports that reserved credits were paid to the courier.
+    messages:
+      creditTransferred:
+        $ref: '#/components/messages/CreditTransferred'
+    bindings:
+      amqp:
+        is: routingKey
+        exchange:
+          name: foc.events
+          type: topic
+          durable: true
+          autoDelete: false
+          vhost: /
+        bindingVersion: '0.3.0'
+  orderCreated:
+    address: order.created
+    description: A new order is open after its credit reservation succeeded.
+    messages:
+      orderCreated:
+        $ref: '#/components/messages/OrderLifecycleEvent'
+    bindings:
+      amqp:
+        is: routingKey
+        exchange: { name: foc.events, type: topic, durable: true, autoDelete: false, vhost: / }
+        bindingVersion: '0.3.0'
+  orderEdited:
+    address: order.edited
+    description: An open order was edited after any required credit adjustment succeeded.
+    messages:
+      orderEdited:
+        $ref: '#/components/messages/OrderLifecycleEvent'
+    bindings:
+      amqp:
+        is: routingKey
+        exchange: { name: foc.events, type: topic, durable: true, autoDelete: false, vhost: / }
+        bindingVersion: '0.3.0'
+  orderAssigned:
+    address: order.assigned
+    description: A courier accepted the order.
+    messages:
+      orderAssigned:
+        $ref: '#/components/messages/OrderLifecycleEvent'
+    bindings:
+      amqp:
+        is: routingKey
+        exchange: { name: foc.events, type: topic, durable: true, autoDelete: false, vhost: / }
+        bindingVersion: '0.3.0'
+  orderPickedUp:
+    address: order.picked-up
+    description: The assigned courier picked up the order.
+    messages:
+      orderPickedUp:
+        $ref: '#/components/messages/OrderLifecycleEvent'
+    bindings:
+      amqp:
+        is: routingKey
+        exchange: { name: foc.events, type: topic, durable: true, autoDelete: false, vhost: / }
+        bindingVersion: '0.3.0'
+  orderCancelled:
+    address: order.cancelled
+    description: Order was cancelled; credit service releases its reservation.
+    messages:
+      orderCancelled:
+        $ref: '#/components/messages/OrderLifecycleEvent'
+    bindings:
+      amqp:
+        is: routingKey
+        exchange:
+          name: foc.events
+          type: topic
+          durable: true
+          autoDelete: false
+          vhost: /
+        bindingVersion: '0.3.0'
+  orderWithdrawn:
+    address: order.withdrawn
+    description: A courier forcefully withdrew from an order.
+    messages:
+      orderWithdrawn:
+        $ref: '#/components/messages/OrderLifecycleEvent'
+    bindings:
+      amqp:
+        is: routingKey
+        exchange: { name: foc.events, type: topic, durable: true, autoDelete: false, vhost: / }
+        bindingVersion: '0.3.0'
+  orderDelivered:
+    address: order.delivered
+    description: The courier marked the order as delivered, awaiting requester confirmation.
+    messages:
+      orderDelivered:
+        $ref: '#/components/messages/OrderLifecycleEvent'
+    bindings:
+      amqp:
+        is: routingKey
+        exchange: { name: foc.events, type: topic, durable: true, autoDelete: false, vhost: / }
+        bindingVersion: '0.3.0'
+  orderReviewRequired:
+    address: order.review-required
+    description: A delivery issue, deadline, or dispute requires review.
+    messages:
+      orderReviewRequired:
+        $ref: '#/components/messages/OrderLifecycleEvent'
+    bindings:
+      amqp:
+        is: routingKey
+        exchange: { name: foc.events, type: topic, durable: true, autoDelete: false, vhost: / }
+        bindingVersion: '0.3.0'
+  orderExpired:
+    address: order.expired
+    description: Order expired; credit service releases its reservation.
+    messages:
+      orderExpired:
+        $ref: '#/components/messages/OrderLifecycleEvent'
+    bindings:
+      amqp:
+        is: routingKey
+        exchange:
+          name: foc.events
+          type: topic
+          durable: true
+          autoDelete: false
+          vhost: /
+        bindingVersion: '0.3.0'
+  orderDeliveryCompleted:
+    address: order.delivery-completed
+    description: Requester accepted delivery; credit service transfers the reservation to the courier.
+    messages:
+      orderDeliveryCompleted:
+        $ref: '#/components/messages/OrderLifecycleEvent'
+    bindings:
+      amqp:
+        is: routingKey
+        exchange:
+          name: foc.events
+          type: topic
+          durable: true
+          autoDelete: false
+          vhost: /
+        bindingVersion: '0.3.0'
+  notificationRequested:
+    address: notification.requested
+    description: Order workflow requests a notification for a user or administrator.
+    messages:
+      notificationRequested:
+        $ref: '#/components/messages/NotificationRequested'
+    bindings:
+      amqp:
+        is: routingKey
+        exchange:
+          name: foc.commands
+          type: topic
+          durable: true
+          autoDelete: false
+          vhost: /
+        bindingVersion: '0.3.0'
+operations:
+  orderRequestsCreditReservation:
+    action: send
+    channel:
+      $ref: '#/channels/creditReserve'
+    messages:
+      - $ref: '#/channels/creditReserve/messages/reserveCredit'
+  creditReceivesReservationRequest:
+    action: receive
+    channel:
+      $ref: '#/channels/creditReserve'
+    messages:
+      - $ref: '#/channels/creditReserve/messages/reserveCredit'
+  orderRequestsReservationUpdate:
+    action: send
+    channel:
+      $ref: '#/channels/creditReservationUpdate'
+    messages:
+      - $ref: '#/channels/creditReservationUpdate/messages/updateCreditReservation'
+  creditReceivesReservationUpdate:
+    action: receive
+    channel:
+      $ref: '#/channels/creditReservationUpdate'
+    messages:
+      - $ref: '#/channels/creditReservationUpdate/messages/updateCreditReservation'
+  orderRequestsRefund:
+    action: send
+    channel:
+      $ref: '#/channels/creditRefund'
+    messages:
+      - $ref: '#/channels/creditRefund/messages/refundCredit'
+  creditReceivesRefundRequest:
+    action: receive
+    channel:
+      $ref: '#/channels/creditRefund'
+    messages:
+      - $ref: '#/channels/creditRefund/messages/refundCredit'
+  orderRequestsTransfer:
+    action: send
+    channel:
+      $ref: '#/channels/creditTransfer'
+    messages:
+      - $ref: '#/channels/creditTransfer/messages/transferCredit'
+  creditReceivesTransferRequest:
+    action: receive
+    channel:
+      $ref: '#/channels/creditTransfer'
+    messages:
+      - $ref: '#/channels/creditTransfer/messages/transferCredit'
+  creditPublishesReservationSuccess:
+    action: send
+    channel:
+      $ref: '#/channels/creditReserved'
+    messages:
+      - $ref: '#/channels/creditReserved/messages/creditReserved'
+  orderReceivesReservationSuccess:
+    action: receive
+    channel:
+      $ref: '#/channels/creditReserved'
+    messages:
+      - $ref: '#/channels/creditReserved/messages/creditReserved'
+  creditPublishesReservationFailure:
+    action: send
+    channel:
+      $ref: '#/channels/creditReservationFailed'
+    messages:
+      - $ref: '#/channels/creditReservationFailed/messages/creditReservationFailed'
+  orderReceivesReservationFailure:
+    action: receive
+    channel:
+      $ref: '#/channels/creditReservationFailed'
+    messages:
+      - $ref: '#/channels/creditReservationFailed/messages/creditReservationFailed'
+  creditPublishesRefunded:
+    action: send
+    channel:
+      $ref: '#/channels/creditRefunded'
+    messages:
+      - $ref: '#/channels/creditRefunded/messages/creditRefunded'
+  orderReceivesRefunded:
+    action: receive
+    channel:
+      $ref: '#/channels/creditRefunded'
+    messages:
+      - $ref: '#/channels/creditRefunded/messages/creditRefunded'
+  creditPublishesTransfer:
+    action: send
+    channel:
+      $ref: '#/channels/creditTransferred'
+    messages:
+      - $ref: '#/channels/creditTransferred/messages/creditTransferred'
+  orderReceivesTransfer:
+    action: receive
+    channel:
+      $ref: '#/channels/creditTransferred'
+    messages:
+      - $ref: '#/channels/creditTransferred/messages/creditTransferred'
+  orderPublishesCancellation:
+    action: send
+    channel:
+      $ref: '#/channels/orderCancelled'
+    messages:
+      - $ref: '#/channels/orderCancelled/messages/orderCancelled'
+  creditReceivesCancellation:
+    action: receive
+    channel:
+      $ref: '#/channels/orderCancelled'
+    messages:
+      - $ref: '#/channels/orderCancelled/messages/orderCancelled'
+  orderPublishesExpiry:
+    action: send
+    channel:
+      $ref: '#/channels/orderExpired'
+    messages:
+      - $ref: '#/channels/orderExpired/messages/orderExpired'
+  creditReceivesExpiry:
+    action: receive
+    channel:
+      $ref: '#/channels/orderExpired'
+    messages:
+      - $ref: '#/channels/orderExpired/messages/orderExpired'
+  orderPublishesDeliveryCompletion:
+    action: send
+    channel:
+      $ref: '#/channels/orderDeliveryCompleted'
+    messages:
+      - $ref: '#/channels/orderDeliveryCompleted/messages/orderDeliveryCompleted'
+  creditReceivesDeliveryCompletion:
+    action: receive
+    channel:
+      $ref: '#/channels/orderDeliveryCompleted'
+    messages:
+      - $ref: '#/channels/orderDeliveryCompleted/messages/orderDeliveryCompleted'
+  orderRequestsNotification:
+    action: send
+    channel:
+      $ref: '#/channels/notificationRequested'
+    messages:
+      - $ref: '#/channels/notificationRequested/messages/notificationRequested'
+  orderPublishesCreated:
+    action: send
+    channel:
+      $ref: '#/channels/orderCreated'
+    messages:
+      - $ref: '#/channels/orderCreated/messages/orderCreated'
+  orderPublishesEdited:
+    action: send
+    channel:
+      $ref: '#/channels/orderEdited'
+    messages:
+      - $ref: '#/channels/orderEdited/messages/orderEdited'
+  orderPublishesAssignment:
+    action: send
+    channel:
+      $ref: '#/channels/orderAssigned'
+    messages:
+      - $ref: '#/channels/orderAssigned/messages/orderAssigned'
+  orderPublishesPickup:
+    action: send
+    channel:
+      $ref: '#/channels/orderPickedUp'
+    messages:
+      - $ref: '#/channels/orderPickedUp/messages/orderPickedUp'
+  orderPublishesWithdrawal:
+    action: send
+    channel:
+      $ref: '#/channels/orderWithdrawn'
+    messages:
+      - $ref: '#/channels/orderWithdrawn/messages/orderWithdrawn'
+  orderPublishesDelivery:
+    action: send
+    channel:
+      $ref: '#/channels/orderDelivered'
+    messages:
+      - $ref: '#/channels/orderDelivered/messages/orderDelivered'
+  orderPublishesReviewRequired:
+    action: send
+    channel:
+      $ref: '#/channels/orderReviewRequired'
+    messages:
+      - $ref: '#/channels/orderReviewRequired/messages/orderReviewRequired'
+components:
+  messages:
+    ReserveCredit:
+      name: ReserveCredit
+      title: Reserve credits
+      summary: Reserve the requested amount for a new order.
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/ReserveCreditPayload'
+      bindings:
+        amqp:
+          messageType: credit.reserve
+          bindingVersion: '0.3.0'
+    UpdateCreditReservation:
+      name: UpdateCreditReservation
+      title: Update credit reservation
+      summary: Change the reserved amount for an order edit.
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/UpdateCreditReservationPayload'
+      bindings:
+        amqp:
+          messageType: credit.reservation.update
+          bindingVersion: '0.3.0'
+    RefundCredit:
+      name: RefundCredit
+      title: Release reserved credits
+      summary: Release credits reserved for a cancelled or expired order.
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/RefundCreditPayload'
+      bindings:
+        amqp:
+          messageType: credit.refund
+          bindingVersion: '0.3.0'
+    TransferCredit:
+      name: TransferCredit
+      title: Pay courier
+      summary: Transfer the reserved amount from requester to courier.
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/TransferCreditPayload'
+      bindings:
+        amqp:
+          messageType: credit.transfer
+          bindingVersion: '0.3.0'
+    CreditReserved:
+      name: CreditReserved
+      title: Credits reserved
+      summary: Reservation or reservation update succeeded.
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/CreditOperationSucceededPayload'
+      bindings:
+        amqp:
+          messageType: credit.reserved
+          bindingVersion: '0.3.0'
+    CreditReservationFailed:
+      name: CreditReservationFailed
+      title: Credit reservation failed
+      summary: Reservation or reservation update failed, for example because the balance was insufficient.
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/CreditOperationFailedPayload'
+      bindings:
+        amqp:
+          messageType: credit.reservation-failed
+          bindingVersion: '0.3.0'
+    CreditRefunded:
+      name: CreditRefunded
+      title: Credits released
+      summary: Reserved credits were released.
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/CreditOperationSucceededPayload'
+      bindings:
+        amqp:
+          messageType: credit.refunded
+          bindingVersion: '0.3.0'
+    CreditTransferred:
+      name: CreditTransferred
+      title: Credits transferred
+      summary: Reserved credits were transferred to the courier.
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/CreditOperationSucceededPayload'
+      bindings:
+        amqp:
+          messageType: credit.transferred
+          bindingVersion: '0.3.0'
+    OrderLifecycleEvent:
+      name: OrderLifecycleEvent
+      title: Order lifecycle event
+      summary: Order state change consumed by credit or notification processing.
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/OrderLifecycleEventPayload'
+      bindings:
+        amqp:
+          messageType: order.lifecycle
+          bindingVersion: '0.3.0'
+    NotificationRequested:
+      name: NotificationRequested
+      title: Notification requested
+      summary: Ask the notification component to notify a recipient about an order outcome.
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/NotificationRequestedPayload'
+      bindings:
+        amqp:
+          messageType: notification.requested
+          bindingVersion: '0.3.0'
+  schemas:
+    MessageMetadata:
+      type: object
+      required: [messageId, correlationId]
+      properties:
+        messageId:
+          type: string
+          format: uuid
+          description: Unique message identifier used for duplicate detection.
+        correlationId:
+          type: string
+          format: uuid
+          description: Identifier shared by messages in the same order workflow.
+        causationId:
+          type: string
+          format: uuid
+          description: Message identifier that caused this message, when applicable.
+        occurredAt:
+          type: string
+          format: date-time
+    ReserveCreditPayload:
+      allOf:
+        - $ref: '#/components/schemas/MessageMetadata'
+        - type: object
+          required: [orderId, userId, amount]
+          properties:
+            orderId: { type: string, format: uuid }
+            userId: { type: string, format: uuid }
+            amount:
+              type: string
+              pattern: '^[0-9]+([.][0-9]{1,2})?$'
+              description: Positive decimal number of credits; encoded as text to avoid floating-point rounding.
+    UpdateCreditReservationPayload:
+      allOf:
+        - $ref: '#/components/schemas/MessageMetadata'
+        - type: object
+          required: [orderId, userId, targetAmount]
+          properties:
+            orderId: { type: string, format: uuid }
+            userId: { type: string, format: uuid }
+            targetAmount:
+              type: string
+              pattern: '^[0-9]+([.][0-9]{1,2})?$'
+              description: Desired total reservation after the edit, not a delta.
+    RefundCreditPayload:
+      allOf:
+        - $ref: '#/components/schemas/MessageMetadata'
+        - type: object
+          required: [orderId, userId]
+          properties:
+            orderId: { type: string, format: uuid }
+            userId: { type: string, format: uuid }
+            reason:
+              type: string
+              enum: [cancelled, expired]
+    TransferCreditPayload:
+      allOf:
+        - $ref: '#/components/schemas/MessageMetadata'
+        - type: object
+          required: [orderId, requesterId, courierId]
+          properties:
+            orderId: { type: string, format: uuid }
+            requesterId: { type: string, format: uuid }
+            courierId: { type: string, format: uuid }
+    CreditOperationSucceededPayload:
+      allOf:
+        - $ref: '#/components/schemas/MessageMetadata'
+        - type: object
+          required: [causationId, orderId, amount]
+          properties:
+            causationId:
+              type: string
+              format: uuid
+              description: Message ID of the command that produced this result.
+            orderId: { type: string, format: uuid }
+            amount: { type: string, pattern: '^[0-9]+([.][0-9]{1,2})?$' }
+    CreditOperationFailedPayload:
+      allOf:
+        - $ref: '#/components/schemas/MessageMetadata'
+        - type: object
+          required: [causationId, orderId, failureCode]
+          properties:
+            causationId: { type: string, format: uuid }
+            orderId: { type: string, format: uuid }
+            failureCode:
+              type: string
+              enum: [insufficient_credits, reservation_not_found, account_not_found, invalid_request]
+              description: Stable safe failure code; never include credentials or internal error details.
+    OrderLifecycleEventPayload:
+      allOf:
+        - $ref: '#/components/schemas/MessageMetadata'
+        - type: object
+          required: [orderId, requesterId, status]
+          properties:
+            orderId: { type: string, format: uuid }
+            requesterId: { type: string, format: uuid }
+            courierId:
+              type: [string, 'null']
+              format: uuid
+            status:
+              type: string
+              enum: [OPEN, ASSIGNED, PICKED_UP, CANCELLED, EXPIRED, WITHDRAWN, DELIVERED, REVIEW_REQUIRED, COMPLETED]
+            reason:
+              type: string
+              description: Optional stable reason code, not free-form user input.
+    NotificationRequestedPayload:
+      allOf:
+        - $ref: '#/components/schemas/MessageMetadata'
+        - type: object
+          required: [orderId, recipientId, notificationType]
+          properties:
+            orderId: { type: string, format: uuid }
+            recipientId: { type: string, format: uuid }
+            notificationType:
+              type: string
+              enum: [order_created, order_rejected, order_cancelled, order_expired, order_assigned, pickup_rejected, review_required, delivery_completed]

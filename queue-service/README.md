@@ -2,7 +2,10 @@
 
 This folder packages the standalone RabbitMQ broker used by the FoC services.
 It owns message transport only; business events and their exchange, queue, and
-binding topology will be added after the service contracts are agreed.
+binding topology are described by the application-level contract in
+[`docs/asyncapi.yaml`](../docs/asyncapi.yaml). The contract is a proposal based
+on the current event-storming diagram and should be agreed by the service owners
+before implementation.
 
 ## Start locally
 
@@ -39,6 +42,6 @@ queue-service/
 └── README.md        # Local setup and operations
 ```
 
-Exchange, queue, and binding declarations belong in versioned broker
-definitions or in the owning applications once the message contracts are
-settled. This initial setup deliberately does not create application queues.
+This broker image does not provision the application exchanges, queues, or
+bindings. The consuming applications should declare their durable queues and
+bindings from the shared contract when their messaging code is implemented.
