@@ -105,6 +105,10 @@ CREATE TABLE errand_transitions (
     actor_type text NOT NULL,
     -- NULL for SYSTEM transitions.
     actor_id text,
+    -- The errand's courier before the transition, or after it when there
+    -- was none before (an accept); NULL when it has none. It attributes
+    -- forced withdrawals, whose actor is SYSTEM (F3.6.3, F3.6.4).
+    courier_id text,
     reason text,
     errand_version integer NOT NULL,
     at timestamptz NOT NULL DEFAULT clock_timestamp(),
@@ -137,6 +141,10 @@ CREATE INDEX errand_transitions_actor_idx
     ON errand_transitions (actor_id, at);
 CREATE INDEX errand_transitions_to_status_idx
     ON errand_transitions (to_status, at);
+-- Store.CourierHistory: a courier's voluntary and forced withdrawals.
+CREATE INDEX errand_transitions_withdrawals_idx
+    ON errand_transitions (courier_id, at)
+    WHERE event IN ('withdraw', 'pickup_deadline_passed');
 
 -- Credit commands and errand events, written in the same transaction as the
 -- state change (F4.6.2, F4.6.3) and kept after failure (NFR7.4.1).
@@ -230,6 +238,12 @@ CREATE TABLE errand_reviews (
             AND resolution_reason IS NOT NULL AND resolved_at IS NOT NULL)
     )
 );
+
+-- An errand is in REVIEW_REQUIRED at most once at a time, so it has at most
+-- one open review: the row Store.Apply resolves (docs/contracts.md).
+CREATE UNIQUE INDEX errand_reviews_open_idx
+    ON errand_reviews (errand_id)
+    WHERE resolution IS NULL;
 
 CREATE TABLE admin_audit (
     id bigserial PRIMARY KEY,

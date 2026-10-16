@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -32,6 +33,7 @@ type FakeStore struct {
 	fenced      map[string]bool
 	locked      map[string]bool
 	transitions []TransitionRecord
+	reviews     []ReviewRecord
 	outbox      []OutboxRecord
 	outboxKeys  map[string]bool
 }
@@ -41,10 +43,24 @@ var _ errand.Store = (*FakeStore)(nil)
 // TransitionRecord is one errand_transitions row.
 type TransitionRecord struct {
 	errand.Transition
-	// CourierID is the errand's courier before the transition, or after it
-	// when there was none before (an accept). CourierHistory reads it to
-	// attribute forced withdrawals.
+	// CourierID is the courier_id column: the errand's courier before the
+	// transition, or after it when there was none before (an accept).
+	// CourierHistory reads it to attribute forced withdrawals.
 	CourierID string
+}
+
+// ReviewRecord is one errand_reviews row. Empty strings and a nil
+// ResolvedAt stand for NULL columns; Resolution is empty while it is open.
+type ReviewRecord struct {
+	ErrandID         string
+	Reason           errand.ReviewReason
+	ReporterID       string
+	Note             string
+	CreatedAt        time.Time
+	Resolution       errand.Status
+	ResolverID       string
+	ResolutionReason string
+	ResolvedAt       *time.Time
 }
 
 // OutboxRecord is one outbox row as inserted, in insertion order.
@@ -73,13 +89,18 @@ func NewFakeStore() *FakeStore {
 // ---------------------------------------------------------------------------
 
 // Put stores e as is, replacing any errand with the same ID, without a
-// transition or outbox rows. Use it to start a test from any state.
+// transition or outbox rows. Use it to start a test from any state. An
+// errand put in REVIEW_REQUIRED without an open review gets one, with its
+// ReviewReason and no reporter, so it can be resolved.
 func (s *FakeStore) Put(e errand.Errand) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.errands[e.ID] = cloneErrand(e)
 	if e.CreateIdempotencyKey != "" {
 		s.createKeys[[2]string{e.RequesterID, e.CreateIdempotencyKey}] = e.ID
+	}
+	if e.Status == errand.StatusReviewRequired && s.openReview(e.ID) < 0 {
+		s.reviews = append(s.reviews, ReviewRecord{ErrandID: e.ID, Reason: e.ReviewReason, CreatedAt: e.UpdatedAt})
 	}
 }
 
@@ -111,6 +132,20 @@ func (s *FakeStore) Transitions() []TransitionRecord {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return slices.Clone(s.transitions)
+}
+
+// Reviews returns every errand_reviews row in insertion order.
+func (s *FakeStore) Reviews() []ReviewRecord {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := slices.Clone(s.reviews)
+	for i, r := range out {
+		if r.ResolvedAt != nil {
+			at := *r.ResolvedAt
+			out[i].ResolvedAt = &at
+		}
+	}
+	return out
 }
 
 // Outbox returns every outbox row in insertion order.
@@ -217,6 +252,9 @@ func (s *FakeStore) Apply(_ context.Context, t errand.Transition) (errand.Errand
 	}
 	if to, ok := editTargetSupplier(cur, t); ok && s.fenced[to] {
 		return errand.Errand{}, appErr(apperror.SupplierDeletionInProgress, "supplier %q is being deleted", to)
+	}
+	if t.From == errand.StatusReviewRequired && s.openReview(t.ErrandID) < 0 {
+		return errand.Errand{}, fmt.Errorf("testfakes: errand %q has no open review to resolve", t.ErrandID)
 	}
 	if err := s.checkOutboxKeys(t.Outbox, nil); err != nil {
 		return errand.Errand{}, err
@@ -484,11 +522,43 @@ func (s *FakeStore) commit(before errand.Errand, t errand.Transition) errand.Err
 	s.errands[after.ID] = after
 	courier := cmp.Or(before.CourierID, after.CourierID)
 	s.transitions = append(s.transitions, TransitionRecord{Transition: t, CourierID: courier})
+	s.writeReview(after, t)
 	for _, row := range t.Outbox {
 		s.outboxKeys[row.IdempotencyKey] = true
 		s.outbox = append(s.outbox, OutboxRecord{OutboxRow: row, ErrandVersion: after.Version, At: t.At})
 	}
 	return after
+}
+
+// writeReview opens or resolves the errand's review as Store.Apply does.
+// Callers have checked that a transition out of REVIEW_REQUIRED has an open
+// review.
+func (s *FakeStore) writeReview(after errand.Errand, t errand.Transition) {
+	switch {
+	case t.To == errand.StatusReviewRequired:
+		r := ReviewRecord{ErrandID: t.ErrandID, Reason: after.ReviewReason, CreatedAt: t.At}
+		if t.Actor.Type != errand.ActorSystem {
+			r.ReporterID = t.Actor.ID
+		}
+		if strings.TrimSpace(t.Reason) != "" {
+			r.Note = t.Reason
+		}
+		s.reviews = append(s.reviews, r)
+	case t.From == errand.StatusReviewRequired:
+		i := s.openReview(t.ErrandID)
+		at := t.At
+		s.reviews[i].Resolution = t.To
+		s.reviews[i].ResolverID = t.Actor.ID
+		s.reviews[i].ResolutionReason = t.Reason
+		s.reviews[i].ResolvedAt = &at
+	}
+}
+
+// openReview returns the index of the errand's open review, or -1.
+func (s *FakeStore) openReview(errandID string) int {
+	return slices.IndexFunc(s.reviews, func(r ReviewRecord) bool {
+		return r.ErrandID == errandID && r.Resolution == ""
+	})
 }
 
 func (s *FakeStore) filter(keep func(errand.Errand) bool) []errand.Errand {

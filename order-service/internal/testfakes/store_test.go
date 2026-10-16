@@ -438,6 +438,70 @@ func TestFakeStoreCourierHistory(t *testing.T) {
 	assert.Equal(t, errand.CourierHistory{}, h)
 }
 
+func TestFakeStoreReviews(t *testing.T) {
+	ctx := context.Background()
+	admin := errand.Actor{Type: errand.ActorAdmin, ID: "admin-1"}
+	pickedUp := func(t *testing.T, s *testfakes.FakeStore, id string) {
+		t.Helper()
+		openErrand(t, s, id, t0)
+		_, _, err := s.Fire(ctx, id, errand.EventAccept, courier("courier-a"), acceptInput(), t0)
+		require.NoError(t, err)
+		_, _, err = s.Fire(ctx, id, errand.EventPickUp, courier("courier-a"), errand.EventInput{}, t0.Add(time.Minute))
+		require.NoError(t, err)
+	}
+
+	t.Run("entering review opens a row and resolving it closes the row", func(t *testing.T) {
+		s := testfakes.NewFakeStore()
+		pickedUp(t, s, "e-1")
+		reported := t0.Add(2 * time.Minute)
+		_, _, err := s.Fire(ctx, "e-1", errand.EventReportIssue, courier("courier-a"), errand.EventInput{Reason: "shop closed"}, reported)
+		require.NoError(t, err)
+		require.Equal(t, []testfakes.ReviewRecord{{
+			ErrandID: "e-1", Reason: errand.ReviewCourierIssue,
+			ReporterID: "courier-a", Note: "shop closed", CreatedAt: reported,
+		}}, s.Reviews())
+
+		resolved := t0.Add(time.Hour)
+		_, _, err = s.Fire(ctx, "e-1", errand.EventAdminRefund, admin, errand.EventInput{Reason: "confirmed with shop"}, resolved)
+		require.NoError(t, err)
+		reviews := s.Reviews()
+		require.Len(t, reviews, 1)
+		assert.Equal(t, errand.StatusRefunded, reviews[0].Resolution)
+		assert.Equal(t, "admin-1", reviews[0].ResolverID)
+		assert.Equal(t, "confirmed with shop", reviews[0].ResolutionReason)
+		require.NotNil(t, reviews[0].ResolvedAt)
+		assert.Equal(t, resolved, *reviews[0].ResolvedAt)
+	})
+
+	t.Run("a review raised by a deadline job has no reporter", func(t *testing.T) {
+		s := testfakes.NewFakeStore()
+		pickedUp(t, s, "e-1")
+		now := t0.Add(3 * time.Hour)
+		n, err := s.ClaimDue(ctx, errand.DeliveryDeadline, now, 10, func(e errand.Errand) (errand.Transition, bool, error) {
+			tr, err := errand.Next(e, errand.EventDeliveryDeadlinePassed, errand.SystemActor(), errand.EventInput{}, now)
+			return tr, err == nil, err
+		})
+		require.NoError(t, err)
+		require.Equal(t, 1, n)
+		assert.Equal(t, []testfakes.ReviewRecord{{
+			ErrandID: "e-1", Reason: errand.ReviewDeliveryOverdue, CreatedAt: now,
+		}}, s.Reviews())
+	})
+
+	t.Run("an errand put in review can be resolved", func(t *testing.T) {
+		s := testfakes.NewFakeStore()
+		e := newErrand("e-1", t0)
+		e.Status, e.Version, e.CourierID = errand.StatusReviewRequired, 5, "courier-a"
+		e.ReviewReason = errand.ReviewRequesterDispute
+		s.Put(e)
+		_, _, err := s.Fire(ctx, "e-1", errand.EventAdminComplete, admin, errand.EventInput{Reason: "photo shows delivery"}, t0)
+		require.NoError(t, err)
+		reviews := s.Reviews()
+		require.Len(t, reviews, 1)
+		assert.Equal(t, errand.StatusCompleted, reviews[0].Resolution)
+	})
+}
+
 func TestFakeStoreFaults(t *testing.T) {
 	ctx := context.Background()
 	s := testfakes.NewFakeStore()
