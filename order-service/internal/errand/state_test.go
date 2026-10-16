@@ -528,6 +528,35 @@ func TestNextValidatesSubmissionsAndEdits(t *testing.T) {
 		})
 	}
 
+	// The window applies only to a changed deadline (F3.1.3); an unchanged
+	// one only has to be in the future.
+	t.Run("edit keeps a deadline under 10 minutes away", func(t *testing.T) {
+		e := errandIn(errand.StatusOpen)
+		now := acceptanceDeadline.Add(-5 * time.Minute)
+		edit := e.Details
+		edit.Notes = "no ice"
+		tr, err := errand.Next(e, errand.EventEdit, asRequester, errand.EventInput{Edit: &edit}, now)
+		require.NoError(t, err)
+		require.Equal(t, &edit, tr.Changes.Details)
+	})
+	t.Run("edit keeps a deadline that has passed", func(t *testing.T) {
+		e := errandIn(errand.StatusOpen)
+		edit := e.Details
+		edit.Notes = "no ice"
+		_, err := errand.Next(e, errand.EventEdit, asRequester, errand.EventInput{Edit: &edit}, acceptanceDeadline)
+		requireCode(t, apperror.ValidationFailed, err)
+		require.Equal(t, []string{"acceptanceDeadline"}, fieldsOf(t, err))
+	})
+	t.Run("edit moves the deadline under 10 minutes away", func(t *testing.T) {
+		e := errandIn(errand.StatusOpen)
+		now := acceptanceDeadline.Add(-time.Hour)
+		edit := e.Details
+		edit.AcceptanceDeadline = now.Add(5 * time.Minute)
+		_, err := errand.Next(e, errand.EventEdit, asRequester, errand.EventInput{Edit: &edit}, now)
+		requireCode(t, apperror.ValidationFailed, err)
+		require.Equal(t, []string{"acceptanceDeadline"}, fieldsOf(t, err))
+	})
+
 	t.Run("edit without details", func(t *testing.T) {
 		e := errandIn(errand.StatusOpen)
 		_, err := errand.Next(e, errand.EventEdit, asRequester, errand.EventInput{}, t0)
