@@ -789,10 +789,5 @@ gate C5).
 
 ## Open issues
 
-1. **Edit deadline re-validation.** `errand.Next` validates the complete
-   edited details, so the acceptance-deadline bounds apply to an unchanged
-   deadline too: an edit to the notes fails when the deadline is less than
-   10 minutes away. The OpenAPI `ErrandEdit` description documents this.
-   Change `Next` if the team wants unchanged deadlines exempt.
-2. **Forced-withdrawal attribution and review-row writer** are still open
+1. **Forced-withdrawal attribution and review-row writer** are still open
    decisions 1 and 2 in `commit-plan.md`.

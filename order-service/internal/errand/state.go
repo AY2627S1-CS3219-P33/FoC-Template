@@ -228,7 +228,7 @@ func applyEvent(t *Transition, e Errand, input EventInput, now time.Time) error 
 		if e.Version != 0 {
 			return newError(apperror.InvalidArgument, "a new errand has no version")
 		}
-		if err := validateDetails(e.Details, now); err != nil {
+		if err := validateDetails(e.Details, now, true); err != nil {
 			return err
 		}
 		t.ExpectedVersion = 0
@@ -247,7 +247,10 @@ func applyEvent(t *Transition, e Errand, input EventInput, now time.Time) error 
 			return newError(apperror.InvalidArgument, "edit details are required")
 		}
 		edit := *input.Edit
-		if err := validateDetails(edit, now); err != nil {
+		// The 10 min-24 h window applies only to a new deadline; an
+		// unchanged one just must not have passed.
+		deadlineChanged := !edit.AcceptanceDeadline.Equal(e.Details.AcceptanceDeadline)
+		if err := validateDetails(edit, now, deadlineChanged); err != nil {
 			return err
 		}
 		if edit.Reward == e.Details.Reward {
@@ -414,7 +417,9 @@ func movedPast(current Status, ev Event) bool {
 	return latest >= 0 && lifecycleRank(current) > latest
 }
 
-func validateDetails(d Details, now time.Time) error {
+// validateDetails checks d at now. The acceptance-deadline window applies
+// only when newDeadline is set; otherwise the deadline must not have passed.
+func validateDetails(d Details, now time.Time, newDeadline bool) error {
 	var fields []apperror.Field
 	if d.Reward <= 0 {
 		fields = append(fields, apperror.Field{Field: "reward", Message: "must be a positive integer"})
@@ -423,8 +428,12 @@ func validateDetails(d Details, now time.Time) error {
 	if err := json.Unmarshal(d.Items, &items); err != nil || len(items) == 0 {
 		fields = append(fields, apperror.Field{Field: "items", Message: "must list at least one item"})
 	}
-	if field, ok := acceptanceDeadlineProblem(d.AcceptanceDeadline, now); !ok {
-		fields = append(fields, field)
+	if newDeadline {
+		if field, ok := acceptanceDeadlineProblem(d.AcceptanceDeadline, now); !ok {
+			fields = append(fields, field)
+		}
+	} else if Passed(d.AcceptanceDeadline, now) {
+		fields = append(fields, apperror.Field{Field: "acceptanceDeadline", Message: "has already passed"})
 	}
 	if len(fields) > 0 {
 		return validationError(fields...)
