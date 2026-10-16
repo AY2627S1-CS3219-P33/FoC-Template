@@ -1,4 +1,4 @@
--- Outbox, fence, review, audit and settings queries, owned by Person B and
+-- Fence, review, audit and settings queries, owned by Person B and
 -- generated into internal/database/opsgen.
 --
 -- PlaceholderOps exists only so `sqlc generate` succeeds before B1.
