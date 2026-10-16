@@ -181,7 +181,9 @@ operations:
       (version + 1); when it refuses, or no answer arrives in time, the edit
       is dropped and the original details are kept (F4.4.3). An accept while
       the edit is pending wins and drops it (F3.4.2). Another edit while one
-      is pending is EDIT_PENDING.
+      is pending is EDIT_PENDING. An edit that changes supplierId to a
+      supplier with an open or committed deletion fence is
+      SUPPLIER_DELETION_IN_PROGRESS, as on creation.
     x-required-permissions: [errands:use]
     x-required-relationship: requester
     security:
@@ -219,7 +221,8 @@ operations:
         description: >-
           As ErrandConflict (ERRAND_UNAVAILABLE when a courier accepted
           meanwhile, F3.4.2), plus EDIT_PENDING while a reward change is
-          waiting.
+          waiting and SUPPLIER_DELETION_IN_PROGRESS when the new supplier is
+          being deleted.
         content:
           application/json:
             schema:
@@ -227,7 +230,7 @@ operations:
                 - $ref: ./common.yaml#/components/schemas/Error
                 - properties:
                     code:
-                      enum: [ERRAND_CHANGED, ERRAND_UNAVAILABLE, INVALID_TRANSITION, EDIT_PENDING]
+                      enum: [ERRAND_CHANGED, ERRAND_UNAVAILABLE, INVALID_TRANSITION, EDIT_PENDING, SUPPLIER_DELETION_IN_PROGRESS]
       "422":
         $ref: ./common.yaml#/components/responses/SupplierUnavailable
       "500":
