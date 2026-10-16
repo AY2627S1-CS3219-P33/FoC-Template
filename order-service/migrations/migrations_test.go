@@ -96,6 +96,17 @@ func TestOrderSchemaMigrationConstraints(t *testing.T) {
 		requirePostgresCode(t, err, "23514")
 	})
 
+	t.Run("errands reject a blank contact person", func(t *testing.T) {
+		conn := migratedDatabase(t)
+		ctx := context.Background()
+		id := insertErrand(t, conn, "OPEN", nil, 10)
+
+		_, err := conn.Exec(ctx, `UPDATE errands SET contact_name = ' ' WHERE id = $1`, id)
+		requirePostgresCode(t, err, "23514")
+		_, err = conn.Exec(ctx, `UPDATE errands SET contact_mobile = '' WHERE id = $1`, id)
+		requirePostgresCode(t, err, "23514")
+	})
+
 	t.Run("pending edit columns are set together", func(t *testing.T) {
 		conn := migratedDatabase(t)
 		ctx := context.Background()
@@ -235,11 +246,14 @@ const errandInsertSQL = `
 		delivery_building_snapshot,
 		delivery_detail,
 		items,
+		contact_name,
+		contact_mobile,
 		acceptance_deadline
 	) VALUES ($1, $2, $3, $4, $5, $6,
 		gen_random_uuid(), gen_random_uuid(), gen_random_uuid(),
 		'{"name": "Central Library"}', 'Level 3 reading room',
 		'[{"name": "Coffee", "quantity": 1}]',
+		'Alex Tan', '+65 9123 4567',
 		clock_timestamp() + interval '1 hour')
 `
 

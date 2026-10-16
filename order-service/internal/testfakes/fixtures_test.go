@@ -34,6 +34,8 @@ func newErrand(id string, now time.Time) errand.Errand {
 			DeliveryBuildingSnapshot: json.RawMessage(`{"name":"COM1"}`),
 			DeliveryDetail:           "Level 2 lounge",
 			Items:                    json.RawMessage(`[{"description":"iced latte"}]`),
+			ContactName:              "Alex Tan",
+			ContactMobile:            "+65 9123 4567",
 			Reward:                   reward,
 			AcceptanceDeadline:       now.Add(time.Hour),
 		},

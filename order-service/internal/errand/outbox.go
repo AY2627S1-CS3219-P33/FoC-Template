@@ -126,7 +126,8 @@ type EventData struct {
 	CourierID string    `json:"courierId,omitempty"`
 	Reward    int       `json:"reward"`
 	At        time.Time `json:"at"`
-	// PendingEdit is the requested edit on errand.edit_requested.
+	// PendingEdit is the requested edit on errand.edit_requested, without
+	// the contact person.
 	PendingEdit *Details `json:"pendingEdit,omitempty"`
 	// EditDropped is set on errand.accepted when the acceptance cleared a
 	// pending edit, so the requester can be told (F3.4.2).
@@ -202,7 +203,7 @@ func outboxRows(r Rule, before Errand, t Transition, input EventInput) []OutboxR
 			data.CourierID = after.CourierID
 		}
 		if editRequested {
-			details := t.Changes.PendingEdit.Value.Details
+			details := t.Changes.PendingEdit.Value.Details.WithoutContact()
 			data.PendingEdit = &details
 		}
 		if t.Event == EventAccept && before.PendingEdit != nil {

@@ -192,10 +192,23 @@ type Details struct {
 	DeliveryDetail           string          `json:"deliveryDetail"`
 	// Items is a JSON array with at least one element. The element shape is
 	// defined by the OpenAPI contract, not by the domain.
-	Items              json.RawMessage `json:"items"`
-	Notes              string          `json:"notes"`
-	Reward             int             `json:"reward"`
-	AcceptanceDeadline time.Time       `json:"acceptanceDeadline"`
+	Items json.RawMessage `json:"items"`
+	Notes string          `json:"notes"`
+	// ContactName and ContactMobile are the person the courier contacts
+	// about the errand, chosen by the requester (NFR3.6.4). They are omitted
+	// from event payloads, so they are empty there.
+	ContactName        string    `json:"contactName,omitempty"`
+	ContactMobile      string    `json:"contactMobile,omitempty"`
+	Reward             int       `json:"reward"`
+	AcceptanceDeadline time.Time `json:"acceptanceDeadline"`
+}
+
+// WithoutContact returns d with the contact person removed, for payloads that
+// leave order-service (NFR3.6.1).
+func (d Details) WithoutContact() Details {
+	d.ContactName = ""
+	d.ContactMobile = ""
+	return d
 }
 
 // PendingEdit is a reward edit waiting for credit-service (F4.4). It maps to

@@ -11,8 +11,8 @@ import (
 
 // This file declares the ports: the interfaces errand logic uses to reach
 // storage, other services, the broker and the cache. Adapters implement them
-// (A: Store; B: SupplierGate, UserDirectory, OpenErrandCache, Settings; C:
-// Publisher) and internal/testfakes has an in-memory fake of each.
+// (A: Store; B: SupplierGate, OpenErrandCache, Settings; C: Publisher) and
+// internal/testfakes has an in-memory fake of each.
 //
 // Errors: unless a method says otherwise, a failure the caller should show
 // to a client is an *apperror.Error with one of the codes named in the
@@ -437,28 +437,6 @@ type Building struct {
 }
 
 // ---------------------------------------------------------------------------
-// UserDirectory
-// ---------------------------------------------------------------------------
-
-// UserDirectory reads contact details from user-service (B2c, gate C5).
-// Callers show them only as NFR3.6.4 allows: to the other party of an
-// active, assigned errand. Implementations never log the mobile number.
-type UserDirectory interface {
-	// GetContact returns userID's display name and mobile number. found is
-	// false, with a nil error, when user-service has no such user (for
-	// example a deleted account); callers then omit the contact.
-	// Errors: DEPENDENCY_UNAVAILABLE.
-	GetContact(ctx context.Context, userID string) (contact UserContact, found bool, err error)
-}
-
-// UserContact is what one party of an errand may see of the other.
-type UserContact struct {
-	UserID      string `json:"userId"`
-	DisplayName string `json:"displayName"`
-	Mobile      string `json:"mobile"`
-}
-
-// ---------------------------------------------------------------------------
 // Settings
 // ---------------------------------------------------------------------------
 
@@ -714,8 +692,9 @@ type OpenErrandCache interface {
 }
 
 // OpenErrandView is the redacted open-list projection: what any courier may
-// see of an open errand. It has no requester identity and no requester notes
-// (NFR3.6.4, NFR3.6.3), so it is the only errand shape that may be cached.
+// see of an open errand. It has no requester identity, no requester notes and
+// no contact person (NFR3.6.4, NFR3.6.3), so it is the only errand shape that
+// may be cached.
 // Courier coordinates are never part of it; A3 orders by distance per
 // request.
 type OpenErrandView struct {

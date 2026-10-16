@@ -2,6 +2,7 @@ package errand_test
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -493,9 +494,11 @@ func TestNextValidatesSubmissionsAndEdits(t *testing.T) {
 		e.Details.Reward = 0
 		e.Details.Items = []byte(`[]`)
 		e.Details.AcceptanceDeadline = t0.Add(-time.Minute)
+		e.Details.ContactName = ""
+		e.Details.ContactMobile = " "
 		_, err := errand.Next(e, errand.EventSubmit, asRequester, errand.EventInput{}, t0)
 		requireCode(t, apperror.ValidationFailed, err)
-		require.ElementsMatch(t, []string{"reward", "items", "acceptanceDeadline"}, fieldsOf(t, err))
+		require.ElementsMatch(t, []string{"reward", "items", "acceptanceDeadline", "contactName", "contactMobile"}, fieldsOf(t, err))
 	})
 	t.Run("submit needs an ID", func(t *testing.T) {
 		e := errandIn(errand.StatusNone)
@@ -516,6 +519,11 @@ func TestNextValidatesSubmissionsAndEdits(t *testing.T) {
 		{"deadline in the past (F3.1.3)", func(d *errand.Details) { d.AcceptanceDeadline = t0.Add(-time.Second) }, "acceptanceDeadline"},
 		{"deadline under 10 minutes", func(d *errand.Details) { d.AcceptanceDeadline = t0.Add(9 * time.Minute) }, "acceptanceDeadline"},
 		{"deadline over 24 hours", func(d *errand.Details) { d.AcceptanceDeadline = t0.Add(25 * time.Hour) }, "acceptanceDeadline"},
+		{"blank contact name", func(d *errand.Details) { d.ContactName = "  " }, "contactName"},
+		{"contact name over 100 characters", func(d *errand.Details) { d.ContactName = strings.Repeat("é", 101) }, "contactName"},
+		{"contact name with a control character", func(d *errand.Details) { d.ContactName = "Alex\nTan" }, "contactName"},
+		{"no contact mobile", func(d *errand.Details) { d.ContactMobile = "" }, "contactMobile"},
+		{"contact mobile over 32 characters", func(d *errand.Details) { d.ContactMobile = strings.Repeat("9", 33) }, "contactMobile"},
 	}
 	for _, tc := range edits {
 		t.Run("edit with "+tc.name, func(t *testing.T) {
@@ -555,6 +563,17 @@ func TestNextValidatesSubmissionsAndEdits(t *testing.T) {
 		_, err := errand.Next(e, errand.EventEdit, asRequester, errand.EventInput{Edit: &edit}, now)
 		requireCode(t, apperror.ValidationFailed, err)
 		require.Equal(t, []string{"acceptanceDeadline"}, fieldsOf(t, err))
+	})
+
+	t.Run("edit changes the contact person at once", func(t *testing.T) {
+		e := errandIn(errand.StatusOpen)
+		edit := e.Details
+		edit.ContactName = "Sam Lee"
+		edit.ContactMobile = "+65 8000 0000"
+		tr, err := errand.Next(e, errand.EventEdit, asRequester, errand.EventInput{Edit: &edit}, t0)
+		require.NoError(t, err)
+		require.Equal(t, &edit, tr.Changes.Details)
+		require.Equal(t, e.Version+1, tr.NewVersion)
 	})
 
 	t.Run("edit without details", func(t *testing.T) {

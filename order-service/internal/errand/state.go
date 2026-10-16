@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/CS3219-AY2627S1/FoC-Template/order-service/internal/apperror"
 )
@@ -428,6 +430,12 @@ func validateDetails(d Details, now time.Time, newDeadline bool) error {
 	if err := json.Unmarshal(d.Items, &items); err != nil || len(items) == 0 {
 		fields = append(fields, apperror.Field{Field: "items", Message: "must list at least one item"})
 	}
+	if msg := contactProblem(d.ContactName, maxContactName); msg != "" {
+		fields = append(fields, apperror.Field{Field: "contactName", Message: msg})
+	}
+	if msg := contactProblem(d.ContactMobile, maxContactMobile); msg != "" {
+		fields = append(fields, apperror.Field{Field: "contactMobile", Message: msg})
+	}
 	if newDeadline {
 		if field, ok := acceptanceDeadlineProblem(d.AcceptanceDeadline, now); !ok {
 			fields = append(fields, field)
@@ -439,6 +447,25 @@ func validateDetails(d Details, now time.Time, newDeadline bool) error {
 		return validationError(fields...)
 	}
 	return nil
+}
+
+// Contact limits match user-service's display name and mobile number.
+const (
+	maxContactName   = 100
+	maxContactMobile = 32
+)
+
+// contactProblem returns why a contact field is invalid, or "".
+func contactProblem(s string, max int) string {
+	switch {
+	case isBlank(s):
+		return "is required"
+	case utf8.RuneCountInString(s) > max:
+		return fmt.Sprintf("must be at most %d characters", max)
+	case strings.ContainsFunc(s, unicode.IsControl):
+		return "must not contain control characters"
+	}
+	return ""
 }
 
 func displayStatus(s Status) string {
