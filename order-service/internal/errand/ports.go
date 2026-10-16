@@ -58,12 +58,22 @@ type Store interface {
 	// Apply never retries and never re-runs Next: on a mismatch the caller
 	// re-reads the errand and decides again (or reports the conflict).
 	//
+	// An EventEdit transition that moves the errand to another supplier
+	// (t.Changes.Details, or the pending edit's Details, has a SupplierID
+	// different from the stored one) is fenced like Create: in the same
+	// transaction Apply takes the shared advisory lock on the new supplier's
+	// key and refuses if it has an OPEN or COMMITTED fence
+	// (docs/contracts.md). EventEditConfirmed is not checked: Fence Acquire
+	// counts pending edits towards their target supplier, so a confirmed
+	// edit can never land on a fenced supplier.
+	//
 	// Errors:
 	//   - ERRAND_NOT_FOUND: no errand has t.ErrandID.
 	//   - ERRAND_UNAVAILABLE: the errand's status is no longer t.From (it
 	//     was accepted, cancelled, expired… in the meantime, F3.3.7).
 	//   - ERRAND_CHANGED: the status matches but the version or the pending
 	//     edit does not (the caller's view is stale).
+	//   - SUPPLIER_DELETION_IN_PROGRESS: an edit's new supplier is fenced.
 	//   - INVALID_ARGUMENT: t is a Submit transition (use Create).
 	// A row whose outbox idempotency key already exists aborts the whole
 	// transaction with a plain error; Next never produces one, so it signals
@@ -353,7 +363,7 @@ func (k DueKind) Due(e Errand, now time.Time) bool {
 // ---------------------------------------------------------------------------
 
 // SupplierGate reads supplier-service (B2c). Fences are not its concern:
-// Store.Create checks them inside its transaction.
+// Store.Create and Store.Apply check them inside their transactions.
 type SupplierGate interface {
 	// ResolveForCreate returns the current version of supplierID if the
 	// supplier can take a new errand at now: it exists, is not deleted, and

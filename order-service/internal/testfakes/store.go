@@ -91,8 +91,9 @@ func (s *FakeStore) Errand(id string) (errand.Errand, bool) {
 	return cloneErrand(e), ok
 }
 
-// Fence makes Create refuse new errands for supplierID, as an OPEN or
-// COMMITTED supplier fence would. Unfence lifts it.
+// Fence makes Create refuse new errands for supplierID, and Apply refuse an
+// edit that moves an errand to it, as an OPEN or COMMITTED supplier fence
+// would. Unfence lifts it.
 func (s *FakeStore) Fence(supplierID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -214,10 +215,30 @@ func (s *FakeStore) Apply(_ context.Context, t errand.Transition) (errand.Errand
 	if err := compareAndSwap(cur, t); err != nil {
 		return errand.Errand{}, err
 	}
+	if to, ok := editTargetSupplier(cur, t); ok && s.fenced[to] {
+		return errand.Errand{}, appErr(apperror.SupplierDeletionInProgress, "supplier %q is being deleted", to)
+	}
 	if err := s.checkOutboxKeys(t.Outbox, nil); err != nil {
 		return errand.Errand{}, err
 	}
 	return cloneErrand(s.commit(cur, t)), nil
+}
+
+// editTargetSupplier returns the supplier an EventEdit transition moves cur
+// to, applied at once or stored as a pending edit, and false when t is not
+// an edit or keeps the supplier.
+func editTargetSupplier(cur errand.Errand, t errand.Transition) (string, bool) {
+	if t.Event != errand.EventEdit {
+		return "", false
+	}
+	var to string
+	switch c := t.Changes; {
+	case c.Details != nil:
+		to = c.Details.SupplierID
+	case c.PendingEdit.Value != nil:
+		to = c.PendingEdit.Value.Details.SupplierID
+	}
+	return to, to != "" && to != cur.Details.SupplierID
 }
 
 func (s *FakeStore) Get(_ context.Context, id string) (errand.Errand, error) {

@@ -1020,9 +1020,11 @@ components:
           type: boolean
           description: >-
             Whether the supplier has an errand in an active (non-terminal)
-            state, counted when the response is built. While the fence is
-            open or committed no errand can be created for the supplier, so
-            it can only change from true to false.
+            state, or an active errand with a pending edit that moves it to
+            the supplier, counted when the response is built. While the
+            fence is open or committed no errand can be created for or
+            edited onto the supplier, so it can only change from true to
+            false.
       additionalProperties: false
 
     ActiveErrandCounts:

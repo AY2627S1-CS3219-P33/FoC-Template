@@ -199,8 +199,9 @@ Rows are never deleted.
 
 This is order-service's side of supplier-service's
 [Order-service deletion fence](../../supplier-service/docs/contracts.md#order-service-deletion-fence).
-The fence must make it impossible for an errand to be created for a supplier
-that supplier-service has just checked and found to have no active errands.
+The fence must make it impossible for an errand to be created for, or edited
+onto, a supplier that supplier-service has just checked and found to have no
+active errands.
 
 ### Lock key
 
@@ -231,6 +232,29 @@ Shared locks don't block each other, so creations for one supplier run in
 parallel. `SupplierGate.ResolveForCreate` (deleted, closed) is checked before
 the transaction; the fence check inside it is what closes the race.
 
+### Supplier-changing edits (A1, `Store.Apply`)
+
+An `edit` transition whose new details have a different `supplierId` from
+the stored errand is fenced the same way. This covers both kinds of edit: one
+applied at once (`Changes.Details`) and a reward edit stored as
+`pending_edit` (`Changes.PendingEdit`). In the `Apply` transaction, before
+the compare-and-swap `UPDATE`:
+
+1. Take the shared lock on the **new** supplier's key.
+2. Run the creation step 2 query for the new supplier. If a row exists: roll
+   back, `409 SUPPLIER_DELETION_IN_PROGRESS`.
+
+An edit that keeps the supplier takes no lock. The old supplier needs no
+check: moving an errand away from a supplier can't create work for it.
+
+`edit_confirmed` is not checked. `pending_edit` holds the complete edited
+`Details` as JSON, so Acquire step 3 counts an errand whose
+`pending_edit->>'supplierId'` is the fenced supplier as active. A pending
+edit onto a supplier therefore either committed before Acquire's lock, and
+makes `hasActiveErrands` true (the deletion is refused), or is refused by the
+check above. A confirmed edit can never land on a fenced supplier, and
+credit-service's adjustment never has to be undone.
+
 ### Fence Acquire (B3)
 
 In one `READ COMMITTED` transaction:
@@ -241,15 +265,17 @@ In one `READ COMMITTED` transaction:
 2. `INSERT INTO supplier_fences (operation_id, supplier_id, state) VALUES ($op, $1, 'OPEN') ON CONFLICT (operation_id) DO NOTHING;`
    then read the row. A different `supplier_id` for the same operation:
    roll back, `400 INVALID_ARGUMENT`.
-3. Count errands for the supplier in an active (non-terminal) state. This
-   statement takes a new snapshot after the lock, so it sees every creation
-   that committed while Acquire waited.
+3. Count errands in an active (non-terminal) state whose `supplier_id` is
+   the supplier, or whose `pending_edit->>'supplierId'` is the supplier
+   (cast to `uuid` before comparing). This statement takes a new snapshot
+   after the lock, so it sees every creation and edit that committed while
+   Acquire waited.
 4. Commit and return `{operationId, supplierId, state, hasActiveErrands}`.
 
-Why there is no gap: a creation either took its shared lock before Acquire's
-exclusive lock, in which case Acquire waits for it and counts its errand, or
-after, in which case the fence row is committed and the creation's step 2
-rejects it. The transactions must be `READ COMMITTED` (the Postgres
+Why there is no gap: a creation (or a supplier-changing edit) either took its
+shared lock before Acquire's exclusive lock, in which case Acquire waits for
+it and counts its errand, or after, in which case the fence row is committed
+and its fence check rejects it. The transactions must be `READ COMMITTED` (the Postgres
 default); under `REPEATABLE READ` the count could use a snapshot older than
 the lock.
 
@@ -763,18 +789,10 @@ gate C5).
 
 ## Open issues
 
-1. **Edits that change the supplier bypass the fence.** `Store.Create` takes
-   the shared supplier lock and checks `supplier_fences`, but `Store.Apply`
-   does not, so a `PATCH` that moves an `OPEN` errand to a supplier whose
-   fence was just acquired would not be counted or blocked. Options: let
-   `Store.Apply` take the shared lock and check the fence when
-   `Changes.Details.SupplierID` differs from the current one (a port
-   documentation change, A1), or make `supplierId` immutable after creation
-   (an OpenAPI change). Decide before A1 merges.
-2. **Edit deadline re-validation.** `errand.Next` validates the complete
+1. **Edit deadline re-validation.** `errand.Next` validates the complete
    edited details, so the acceptance-deadline bounds apply to an unchanged
    deadline too: an edit to the notes fails when the deadline is less than
    10 minutes away. The OpenAPI `ErrandEdit` description documents this.
    Change `Next` if the team wants unchanged deadlines exempt.
-3. **Forced-withdrawal attribution and review-row writer** are still open
+2. **Forced-withdrawal attribution and review-row writer** are still open
    decisions 1 and 2 in `commit-plan.md`.

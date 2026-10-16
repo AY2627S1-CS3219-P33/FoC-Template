@@ -115,6 +115,46 @@ func TestFakeStoreCreate(t *testing.T) {
 	requireCode(t, apperror.SupplierDeletionInProgress, err)
 }
 
+func TestFakeStoreApplyFencesSupplierChangingEdits(t *testing.T) {
+	ctx := context.Background()
+	const other = "supplier-2"
+	edit := func(e errand.Errand, supplier string, reward int) errand.EventInput {
+		d := e.Details
+		d.SupplierID, d.Reward = supplier, reward
+		return errand.EventInput{Edit: &d}
+	}
+
+	t.Run("an edit onto a fenced supplier is refused, applied or pending", func(t *testing.T) {
+		s := testfakes.NewFakeStore()
+		e := openErrand(t, s, "e-1", t0)
+		s.Fence(other)
+		rowsBefore := len(s.Outbox())
+
+		_, _, err := s.Fire(ctx, "e-1", errand.EventEdit, requester(), edit(e, other, reward), t0)
+		requireCode(t, apperror.SupplierDeletionInProgress, err)
+		_, _, err = s.Fire(ctx, "e-1", errand.EventEdit, requester(), edit(e, other, reward+5), t0)
+		requireCode(t, apperror.SupplierDeletionInProgress, err)
+
+		stored, _ := s.Errand("e-1")
+		assert.Equal(t, e, stored)
+		assert.Len(t, s.Outbox(), rowsBefore)
+
+		s.Unfence(other)
+		stored, _, err = s.Fire(ctx, "e-1", errand.EventEdit, requester(), edit(e, other, reward), t0)
+		require.NoError(t, err)
+		assert.Equal(t, other, stored.Details.SupplierID)
+	})
+
+	t.Run("an edit that keeps a fenced supplier is applied", func(t *testing.T) {
+		s := testfakes.NewFakeStore()
+		e := openErrand(t, s, "e-1", t0)
+		s.Fence(supplierID)
+
+		_, _, err := s.Fire(ctx, "e-1", errand.EventEdit, requester(), edit(e, supplierID, reward+5), t0)
+		require.NoError(t, err)
+	})
+}
+
 func TestFakeStoreRecordRejection(t *testing.T) {
 	ctx := context.Background()
 	s := testfakes.NewFakeStore()
