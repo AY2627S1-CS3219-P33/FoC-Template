@@ -17,13 +17,13 @@ proposal order-service builds against.
 2. [Field visibility](#field-visibility)
 3. [Idempotency keys](#idempotency-keys)
 4. [Outbox](#outbox)
-5. [Fence and creation locking](#fence-and-creation-locking)
-6. [RabbitMQ contract](#rabbitmq-contract)
-7. [Errand events](#errand-events)
-8. [Credit message contract (proposed, gate C1)](#credit-message-contract-proposed-gate-c1)
-9. [Cache contract](#cache-contract)
-10. [Internal routes](#internal-routes)
-11. [Open issues](#open-issues)
+5. [Transition and review rows](#transition-and-review-rows)
+6. [Fence and creation locking](#fence-and-creation-locking)
+7. [RabbitMQ contract](#rabbitmq-contract)
+8. [Errand events](#errand-events)
+9. [Credit message contract (proposed, gate C1)](#credit-message-contract-proposed-gate-c1)
+10. [Cache contract](#cache-contract)
+11. [Internal routes](#internal-routes)
 
 ## Authorization and errors
 
@@ -194,6 +194,40 @@ Rows are never deleted.
 - **Payloads.** A credit row's payload is an `errand.CreditCommand`; an event
   row's payload is the envelope's `data` (below). Payloads are never returned
   by the admin API because they hold user IDs.
+
+## Transition and review rows
+
+`Store` writes these in the same transaction as the errand row and its
+outbox rows (`Create`, `Apply`, and each transition `ClaimDue` applies), so
+history and the review queue can never disagree with the errand.
+
+### `errand_transitions.courier_id`
+
+Every transition row records the errand's courier: `courier_id` before the
+transition, or after it when there was none before (an accept). It is NULL
+for an errand with no courier. `actor_id` stays "who did it", so it is NULL
+for `SYSTEM` transitions, including a forced withdrawal; `courier_id` is what
+attributes that withdrawal to the courier who was removed.
+
+`Store.CourierHistory` (F3.3.6, F3.6.3, F3.6.4) counts rows with
+`courier_id = $courier` and `event IN ('withdraw', 'pickup_deadline_passed')`,
+using `errand_transitions_withdrawals_idx`.
+
+### `errand_reviews`
+
+Stream A's `Store` writes review rows; stream B reads them (the admin review
+list) and resolves them through `Store.Apply`.
+
+| Transition | Review row |
+| --- | --- |
+| Into `REVIEW_REQUIRED` (`report_issue`, `dispute`, `delivery_deadline_passed`) | Insert: `reason` = the errand's new `review_reason`; `reporter_id` = actor ID, NULL for `SYSTEM`; `note` = the transition reason, NULL when blank; `created_at` = transition time |
+| Out of `REVIEW_REQUIRED` (`admin_complete`, `admin_refund`) | Update the errand's open review: `resolution` = the new status (`COMPLETED`/`REFUNDED`); `resolver_id` = admin ID; `resolution_reason` = the transition reason (required, F6.1.4); `resolved_at` = transition time |
+
+An open review is one with `resolution IS NULL`. `errand_reviews_open_idx`
+allows at most one per errand, because an errand is in `REVIEW_REQUIRED` at
+most once at a time. Resolving an errand with no open review is a bug and
+rolls the transaction back. The admin audit row for a resolution (F6.5) is
+still B's, written after `Apply` commits.
 
 ## Fence and creation locking
 
@@ -786,8 +820,3 @@ Order-service calls out with its own M2M client: supplier-service
 (`GET /suppliers/{id}`, `GET /supplier-versions/{versionId}`,
 `GET /buildings`, needing `suppliers:read`) and user-service (contact lookup,
 gate C5).
-
-## Open issues
-
-1. **Forced-withdrawal attribution and review-row writer** are still open
-   decisions 1 and 2 in `commit-plan.md`.

@@ -24,11 +24,18 @@ import (
 // ---------------------------------------------------------------------------
 
 // Store persists errands. It is the only writer of errands and
-// errand_transitions, and it inserts the outbox rows that transitions and
-// rejections emit. Every write method runs in a single database transaction:
-// the errand row, its transition record and its outbox rows commit together
-// or not at all (NFR7.4). Store writes no other table; review rows, audit
-// rows and reminder rows are written by their owners.
+// errand_transitions, it inserts the outbox rows that transitions and
+// rejections emit, and it opens and resolves the errand_reviews row of a
+// transition into or out of REVIEW_REQUIRED. Every write method runs in a
+// single database transaction: the errand row, its transition record, its
+// outbox rows and its review row commit together or not at all (NFR7.4).
+// Store writes no other table; audit rows and reminder rows are written by
+// their owners.
+//
+// Every errand_transitions row records, besides the actor, the errand's
+// courier: CourierID before the transition, or after it when there was none
+// before (an accept). A forced withdrawal's actor is SYSTEM, so this column
+// is what attributes it to the courier (F3.6.3, F3.6.4).
 type Store interface {
 	// Create inserts a new errand in PENDING_RESERVATION. e is the errand
 	// passed to Next (Status StatusNone, Version 0) and t is Next's Submit
@@ -54,8 +61,8 @@ type Store interface {
 	// The update is a compare-and-swap on (status = t.From, version =
 	// t.ExpectedVersion, pending_edit_key = t.ExpectedPendingEditKey, ""
 	// meaning NULL). On a match it writes t.ApplyTo(current), appends one
-	// errand_transitions row and inserts t.Outbox, all in one transaction.
-	// Apply never retries and never re-runs Next: on a mismatch the caller
+	// errand_transitions row, writes the review row (below) and inserts
+	// t.Outbox, all in one transaction. Apply never retries and never re-runs Next: on a mismatch the caller
 	// re-reads the errand and decides again (or reports the conflict).
 	//
 	// An EventEdit transition that moves the errand to another supplier
@@ -66,6 +73,16 @@ type Store interface {
 	// (docs/contracts.md). EventEditConfirmed is not checked: Fence Acquire
 	// counts pending edits towards their target supplier, so a confirmed
 	// edit can never land on a fenced supplier.
+	//
+	// Review rows (F6.1):
+	//   - t.To is REVIEW_REQUIRED (ReportIssue, Dispute,
+	//     DeliveryDeadlinePassed): insert an open errand_reviews row with
+	//     reason = the new ReviewReason, reporter_id = t.Actor.ID (NULL for
+	//     SYSTEM), note = t.Reason (NULL when blank) and created_at = t.At.
+	//   - t.From is REVIEW_REQUIRED (AdminComplete, AdminRefund): set the
+	//     errand's open review's resolution = t.To, resolver_id = t.Actor.ID,
+	//     resolution_reason = t.Reason and resolved_at = t.At. No open
+	//     review is a plain error: it signals a bug.
 	//
 	// Errors:
 	//   - ERRAND_NOT_FOUND: no errand has t.ErrandID.
@@ -126,7 +143,9 @@ type Store interface {
 	// eligibility (F3.3.6): whether courierID ever withdrew from errandID,
 	// and how many withdrawals courierID has at or after since (F3.6.4).
 	// Both voluntary (EventWithdraw) and forced (EventPickupDeadlinePassed)
-	// withdrawals count. It reads errand_transitions only.
+	// withdrawals count; a row is courierID's when its courier_id is
+	// courierID, whoever the actor was. It reads errand_transitions only
+	// (errand_transitions_withdrawals_idx).
 	CourierHistory(ctx context.Context, errandID, courierID string, since time.Time) (CourierHistory, error)
 
 	// ClaimDue runs one batch of a deadline or reconciler job.
@@ -137,7 +156,8 @@ type Store interface {
 	// (several replicas, or a job and a user request) never get the same
 	// errand. For each errand it calls decide while holding the row lock:
 	//
-	//   - (t, true, nil): t is applied exactly as Apply would apply it.
+	//   - (t, true, nil): t is applied exactly as Apply would apply it,
+	//     including its review row.
 	//   - (_, false, nil): the errand is left unchanged (for example its
 	//     deadline was extended, or the reserve is still unsent).
 	//   - (_, _, err): the whole batch is rolled back and err is returned

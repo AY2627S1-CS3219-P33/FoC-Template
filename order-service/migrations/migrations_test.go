@@ -38,9 +38,11 @@ var indexes = []string{
 	"errand_transitions_errand_idx",
 	"errand_transitions_actor_idx",
 	"errand_transitions_to_status_idx",
+	"errand_transitions_withdrawals_idx",
 	"outbox_due_idx",
 	"outbox_unconfirmed_credit_idx",
 	"supplier_fences_supplier_idx",
+	"errand_reviews_open_idx",
 }
 
 func TestOrderSchemaMigrationUp(t *testing.T) {
@@ -177,6 +179,30 @@ func TestOrderSchemaMigrationConstraints(t *testing.T) {
 			VALUES ('admin-1', 'review.resolve', 'errand', $1, 'MAYBE')
 		`, id)
 		requirePostgresCode(t, err, "23514")
+	})
+
+	t.Run("an errand has at most one open review", func(t *testing.T) {
+		conn := migratedDatabase(t)
+		ctx := context.Background()
+		id := insertErrand(t, conn, "REVIEW_REQUIRED", &courier, 10)
+		insertReview := func() error {
+			_, err := conn.Exec(ctx, `
+				INSERT INTO errand_reviews (errand_id, reason) VALUES ($1, 'COURIER_ISSUE')
+			`, id)
+			return err
+		}
+
+		require.NoError(t, insertReview())
+		requirePostgresCode(t, insertReview(), "23505")
+
+		_, err := conn.Exec(ctx, `
+			UPDATE errand_reviews
+			SET resolution = 'REFUNDED', resolver_id = 'admin-1',
+				resolution_reason = 'not delivered', resolved_at = now()
+			WHERE errand_id = $1
+		`, id)
+		require.NoError(t, err)
+		require.NoError(t, insertReview())
 	})
 }
 
