@@ -19,3 +19,6 @@ gofmt -l . && go vet ./... && go test ./... && go build ./...
 
 ## Database roles
 Never put `.env.admin`, master or migrator credentials into the service environment, compose file or image. Every new migration is a new file; never edit an applied one.
+
+## Authentication
+Users and services reach different routes: a user token only on `/v1/wallet/*`, a machine token only on `/internal/*`. Take identity and permissions from the verified token (`auth.PrincipalFromContext`), never from the request. Order-related changes will arrive as RabbitMQ events authenticated by broker credentials, so never put tokens in messages. The initial allocation amount is configuration (`INITIAL_CREDIT_AMOUNT`), never a request field. Use `go test -p 1 ./...` for integration tests.

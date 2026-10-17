@@ -9,7 +9,13 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/CS3219-AY2627S1/FoC-Template/credit-service/internal/auth"
 )
+
+// MaxInitialCredit bounds INITIAL_CREDIT_AMOUNT so a typo cannot mint a
+// huge balance for every new user.
+const MaxInitialCredit = 1_000_000
 
 type Environment string
 
@@ -35,6 +41,11 @@ type DatabaseConfig struct {
 }
 
 type Config struct {
+	Auth auth.Auth0Config
+	// InitialCredit is the whole number of credits every new wallet receives.
+	// It lives here, not in requests, so no caller can choose how many credits
+	// to create.
+	InitialCredit   int64
 	Environment     Environment
 	HTTP            HTTPConfig
 	Database        DatabaseConfig
@@ -90,13 +101,39 @@ func LoadFrom(lookup LookupEnv) (Config, error) {
 		problems = append(problems, "DATABASE_POOL_MIN must not exceed DATABASE_POOL_MAX")
 	}
 
+	initialCredit := int64(readInt(lookup, "INITIAL_CREDIT_AMOUNT", 0, 0, MaxInitialCredit, &problems))
+	if _, found := lookup("INITIAL_CREDIT_AMOUNT"); !found {
+		problems = append(problems, "INITIAL_CREDIT_AMOUNT is required (use 0 for empty wallets)")
+	}
+
+	authConfig := auth.DefaultAuth0Config()
+	authConfig.Issuer = strings.TrimSpace(required(lookup, "AUTH0_ISSUER", &problems))
+	authConfig.Audience = read(lookup, "AUTH0_AUDIENCE", authConfig.Audience)
+	skew, err := time.ParseDuration(read(lookup, "AUTH0_CLOCK_SKEW", authConfig.ClockSkew.String()))
+	if err != nil {
+		problems = append(problems, "AUTH0_CLOCK_SKEW must be a duration")
+	} else {
+		authConfig.ClockSkew = skew
+	}
+	authConfig.CacheTTL = readDuration(lookup, "AUTH0_JWKS_CACHE_TTL", authConfig.CacheTTL, &problems)
+	authConfig.FetchTimeout = readDuration(lookup, "AUTH0_JWKS_FETCH_TIMEOUT", authConfig.FetchTimeout, &problems)
+	authConfig.RefreshInterval = readDuration(lookup, "AUTH0_JWKS_REFRESH_INTERVAL", authConfig.RefreshInterval, &problems)
+	authConfig.FetchAttempts = readInt(lookup, "AUTH0_JWKS_FETCH_ATTEMPTS", authConfig.FetchAttempts, 1, 3, &problems)
+	authConfig.BreakerThreshold = readInt(lookup, "AUTH0_JWKS_BREAKER_THRESHOLD", authConfig.BreakerThreshold, 1, 100, &problems)
+	authConfig.BreakerCooldown = readDuration(lookup, "AUTH0_JWKS_BREAKER_COOLDOWN", authConfig.BreakerCooldown, &problems)
+	if err := authConfig.Validate(); err != nil {
+		problems = append(problems, err.Error())
+	}
+
 	if len(problems) > 0 {
 		return Config{}, &Error{problems: problems}
 	}
 
 	return Config{
-		Environment: environment,
-		HTTP:        HTTPConfig{Host: host, Port: port},
+		Auth:          authConfig,
+		InitialCredit: initialCredit,
+		Environment:   environment,
+		HTTP:          HTTPConfig{Host: host, Port: port},
 		Database: DatabaseConfig{
 			URL:            databaseURL,
 			MinConnections: int32(poolMin),

@@ -10,17 +10,29 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/CS3219-AY2627S1/FoC-Template/credit-service/internal/auth"
 	"github.com/CS3219-AY2627S1/FoC-Template/credit-service/internal/config"
 	"github.com/CS3219-AY2627S1/FoC-Template/credit-service/internal/database"
 	"github.com/CS3219-AY2627S1/FoC-Template/credit-service/internal/readiness"
+	"github.com/CS3219-AY2627S1/FoC-Template/credit-service/internal/wallet"
+	"github.com/CS3219-AY2627S1/FoC-Template/credit-service/internal/walletapi"
 	"github.com/CS3219-AY2627S1/FoC-Template/credit-service/migrations"
 )
 
+// Deps are the collaborators the HTTP routes need.
+type Deps struct {
+	Readiness readiness.Checker
+	Auth      auth.Port
+	Wallets   walletapi.Service
+	Logger    *slog.Logger
+}
+
 // Handler builds the HTTP routes. It opens no network port, so tests can
 // call it directly with httptest.
-func Handler(checker readiness.Checker) http.Handler {
+func Handler(deps Deps) http.Handler {
 	router := http.NewServeMux()
-	readiness.NewHandler(checker).RegisterRoutes(router)
+	readiness.NewHandler(deps.Readiness).RegisterRoutes(router)
+	walletapi.NewHandler(deps.Wallets, auth.NewMiddleware(deps.Auth), deps.Logger).RegisterRoutes(router)
 	return router
 }
 
@@ -50,14 +62,24 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, err
 		pool.Close()
 		return nil, err
 	}
+	verifier, err := auth.NewAuth0(cfg.Auth, logger)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
 
 	return &App{
 		cfg:    cfg,
 		logger: logger,
 		pool:   pool,
 		server: &http.Server{
-			Addr:              cfg.HTTP.Address(),
-			Handler:           Handler(readiness.NewPostgresChecker(pool, requiredVersion)),
+			Addr: cfg.HTTP.Address(),
+			Handler: Handler(Deps{
+				Readiness: readiness.NewPostgresChecker(pool, requiredVersion),
+				Auth:      verifier,
+				Wallets:   wallet.NewService(pool, cfg.InitialCredit),
+				Logger:    logger,
+			}),
 			ReadHeaderTimeout: 5 * time.Second,
 		},
 	}, nil

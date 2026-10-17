@@ -2,6 +2,7 @@ package walletrepo
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"time"
 
@@ -17,33 +18,54 @@ type DBTX interface {
 }
 
 type Wallet struct {
-	ID        string
-	OwnerID   string
-	Available int64
-	Reserved  int64
-	Version   int64
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID           string
+	OwnerID      string
+	Auth0Subject string
+	Available    int64
+	Reserved     int64
+	Version      int64
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
 }
 
-const walletColumns = `id::text, owner_id::text, available, reserved, version, created_at, updated_at`
+const walletColumns = `id::text, owner_id::text, auth0_subject, available, reserved, version, created_at, updated_at`
 
 func scanWallet(row pgx.Row) (Wallet, error) {
 	var w Wallet
-	err := row.Scan(&w.ID, &w.OwnerID, &w.Available, &w.Reserved, &w.Version, &w.CreatedAt, &w.UpdatedAt)
+	err := row.Scan(&w.ID, &w.OwnerID, &w.Auth0Subject, &w.Available, &w.Reserved, &w.Version, &w.CreatedAt, &w.UpdatedAt)
 	return w, mapError(err)
 }
 
 // CreateWallet inserts an empty wallet. It returns ErrAlreadyExists if the
-// owner already has one.
-func CreateWallet(ctx context.Context, db DBTX, ownerID string) (Wallet, error) {
+// owner already has one and ErrSubjectTaken if another wallet has the subject.
+func CreateWallet(ctx context.Context, db DBTX, ownerID, auth0Subject string) (Wallet, error) {
 	return scanWallet(db.QueryRow(ctx,
-		`INSERT INTO wallets (owner_id) VALUES ($1::uuid) RETURNING `+walletColumns, ownerID))
+		`INSERT INTO wallets (owner_id, auth0_subject) VALUES ($1::uuid, $2)
+		 RETURNING `+walletColumns, ownerID, auth0Subject))
+}
+
+// InsertWalletIfAbsent creates the owner's wallet unless one exists, in which
+// case it changes nothing and reports created == false. Read the winner with
+// GetWalletByOwner in a later statement. It returns ErrSubjectTaken if a
+// different wallet already uses the subject.
+func InsertWalletIfAbsent(ctx context.Context, db DBTX, ownerID, auth0Subject string) (Wallet, bool, error) {
+	wallet, err := scanWallet(db.QueryRow(ctx,
+		`INSERT INTO wallets (owner_id, auth0_subject) VALUES ($1::uuid, $2)
+		 ON CONFLICT (owner_id) DO NOTHING RETURNING `+walletColumns, ownerID, auth0Subject))
+	if errors.Is(err, ErrNotFound) {
+		return Wallet{}, false, nil
+	}
+	return wallet, err == nil, err
 }
 
 func GetWallet(ctx context.Context, db DBTX, walletID string) (Wallet, error) {
 	return scanWallet(db.QueryRow(ctx,
 		`SELECT `+walletColumns+` FROM wallets WHERE id = $1::uuid`, walletID))
+}
+
+func GetWalletByAuth0Subject(ctx context.Context, db DBTX, auth0Subject string) (Wallet, error) {
+	return scanWallet(db.QueryRow(ctx,
+		`SELECT `+walletColumns+` FROM wallets WHERE auth0_subject = $1`, auth0Subject))
 }
 
 func GetWalletByOwner(ctx context.Context, db DBTX, ownerID string) (Wallet, error) {
