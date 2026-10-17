@@ -1,6 +1,6 @@
 # Credit service
 
-Owns user credit state: balances, reservations, refunds and transfers. Credits are a closed economy; they cannot be bought, withdrawn or exchanged for money. This scaffold only provides the runnable service, PostgreSQL connectivity, migrations and `GET /readyz`. Credit tables and endpoints come later.
+Owns user credit state: balances, reservations, refunds and transfers. Credits are a closed economy; they cannot be bought, withdrawn or exchanged for money. Currently implemented: the runnable service, PostgreSQL connectivity, `GET /readyz`, the wallet schema and its SQL data-access layer. The domain operations (allocate, reserve, adjust, refund, transfer) and HTTP endpoints come next. See [docs/wallet-aggregate.md](docs/wallet-aggregate.md) for the data model and rules.
 
 ## Technology
 
