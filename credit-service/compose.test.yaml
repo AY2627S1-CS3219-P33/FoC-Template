@@ -1,0 +1,18 @@
+services:
+  credit-test-db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: credit_test
+      POSTGRES_USER: credit_test
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      - "127.0.0.1:${CREDIT_TEST_DB_PORT:-5434}:5432"
+    volumes:
+      - credit-test-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U credit_test -d credit_test"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+volumes:
+  credit-test-data:
