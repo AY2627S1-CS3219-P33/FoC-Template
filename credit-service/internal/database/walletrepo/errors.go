@@ -12,6 +12,8 @@ var (
 	// ErrAlreadyExists means a wallet for the owner, or a reservation for the
 	// order, already exists.
 	ErrAlreadyExists = errors.New("already exists")
+	// ErrSubjectTaken means another wallet already uses the Auth0 subject.
+	ErrSubjectTaken = errors.New("auth0 subject already in use")
 	// ErrDuplicateOperation means the idempotency key was already recorded for
 	// this wallet: the operation has been applied before.
 	ErrDuplicateOperation = errors.New("operation already applied")
@@ -24,6 +26,7 @@ const (
 	codeCheckViolation  = "23514"
 
 	constraintIdempotency = "ledger_entries_wallet_idempotency_key"
+	constraintSubject     = "wallets_auth0_subject_key"
 	constraintAvailable   = "wallets_available_nonneg"
 	constraintReserved    = "wallets_reserved_nonneg"
 )
@@ -43,6 +46,9 @@ func mapError(err error) error {
 		case codeUniqueViolation:
 			if pgErr.ConstraintName == constraintIdempotency {
 				return ErrDuplicateOperation
+			}
+			if pgErr.ConstraintName == constraintSubject {
+				return ErrSubjectTaken
 			}
 			return ErrAlreadyExists
 		case codeCheckViolation:

@@ -1,6 +1,6 @@
 # Wallet aggregate
 
-Status: schema and data-access layer implemented (`migrations/00002_create_wallets.sql`, `internal/database/walletrepo`). Domain operations and HTTP endpoints are not yet built.
+Status: implemented so far are the schema (`migrations/00002`, `00003`), the data-access layer (`internal/database/walletrepo`), wallet creation with the initial allocation, and balance reads (`internal/wallet`, `internal/walletapi`). Order operations are not built yet.
 
 ## Source flows
 
@@ -20,6 +20,9 @@ From the event storming board (`docs/CS3219.drawio.xml` at the repo root):
 - **Credits are whole numbers** (`bigint`). APIs serialise them as strings.
 - **One wallet per user**, identified by the user-service account UUID (`owner_id`).
 - **Reservations live inside the Wallet aggregate**, one per order.
+- **Wallets are created over HTTP** by user-service (`PUT /internal/wallets/{ownerId}`, machine token), idempotent per owner. **Order operations (reserve, adjust, release, transfer) arrive as RabbitMQ events**, authenticated by broker credentials and permissions; messages never carry tokens.
+- **The initial allocation amount is configuration** (`INITIAL_CREDIT_AMOUNT`) and is recorded once as a ledger entry with the fixed key `initial-allocation`. Callers cannot choose it.
+- **Each wallet stores the owner's Auth0 subject** (supplied at creation, unique, never changed), so a user reads their own wallet by token subject with no call to user-service.
 - **A transfer is one database transaction** that locks both wallets, in wallet-ID order via `LockWalletsByOwner`, to avoid deadlocks. There is no eventual consistency between the two wallets.
 
 ## Model
@@ -47,7 +50,8 @@ One transaction (`pgx.BeginFunc`): lock the wallet or wallets, check the rule, i
 
 ## Open questions
 
-- Initial allocation amount and who triggers it (user-service on signup).
+- What user-service does when wallet creation fails at signup (retry or reconcile).
+- Existing users created before credit-service need their wallets created (a one-off backfill).
 - What happens to an `ACTIVE` reservation when an order expires: refund is assumed.
 - Whether `order_id` is a UUID in order-service.
-- Authentication and permissions per caller (see the auth discussion; not yet built).
+- RabbitMQ topology, per-service permissions, and the transactional outbox for result events.

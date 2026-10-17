@@ -24,7 +24,7 @@ func TestCreateAndReadWallet(t *testing.T) {
 	ctx := context.Background()
 	pool := testdb.Pool(t)
 
-	created, err := walletrepo.CreateWallet(ctx, pool, alice)
+	created, err := walletrepo.CreateWallet(ctx, pool, alice, "auth0|alice")
 	require.NoError(t, err)
 	require.Equal(t, alice, created.OwnerID)
 	require.Zero(t, created.Available)
@@ -38,16 +38,52 @@ func TestCreateAndReadWallet(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, created.ID, byID.ID)
 
-	_, err = walletrepo.CreateWallet(ctx, pool, alice)
+	require.Equal(t, "auth0|alice", created.Auth0Subject)
+
+	bySubject, err := walletrepo.GetWalletByAuth0Subject(ctx, pool, "auth0|alice")
+	require.NoError(t, err)
+	require.Equal(t, created.ID, bySubject.ID)
+	_, err = walletrepo.GetWalletByAuth0Subject(ctx, pool, "auth0|nobody")
+	require.ErrorIs(t, err, walletrepo.ErrNotFound)
+
+	_, err = walletrepo.CreateWallet(ctx, pool, alice, "auth0|other")
 	require.ErrorIs(t, err, walletrepo.ErrAlreadyExists)
+	_, err = walletrepo.CreateWallet(ctx, pool, bob, "auth0|alice")
+	require.ErrorIs(t, err, walletrepo.ErrSubjectTaken)
+	_, err = walletrepo.CreateWallet(ctx, pool, bob, " ")
+	require.Error(t, err, "blank subject is rejected")
 	_, err = walletrepo.GetWalletByOwner(ctx, pool, bob)
 	require.ErrorIs(t, err, walletrepo.ErrNotFound)
+}
+
+func TestInsertWalletIfAbsentIsIdempotent(t *testing.T) {
+	ctx := context.Background()
+	pool := testdb.Pool(t)
+
+	first, created, err := walletrepo.InsertWalletIfAbsent(ctx, pool, alice, "auth0|alice")
+	require.NoError(t, err)
+	require.True(t, created)
+
+	_, created, err = walletrepo.InsertWalletIfAbsent(ctx, pool, alice, "auth0|alice")
+	require.NoError(t, err)
+	require.False(t, created)
+	_, created, err = walletrepo.InsertWalletIfAbsent(ctx, pool, alice, "auth0|different")
+	require.NoError(t, err)
+	require.False(t, created, "an existing owner changes nothing, whatever the subject")
+
+	_, _, err = walletrepo.InsertWalletIfAbsent(ctx, pool, bob, "auth0|alice")
+	require.ErrorIs(t, err, walletrepo.ErrSubjectTaken)
+
+	got, err := walletrepo.GetWalletByOwner(ctx, pool, alice)
+	require.NoError(t, err)
+	require.Equal(t, first.ID, got.ID)
+	require.Equal(t, "auth0|alice", got.Auth0Subject)
 }
 
 func TestApplyDeltasUpdatesBalancesAndVersion(t *testing.T) {
 	ctx := context.Background()
 	pool := testdb.Pool(t)
-	w, err := walletrepo.CreateWallet(ctx, pool, alice)
+	w, err := walletrepo.CreateWallet(ctx, pool, alice, "auth0|alice")
 	require.NoError(t, err)
 
 	w, err = walletrepo.ApplyDeltas(ctx, pool, w.ID, 100, 0)
@@ -64,7 +100,7 @@ func TestApplyDeltasUpdatesBalancesAndVersion(t *testing.T) {
 func TestApplyDeltasRejectsNegativeBalances(t *testing.T) {
 	ctx := context.Background()
 	pool := testdb.Pool(t)
-	w, err := walletrepo.CreateWallet(ctx, pool, alice)
+	w, err := walletrepo.CreateWallet(ctx, pool, alice, "auth0|alice")
 	require.NoError(t, err)
 
 	_, err = walletrepo.ApplyDeltas(ctx, pool, w.ID, -1, 0)
@@ -81,7 +117,7 @@ func TestApplyDeltasRejectsNegativeBalances(t *testing.T) {
 func TestReservationLifecycle(t *testing.T) {
 	ctx := context.Background()
 	pool := testdb.Pool(t)
-	w, err := walletrepo.CreateWallet(ctx, pool, alice)
+	w, err := walletrepo.CreateWallet(ctx, pool, alice, "auth0|alice")
 	require.NoError(t, err)
 
 	r, err := walletrepo.CreateReservation(ctx, pool, w.ID, order1, 40)
@@ -111,7 +147,7 @@ func TestReservationLifecycle(t *testing.T) {
 func TestLedgerEntriesAreIdempotentAndAppendOnly(t *testing.T) {
 	ctx := context.Background()
 	pool := testdb.Pool(t)
-	w, err := walletrepo.CreateWallet(ctx, pool, alice)
+	w, err := walletrepo.CreateWallet(ctx, pool, alice, "auth0|alice")
 	require.NoError(t, err)
 
 	entry := walletrepo.LedgerEntry{
@@ -129,7 +165,7 @@ func TestLedgerEntriesAreIdempotentAndAppendOnly(t *testing.T) {
 	require.Equal(t, first.ID, replay.ID)
 
 	// The same key is allowed on a different wallet (both halves of a transfer).
-	other, err := walletrepo.CreateWallet(ctx, pool, bob)
+	other, err := walletrepo.CreateWallet(ctx, pool, bob, "auth0|bob")
 	require.NoError(t, err)
 	entry.WalletID = other.ID
 	_, err = walletrepo.InsertLedgerEntry(ctx, pool, entry)
@@ -149,7 +185,7 @@ func TestLedgerEntriesAreIdempotentAndAppendOnly(t *testing.T) {
 func TestListLedgerEntriesPages(t *testing.T) {
 	ctx := context.Background()
 	pool := testdb.Pool(t)
-	w, err := walletrepo.CreateWallet(ctx, pool, alice)
+	w, err := walletrepo.CreateWallet(ctx, pool, alice, "auth0|alice")
 	require.NoError(t, err)
 	for _, key := range []string{"a", "b", "c"} {
 		_, err = walletrepo.InsertLedgerEntry(ctx, pool, walletrepo.LedgerEntry{
@@ -170,9 +206,9 @@ func TestListLedgerEntriesPages(t *testing.T) {
 func TestLockWalletsByOwner(t *testing.T) {
 	ctx := context.Background()
 	pool := testdb.Pool(t)
-	a, err := walletrepo.CreateWallet(ctx, pool, alice)
+	a, err := walletrepo.CreateWallet(ctx, pool, alice, "auth0|alice")
 	require.NoError(t, err)
-	b, err := walletrepo.CreateWallet(ctx, pool, bob)
+	b, err := walletrepo.CreateWallet(ctx, pool, bob, "auth0|bob")
 	require.NoError(t, err)
 
 	err = pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
@@ -195,7 +231,7 @@ func TestLockWalletsByOwner(t *testing.T) {
 func TestReserveInOneTransactionKeepsLedgerConsistent(t *testing.T) {
 	ctx := context.Background()
 	pool := testdb.Pool(t)
-	w, err := walletrepo.CreateWallet(ctx, pool, alice)
+	w, err := walletrepo.CreateWallet(ctx, pool, alice, "auth0|alice")
 	require.NoError(t, err)
 	_, err = walletrepo.ApplyDeltas(ctx, pool, w.ID, 100, 0)
 	require.NoError(t, err)
