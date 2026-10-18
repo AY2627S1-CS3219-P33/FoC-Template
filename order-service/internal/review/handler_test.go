@@ -130,13 +130,17 @@ func (a *recordingAudit) all() []opsrepo.AuditRecord {
 }
 
 type harness struct {
-	router    http.Handler
-	store     *testfakes.FakeStore
-	suppliers *testfakes.FakeSupplierGate
-	audit     *recordingAudit
-	logs      *strings.Builder
-	fixture   *authtest.Fixture
-	admin     string // a valid user token with errands:review
+	router        http.Handler
+	store         *testfakes.FakeStore
+	suppliers     *testfakes.FakeSupplierGate
+	audit         *recordingAudit
+	settingsStore *fakeSettingsStore
+	transitions   *fakeTransitions
+	activity      *fakeActivity
+	settings      *testfakes.FakeSettings
+	logs          *strings.Builder
+	fixture       *authtest.Fixture
+	admin         string // a valid user token with errands:review
 }
 
 func newHarness(t *testing.T) harness {
@@ -157,18 +161,32 @@ func newHarness(t *testing.T) harness {
 		Latitude: 1.2949, Longitude: 103.7737, OpeningTime: "08:00", ClosingTime: "20:00",
 	})
 	audit := &recordingAudit{}
-	service := review.NewService(review.Dependencies{
-		Store:     store,
-		Reviews:   storeReviews{store: store},
-		Audit:     audit,
-		Suppliers: suppliers,
-		Clock:     testfakes.NewFakeClock(t0),
-		Logger:    logger,
-	})
+	clock := testfakes.NewFakeClock(t0)
+	settingsStore := newFakeSettingsStore(audit)
+	transitions := &fakeTransitions{}
+	activity := &fakeActivity{}
+	settings := testfakes.NewFakeSettings()
+	services := review.Services{
+		Reviews: review.NewService(review.Dependencies{
+			Store:     store,
+			Reviews:   storeReviews{store: store},
+			Audit:     audit,
+			Suppliers: suppliers,
+			Clock:     clock,
+			Logger:    logger,
+		}),
+		Settings: review.NewSettingsService(settingsStore, audit, logger),
+		Events:   review.NewEventService(transitions),
+		Flags:    review.NewFlagService(activity, settings, clock),
+	}
 	router := httpapi.NewRouter(httpapi.Dependencies{Logger: logger},
-		review.NewHandler(service, auth.NewMiddleware(verifier), logger))
+		review.NewHandler(services, auth.NewMiddleware(verifier), logger))
 	admin := f.Token(t, f.Claims(auth.OrderAudience, []string{string(auth.ReviewErrands)}), "one")
-	return harness{router: router, store: store, suppliers: suppliers, audit: audit, logs: logs, fixture: f, admin: admin}
+	return harness{
+		router: router, store: store, suppliers: suppliers, audit: audit,
+		settingsStore: settingsStore, transitions: transitions, activity: activity, settings: settings,
+		logs: logs, fixture: f, admin: admin,
+	}
 }
 
 func (h harness) do(t *testing.T, method, path, token, body string) *httptest.ResponseRecorder {

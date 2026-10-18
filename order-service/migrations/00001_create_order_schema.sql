@@ -148,6 +148,11 @@ CREATE INDEX errand_transitions_actor_idx
     ON errand_transitions (actor_id, at);
 CREATE INDEX errand_transitions_to_status_idx
     ON errand_transitions (to_status, at);
+-- Admin event log with no errand, user or type filter (F6.2.1, F6.2.2):
+-- newest first by (at, id), with the time range and the keyset cursor as
+-- index bounds.
+CREATE INDEX errand_transitions_at_idx
+    ON errand_transitions (at, id);
 -- Store.CourierHistory: a courier's voluntary and forced withdrawals.
 CREATE INDEX errand_transitions_withdrawals_idx
     ON errand_transitions (courier_id, at)

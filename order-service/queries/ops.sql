@@ -172,3 +172,117 @@ SET value = excluded.value,
     updated_by = excluded.updated_by,
     updated_at = clock_timestamp()
 WHERE settings.value IS DISTINCT FROM excluded.value;
+
+-- Admin event log (F6.2.1, F6.2.2). Each query has one indexed access path,
+-- chosen by the caller from the most selective filter: errand, then user,
+-- then type, then none. Every query is newest first by (at, id). from_at,
+-- to_at and the (cursor_at, cursor_id) keyset are always set (-infinity,
+-- infinity and (infinity, max id) when the client gave none), so they are
+-- index bounds even in a generic plan. Optional residual filters are NULL
+-- when unset.
+
+-- name: ListTransitionsByErrand :many
+-- ListTransitionsByErrand reads errand_transitions_errand_idx. user_id keeps
+-- transitions of an errand the user requested, or that the user caused or
+-- was courier of at the time.
+SELECT t.id, t.errand_id, t.from_status, t.to_status, t.event, t.actor_type,
+       t.actor_id, t.courier_id, t.reason, t.errand_version, t.at
+FROM errand_transitions t
+WHERE t.errand_id = @errand_id
+  AND t.at >= @from_at::timestamptz
+  AND t.at < @to_at::timestamptz
+  AND (t.at, t.id) < (@cursor_at::timestamptz, @cursor_id::bigint)
+  AND (sqlc.narg(to_status)::text IS NULL OR t.to_status = sqlc.narg(to_status)::text)
+  AND (sqlc.narg(user_id)::text IS NULL
+       OR t.actor_id = sqlc.narg(user_id)::text
+       OR t.courier_id = sqlc.narg(user_id)::text
+       OR EXISTS (SELECT 1 FROM errands e
+                  WHERE e.id = t.errand_id AND e.requester_id = sqlc.narg(user_id)::text))
+ORDER BY t.at DESC, t.id DESC
+LIMIT @row_limit;
+
+-- name: ListTransitionsByUser :many
+-- ListTransitionsByUser returns the transitions of errands user_id requested
+-- (errands_requester_idx, then errand_transitions_errand_idx), those the
+-- user caused (errand_transitions_actor_idx), and those while the user was
+-- the errand's courier. A user only becomes an errand's courier by accepting
+-- it, so the last set is found through the user's accept rows
+-- (errand_transitions_actor_idx) and then their errands' rows; there is no
+-- index on courier_id alone.
+SELECT t.id, t.errand_id, t.from_status, t.to_status, t.event, t.actor_type,
+       t.actor_id, t.courier_id, t.reason, t.errand_version, t.at
+FROM errand_transitions t
+WHERE t.id IN (
+        SELECT a.id FROM errand_transitions a
+        WHERE a.actor_id = @user_id::text
+        UNION
+        SELECT r.id FROM errands e
+        JOIN errand_transitions r ON r.errand_id = e.id
+        WHERE e.requester_id = @user_id::text
+        UNION
+        SELECT c.id FROM errand_transitions c
+        WHERE c.courier_id = @user_id::text
+          AND c.errand_id IN (SELECT x.errand_id FROM errand_transitions x
+                              WHERE x.actor_id = @user_id::text AND x.event = 'accept'))
+  AND t.at >= @from_at::timestamptz
+  AND t.at < @to_at::timestamptz
+  AND (t.at, t.id) < (@cursor_at::timestamptz, @cursor_id::bigint)
+  AND (sqlc.narg(to_status)::text IS NULL OR t.to_status = sqlc.narg(to_status)::text)
+ORDER BY t.at DESC, t.id DESC
+LIMIT @row_limit;
+
+-- name: ListTransitionsByType :many
+-- ListTransitionsByType reads errand_transitions_to_status_idx.
+SELECT t.id, t.errand_id, t.from_status, t.to_status, t.event, t.actor_type,
+       t.actor_id, t.courier_id, t.reason, t.errand_version, t.at
+FROM errand_transitions t
+WHERE t.to_status = @to_status::text
+  AND t.at >= @from_at::timestamptz
+  AND t.at < @to_at::timestamptz
+  AND (t.at, t.id) < (@cursor_at::timestamptz, @cursor_id::bigint)
+ORDER BY t.at DESC, t.id DESC
+LIMIT @row_limit;
+
+-- name: ListTransitionsByTime :many
+-- ListTransitionsByTime reads errand_transitions_at_idx.
+SELECT t.id, t.errand_id, t.from_status, t.to_status, t.event, t.actor_type,
+       t.actor_id, t.courier_id, t.reason, t.errand_version, t.at
+FROM errand_transitions t
+WHERE t.at >= @from_at::timestamptz
+  AND t.at < @to_at::timestamptz
+  AND (t.at, t.id) < (@cursor_at::timestamptz, @cursor_id::bigint)
+ORDER BY t.at DESC, t.id DESC
+LIMIT @row_limit;
+
+-- Suspicious-activity counts (F6.3.1, F6.3.2, F3.5.3). Both return the users
+-- with at least min_count events at or after since, most events first.
+
+-- name: ListWithdrawalCounts :many
+-- ListWithdrawalCounts counts voluntary and forced withdrawals per courier
+-- (courier_id attributes forced withdrawals, whose actor is SYSTEM). It reads
+-- errand_transitions_withdrawals_idx, whose predicate the WHERE repeats.
+SELECT t.courier_id::text AS user_id, count(*) AS event_count
+FROM errand_transitions t
+WHERE t.event IN ('withdraw', 'pickup_deadline_passed')
+  AND t.courier_id IS NOT NULL
+  AND t.at >= @since::timestamptz
+GROUP BY t.courier_id
+HAVING count(*) >= @min_count::bigint
+ORDER BY event_count DESC, user_id
+LIMIT @row_limit;
+
+-- name: ListCancellationCounts :many
+-- ListCancellationCounts counts requester cancellations per requester. Only
+-- a requester's cancel enters CANCELLED (Diagram 1), so it reads
+-- errand_transitions_to_status_idx.
+SELECT t.actor_id::text AS user_id, count(*) AS event_count
+FROM errand_transitions t
+WHERE t.to_status = 'CANCELLED'
+  AND t.event = 'cancel'
+  AND t.actor_type = 'REQUESTER'
+  AND t.actor_id IS NOT NULL
+  AND t.at >= @since::timestamptz
+GROUP BY t.actor_id
+HAVING count(*) >= @min_count::bigint
+ORDER BY event_count DESC, user_id
+LIMIT @row_limit;
