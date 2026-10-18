@@ -10,6 +10,58 @@ INSERT INTO outbox (kind, idempotency_key, errand_id, payload)
 VALUES (@kind, @idempotency_key, @errand_id, @payload)
 ON CONFLICT (idempotency_key) DO NOTHING;
 
+-- name: InsertCurrentReminder :execrows
+-- InsertCurrentReminder is InsertReminder for the scheduler (B4b): it writes
+-- the row only while the errand still has the status and version the
+-- reminder was raised for. FOR SHARE waits for a transition in progress on
+-- the errand, so a reminder is never written for a state the errand has just
+-- left. No row is written for a missing errand either.
+INSERT INTO outbox (kind, idempotency_key, errand_id, payload)
+SELECT @kind::text, @idempotency_key::text, e.id, @payload::jsonb
+FROM errands e
+WHERE e.id = @errand_id
+  AND e.status = @status
+  AND e.version = @version
+FOR SHARE OF e
+ON CONFLICT (idempotency_key) DO NOTHING;
+
+-- name: ListVerificationReminderCandidates :many
+-- ListVerificationReminderCandidates returns DELIVERED errands whose
+-- verification deadline is after now and at or before remind_before, and
+-- which have no verification reminder for their current version yet
+-- (F3.10.3). It reads errands_verification_due_idx; the outbox lookup uses
+-- the unique idempotency_key index.
+SELECT e.id, e.version, e.status, e.requester_id, e.courier_id,
+       e.verification_deadline::timestamptz AS deadline
+FROM errands e
+WHERE e.status = 'DELIVERED'
+  AND e.verification_deadline > @now::timestamptz
+  AND e.verification_deadline <= @remind_before::timestamptz
+  AND NOT EXISTS (
+    SELECT 1 FROM outbox o
+    WHERE o.idempotency_key = e.id::text || ':verify-reminder:' || e.version::text
+  )
+ORDER BY e.verification_deadline, e.id
+LIMIT @row_limit;
+
+-- name: ListPickupReminderCandidates :many
+-- ListPickupReminderCandidates returns ASSIGNED errands whose pickup
+-- deadline is after now and at or before remind_before, and which have no
+-- pickup reminder for their current version yet. It reads
+-- errands_pickup_due_idx.
+SELECT e.id, e.version, e.status, e.requester_id, e.courier_id,
+       e.pickup_deadline::timestamptz AS deadline
+FROM errands e
+WHERE e.status = 'ASSIGNED'
+  AND e.pickup_deadline > @now::timestamptz
+  AND e.pickup_deadline <= @remind_before::timestamptz
+  AND NOT EXISTS (
+    SELECT 1 FROM outbox o
+    WHERE o.idempotency_key = e.id::text || ':pickup-reminder:' || e.version::text
+  )
+ORDER BY e.pickup_deadline, e.id
+LIMIT @row_limit;
+
 -- name: LockSupplierForFence :exec
 -- LockSupplierForFence takes the exclusive advisory lock on the supplier key
 -- defined in docs/contracts.md ("Lock key"). Errand creation takes the
