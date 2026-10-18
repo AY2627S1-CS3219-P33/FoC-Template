@@ -83,15 +83,14 @@ services:
         condition: service_completed_successfully
 
   supplier-service:
-    build: ./supplier-service
+    build:
+      context: .
+      dockerfile: supplier-service/Dockerfile
     environment:
       APP_ENV: development
       DATABASE_URL: postgresql://supplier_service:${SUPPLIER_DB_PASSWORD:-supplier-local-dev}@supplier-db:5432/supplier_service?sslmode=disable
       AUTH0_ISSUER: ${SUPPLIER_AUTH0_ISSUER:-https://your-tenant.auth0.com/}
       AUTH0_AUDIENCE: ${SUPPLIER_AUTH0_AUDIENCE:-https://api.foc.local/supplier-service}
-      SUPPLIER_SEED_CSV_PATH: /data/supplier-seed-data.csv
-    volumes:
-      - ./data/csv/supplier-seed-data.csv:/data/supplier-seed-data.csv:ro
     depends_on:
       supplier-db:
         condition: service_healthy

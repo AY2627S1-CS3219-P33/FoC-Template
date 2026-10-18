@@ -127,7 +127,7 @@ require `suppliers:manage`. DELETE requires a UUID `Idempotency-Key` header.
 | `DATABASE_POOL_MIN` | No | Minimum idle pool size; defaults to `1` |
 | `DATABASE_POOL_MAX` | No | Maximum pool size; defaults to `10` |
 | `SUPPLIER_SEED_DATASET_NAMESPACE` | No | Required seed provenance namespace; defaults to `template-v1` |
-| `SUPPLIER_SEED_CSV_PATH` | Yes | Deployment-provided CSV path; relative to the working directory or absolute |
+| `SUPPLIER_SEED_CSV_PATH` | No | Defaults to the CSV bundled at `/app/data/supplier-seed-data.csv` in the container image; can be overridden |
 
 Invalid configuration stops startup. Error messages identify invalid variable
 names but do not include their values, preventing credentials from entering
@@ -283,15 +283,15 @@ Do not place database credentials in scripts or source-controlled files.
 Build the production image from the repository root:
 
 ```sh
-docker build -t foc-supplier-service supplier-service
+docker build -t foc-supplier-service -f supplier-service/Dockerfile .
 ```
 
 Inject runtime configuration when starting the container. The image runs as an
 unprivileged user and contains no `.env` files or build toolchain.
 Apply migrations as the deployment step above before launching the container.
-Mount `data/csv/supplier-seed-data.csv` read-only and set
-`SUPPLIER_SEED_CSV_PATH` to its absolute container path. The CSV is not bundled
-in the service image because the build context is `supplier-service/`.
+The image bundles `data/csv/supplier-seed-data.csv` at
+`/app/data/supplier-seed-data.csv`; override `SUPPLIER_SEED_CSV_PATH` only when
+you need to supply a different deployment dataset.
 
 ## Incremental API workflow
 
