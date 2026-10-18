@@ -32,31 +32,58 @@ const (
 
 var uuidPattern = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
-// Handler serves the review routes to admins.
-type Handler struct {
-	reviews Reviews
-	guard   func(http.Handler) http.Handler
-	logger  *slog.Logger
+// Services are the use cases behind the admin routes; all are required.
+type Services struct {
+	Reviews  Reviews
+	Settings SettingsAdmin
+	Events   EventLog
+	Flags    FlagReport
 }
 
-func NewHandler(reviews Reviews, guard *auth.Middleware, logger *slog.Logger) Handler {
-	if reviews == nil {
+// Handler serves the admin routes of this package.
+type Handler struct {
+	reviews  Reviews
+	settings SettingsAdmin
+	events   EventLog
+	flags    FlagReport
+	guard    func(http.Handler) http.Handler
+	logger   *slog.Logger
+}
+
+func NewHandler(services Services, guard *auth.Middleware, logger *slog.Logger) Handler {
+	switch {
+	case services.Reviews == nil:
 		panic("review: reviews is required")
-	}
-	if guard == nil {
+	case services.Settings == nil:
+		panic("review: settings is required")
+	case services.Events == nil:
+		panic("review: event log is required")
+	case services.Flags == nil:
+		panic("review: flag report is required")
+	case guard == nil:
 		panic("review: auth middleware is required")
-	}
-	if logger == nil {
+	case logger == nil:
 		panic("review: logger is required")
 	}
-	return Handler{reviews: reviews, guard: guard.RequireReview, logger: logger}
+	return Handler{
+		reviews:  services.Reviews,
+		settings: services.Settings,
+		events:   services.Events,
+		flags:    services.Flags,
+		guard:    guard.RequireReview,
+		logger:   logger,
+	}
 }
 
-// RegisterRoutes registers the review routes; each passes through
+// RegisterRoutes registers the admin routes; each passes through
 // auth.Middleware.RequireReview (a user token with errands:review) first.
 func (h Handler) RegisterRoutes(router *http.ServeMux) {
 	router.Handle("GET /admin/reviews", h.guard(http.HandlerFunc(h.list)))
 	router.Handle("POST /admin/reviews/{errandId}/resolve", h.guard(http.HandlerFunc(h.resolve)))
+	router.Handle("GET /admin/settings", h.guard(http.HandlerFunc(h.getSettings)))
+	router.Handle("PUT /admin/settings", h.guard(http.HandlerFunc(h.putSettings)))
+	router.Handle("GET /admin/errand-events", h.guard(http.HandlerFunc(h.listEvents)))
+	router.Handle("GET /admin/flags", h.guard(http.HandlerFunc(h.listFlags)))
 }
 
 type pageResponse struct {
