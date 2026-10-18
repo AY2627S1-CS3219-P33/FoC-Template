@@ -1,0 +1,684 @@
+operations:
+  createErrand:
+    operationId: createErrand
+    tags: [Errands]
+    summary: Submit an errand pending credit reservation
+    description: >-
+      Resolves the pickup supplier to its current version (live, never
+      cached; F2.5.2) and the delivery building to a snapshot, then stores
+      the errand in PENDING_RESERVATION and requests the reservation in the
+      same transaction (A2). The errand becomes OPEN when credit-service
+      confirms the reservation, or REJECTED with rejectionReason
+      INSUFFICIENT_CREDITS when it refuses (F3.1.2, F3.1.4); poll
+      GET /errands/{errandId} or wait for the notification. Creation is
+      refused while supplier-service is deleting the supplier.
+    x-required-permissions: [errands:use]
+    x-required-relationship: none (the caller becomes the requester)
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: ./common.yaml#/components/parameters/CreateIdempotencyKey
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: ./common.yaml#/components/schemas/ErrandCreate
+    responses:
+      "200":
+        description: >-
+          Replay of an earlier request with the same Idempotency-Key: the
+          errand that request created, in its current state. Nothing is
+          created or changed.
+        content:
+          application/json:
+            schema:
+              $ref: ./common.yaml#/components/schemas/RequesterErrandView
+      "202":
+        description: >-
+          Errand created in PENDING_RESERVATION; the reservation is in
+          progress.
+        headers:
+          Location:
+            description: /errands/{errandId}
+            schema:
+              type: string
+        content:
+          application/json:
+            schema:
+              $ref: ./common.yaml#/components/schemas/RequesterErrandView
+      "400":
+        $ref: ./common.yaml#/components/responses/ValidationFailed
+      "401":
+        $ref: ./common.yaml#/components/responses/Unauthenticated
+      "403":
+        $ref: ./common.yaml#/components/responses/Forbidden
+      "409":
+        description: >-
+          Supplier-service holds an open or committed deletion fence for the
+          supplier.
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: ./common.yaml#/components/schemas/Error
+                - properties:
+                    code:
+                      const: SUPPLIER_DELETION_IN_PROGRESS
+      "422":
+        $ref: ./common.yaml#/components/responses/SupplierUnavailable
+      "500":
+        $ref: ./common.yaml#/components/responses/Internal
+      "503":
+        $ref: ./common.yaml#/components/responses/DependencyUnavailable
+
+  listOpenErrands:
+    operationId: listOpenErrands
+    tags: [Errands]
+    summary: List open errands
+    description: >-
+      OPEN errands whose acceptance deadline is still in the future, so an
+      errand past its deadline is hidden even before the expiry job runs
+      (A3). Without coordinates the order is acceptance deadline ascending
+      (time remaining), then errandId. With lat and lng it is distance to the
+      pickup location ascending, then acceptance deadline, then errandId
+      (F3.2.4). Coordinates are used only for ordering and are never stored,
+      logged or cached. Items never contain the requester's identity or notes
+      (NFR3.6.4). The list may be up to two seconds stale; acceptance is
+      always checked against the current version.
+    x-required-permissions: [errands:use]
+    x-required-relationship: none
+    security:
+      - bearerAuth: []
+    parameters:
+      - name: supplierId
+        in: query
+        description: Only errands picked up from this supplier (F3.2.2).
+        schema:
+          type: string
+          format: uuid
+      - name: lat
+        in: query
+        description: Courier latitude. Must be sent together with lng.
+        schema:
+          type: number
+          format: double
+          minimum: -90
+          maximum: 90
+      - name: lng
+        in: query
+        description: Courier longitude. Must be sent together with lat.
+        schema:
+          type: number
+          format: double
+          minimum: -180
+          maximum: 180
+      - $ref: ./common.yaml#/components/parameters/Limit
+      - $ref: ./common.yaml#/components/parameters/Cursor
+    responses:
+      "200":
+        description: A page of open errands.
+        content:
+          application/json:
+            schema:
+              $ref: ./common.yaml#/components/schemas/OpenErrandPage
+      "400":
+        $ref: ./common.yaml#/components/responses/InvalidArgument
+      "401":
+        $ref: ./common.yaml#/components/responses/Unauthenticated
+      "403":
+        $ref: ./common.yaml#/components/responses/Forbidden
+      "500":
+        $ref: ./common.yaml#/components/responses/Internal
+      "503":
+        $ref: ./common.yaml#/components/responses/DependencyUnavailable
+
+  getErrand:
+    operationId: getErrand
+    tags: [Errands]
+    summary: Get one errand as the caller may see it
+    description: >-
+      The requester gets RequesterErrandView and the assigned courier gets
+      CourierErrandView, in any state. Any other caller gets PublicErrandView
+      while the errand is OPEN and ERRAND_NOT_FOUND otherwise; this includes
+      a courier who withdrew. The courier view carries the contact person
+      only while the errand is assigned (NFR3.6.4).
+    x-required-permissions: [errands:use]
+    x-required-relationship: requester, assigned courier, or any user while OPEN
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: ./common.yaml#/components/parameters/ErrandID
+    responses:
+      "200":
+        description: The errand.
+        content:
+          application/json:
+            schema:
+              $ref: ./common.yaml#/components/schemas/ErrandView
+      "400":
+        $ref: ./common.yaml#/components/responses/InvalidArgument
+      "401":
+        $ref: ./common.yaml#/components/responses/Unauthenticated
+      "403":
+        $ref: ./common.yaml#/components/responses/Forbidden
+      "404":
+        $ref: ./common.yaml#/components/responses/ErrandNotFound
+      "500":
+        $ref: ./common.yaml#/components/responses/Internal
+      "503":
+        $ref: ./common.yaml#/components/responses/DependencyUnavailable
+
+  editErrand:
+    operationId: editErrand
+    tags: [Errands]
+    summary: Edit an open errand
+    description: >-
+      Only while OPEN (F3.4); this includes the contact person. An edit that
+      leaves the reward unchanged is applied at once: 200, version + 1. An
+      edit that changes the reward is stored as pendingEdit and waits for
+      credit-service to adjust the
+      reservation: 202, version unchanged, and couriers can still accept the
+      current details. When credit-service confirms, the whole edit is applied
+      (version + 1); when it refuses, or no answer arrives in time, the edit
+      is dropped and the original details are kept (F4.4.3). An accept while
+      the edit is pending wins and drops it (F3.4.2). Another edit while one
+      is pending is EDIT_PENDING. An edit that changes supplierId to a
+      supplier with an open or committed deletion fence is
+      SUPPLIER_DELETION_IN_PROGRESS, as on creation.
+    x-required-permissions: [errands:use]
+    x-required-relationship: requester
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: ./common.yaml#/components/parameters/ErrandID
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: ./common.yaml#/components/schemas/ErrandEdit
+    responses:
+      "200":
+        description: Edit applied.
+        content:
+          application/json:
+            schema:
+              $ref: ./common.yaml#/components/schemas/RequesterErrandView
+      "202":
+        description: Reward change waiting for credit-service; see pendingEdit.
+        content:
+          application/json:
+            schema:
+              $ref: ./common.yaml#/components/schemas/RequesterErrandView
+      "400":
+        $ref: ./common.yaml#/components/responses/ValidationFailed
+      "401":
+        $ref: ./common.yaml#/components/responses/Unauthenticated
+      "403":
+        $ref: ./common.yaml#/components/responses/Forbidden
+      "404":
+        $ref: ./common.yaml#/components/responses/ErrandNotFound
+      "409":
+        description: >-
+          As ErrandConflict (ERRAND_UNAVAILABLE when a courier accepted
+          meanwhile, F3.4.2), plus EDIT_PENDING while a reward change is
+          waiting and SUPPLIER_DELETION_IN_PROGRESS when the new supplier is
+          being deleted.
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: ./common.yaml#/components/schemas/Error
+                - properties:
+                    code:
+                      enum: [ERRAND_CHANGED, ERRAND_UNAVAILABLE, INVALID_TRANSITION, EDIT_PENDING, SUPPLIER_DELETION_IN_PROGRESS]
+      "422":
+        $ref: ./common.yaml#/components/responses/SupplierUnavailable
+      "500":
+        $ref: ./common.yaml#/components/responses/Internal
+      "503":
+        $ref: ./common.yaml#/components/responses/DependencyUnavailable
+
+  acceptErrand:
+    operationId: acceptErrand
+    tags: [Courier]
+    summary: Accept an open errand
+    description: >-
+      OPEN → ASSIGNED for an eligible courier: not the requester, never
+      withdrew from this errand, and not restricted (F3.3.6). Sets the pickup
+      and delivery deadlines from settings. Exactly one of competing
+      accepts, cancels and expiries wins (F3.3.5). A 409 ERRAND_CHANGED or
+      ERRAND_UNAVAILABLE also publishes errand.accept_rejected so the courier
+      is notified; 403 refusals do not.
+    x-required-permissions: [errands:use]
+    x-required-relationship: eligible courier
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: ./common.yaml#/components/parameters/ErrandID
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: ./common.yaml#/components/schemas/VersionedAction
+    responses:
+      "200":
+        description: Accepted.
+        content:
+          application/json:
+            schema:
+              $ref: ./common.yaml#/components/schemas/CourierErrandView
+      "400":
+        $ref: ./common.yaml#/components/responses/ValidationFailed
+      "401":
+        $ref: ./common.yaml#/components/responses/Unauthenticated
+      "403":
+        $ref: ./common.yaml#/components/responses/AcceptForbidden
+      "404":
+        $ref: ./common.yaml#/components/responses/ErrandNotFound
+      "409":
+        $ref: ./common.yaml#/components/responses/ErrandConflict
+      "500":
+        $ref: ./common.yaml#/components/responses/Internal
+      "503":
+        $ref: ./common.yaml#/components/responses/DependencyUnavailable
+
+  cancelErrand:
+    operationId: cancelErrand
+    tags: [Errands]
+    summary: Cancel an open errand
+    description: >-
+      OPEN → CANCELLED and the reservation is released (F3.5, F4.5.1). A
+      pending edit is dropped. A 409 also publishes errand.cancel_rejected so
+      the requester is notified.
+    x-required-permissions: [errands:use]
+    x-required-relationship: requester
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: ./common.yaml#/components/parameters/ErrandID
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: ./common.yaml#/components/schemas/VersionedAction
+    responses:
+      "200":
+        description: Cancelled.
+        content:
+          application/json:
+            schema:
+              $ref: ./common.yaml#/components/schemas/RequesterErrandView
+      "400":
+        $ref: ./common.yaml#/components/responses/ValidationFailed
+      "401":
+        $ref: ./common.yaml#/components/responses/Unauthenticated
+      "403":
+        $ref: ./common.yaml#/components/responses/Forbidden
+      "404":
+        $ref: ./common.yaml#/components/responses/ErrandNotFound
+      "409":
+        $ref: ./common.yaml#/components/responses/ErrandConflict
+      "500":
+        $ref: ./common.yaml#/components/responses/Internal
+      "503":
+        $ref: ./common.yaml#/components/responses/DependencyUnavailable
+
+  confirmErrand:
+    operationId: confirmErrand
+    tags: [Errands]
+    summary: Confirm delivery
+    description: >-
+      DELIVERED → COMPLETED and the reward is transferred to the courier
+      (F3.10.1, F4.2.2). Confirming an errand that is already COMPLETED
+      returns 200 with the errand and has no further effect, whatever
+      expectedVersion says (F3.10.2). Confirming before delivery is
+      INVALID_TRANSITION.
+    x-required-permissions: [errands:use]
+    x-required-relationship: requester
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: ./common.yaml#/components/parameters/ErrandID
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: ./common.yaml#/components/schemas/VersionedAction
+    responses:
+      "200":
+        description: Completed, now or by an earlier request.
+        content:
+          application/json:
+            schema:
+              $ref: ./common.yaml#/components/schemas/RequesterErrandView
+      "400":
+        $ref: ./common.yaml#/components/responses/ValidationFailed
+      "401":
+        $ref: ./common.yaml#/components/responses/Unauthenticated
+      "403":
+        $ref: ./common.yaml#/components/responses/Forbidden
+      "404":
+        $ref: ./common.yaml#/components/responses/ErrandNotFound
+      "409":
+        $ref: ./common.yaml#/components/responses/ErrandConflict
+      "500":
+        $ref: ./common.yaml#/components/responses/Internal
+      "503":
+        $ref: ./common.yaml#/components/responses/DependencyUnavailable
+
+  disputeErrand:
+    operationId: disputeErrand
+    tags: [Errands]
+    summary: Dispute a delivery
+    description: >-
+      DELIVERED → REVIEW_REQUIRED with reviewReason REQUESTER_DISPUTE (F3.10).
+      The reason is required and becomes the review's note. The reservation
+      stays held until an admin resolves the review.
+    x-required-permissions: [errands:use]
+    x-required-relationship: requester
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: ./common.yaml#/components/parameters/ErrandID
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: ./common.yaml#/components/schemas/ReasonedAction
+    responses:
+      "200":
+        description: Sent for review.
+        content:
+          application/json:
+            schema:
+              $ref: ./common.yaml#/components/schemas/RequesterErrandView
+      "400":
+        $ref: ./common.yaml#/components/responses/ValidationFailed
+      "401":
+        $ref: ./common.yaml#/components/responses/Unauthenticated
+      "403":
+        $ref: ./common.yaml#/components/responses/Forbidden
+      "404":
+        $ref: ./common.yaml#/components/responses/ErrandNotFound
+      "409":
+        $ref: ./common.yaml#/components/responses/ErrandConflict
+      "500":
+        $ref: ./common.yaml#/components/responses/Internal
+      "503":
+        $ref: ./common.yaml#/components/responses/DependencyUnavailable
+
+  withdrawErrand:
+    operationId: withdrawErrand
+    tags: [Courier]
+    summary: Withdraw from an assigned errand
+    description: >-
+      ASSIGNED → OPEN while the acceptance deadline has not passed, otherwise
+      ASSIGNED → EXPIRED with the reservation released (F3.6.1, F4.3.3). The
+      withdrawal counts towards the restriction (F3.6.4), and the courier may
+      not accept this errand again (F3.6.3). After withdrawing, the caller is
+      no longer the errand's courier, so the response is the last view they
+      may see.
+    x-required-permissions: [errands:use]
+    x-required-relationship: assigned courier
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: ./common.yaml#/components/parameters/ErrandID
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: ./common.yaml#/components/schemas/VersionedAction
+    responses:
+      "200":
+        description: Withdrawn; status is OPEN or EXPIRED. requester is omitted.
+        content:
+          application/json:
+            schema:
+              $ref: ./common.yaml#/components/schemas/CourierErrandView
+      "400":
+        $ref: ./common.yaml#/components/responses/ValidationFailed
+      "401":
+        $ref: ./common.yaml#/components/responses/Unauthenticated
+      "403":
+        $ref: ./common.yaml#/components/responses/Forbidden
+      "404":
+        $ref: ./common.yaml#/components/responses/ErrandNotFound
+      "409":
+        $ref: ./common.yaml#/components/responses/ErrandConflict
+      "500":
+        $ref: ./common.yaml#/components/responses/Internal
+      "503":
+        $ref: ./common.yaml#/components/responses/DependencyUnavailable
+
+  pickUpErrand:
+    operationId: pickUpErrand
+    tags: [Courier]
+    summary: Mark items as picked up
+    description: >-
+      ASSIGNED → PICKED_UP (F3.8.1). A 409 (for example the pickup deadline
+      withdrew the courier meanwhile) also publishes errand.pickup_rejected
+      so the courier is notified.
+    x-required-permissions: [errands:use]
+    x-required-relationship: assigned courier
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: ./common.yaml#/components/parameters/ErrandID
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: ./common.yaml#/components/schemas/VersionedAction
+    responses:
+      "200":
+        description: Picked up.
+        content:
+          application/json:
+            schema:
+              $ref: ./common.yaml#/components/schemas/CourierErrandView
+      "400":
+        $ref: ./common.yaml#/components/responses/ValidationFailed
+      "401":
+        $ref: ./common.yaml#/components/responses/Unauthenticated
+      "403":
+        $ref: ./common.yaml#/components/responses/Forbidden
+      "404":
+        $ref: ./common.yaml#/components/responses/ErrandNotFound
+      "409":
+        $ref: ./common.yaml#/components/responses/ErrandConflict
+      "500":
+        $ref: ./common.yaml#/components/responses/Internal
+      "503":
+        $ref: ./common.yaml#/components/responses/DependencyUnavailable
+
+  deliverErrand:
+    operationId: deliverErrand
+    tags: [Courier]
+    summary: Mark items as delivered
+    description: >-
+      PICKED_UP → DELIVERED and the verification deadline is set (F3.8.2,
+      F3.10.3).
+    x-required-permissions: [errands:use]
+    x-required-relationship: assigned courier
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: ./common.yaml#/components/parameters/ErrandID
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: ./common.yaml#/components/schemas/VersionedAction
+    responses:
+      "200":
+        description: Delivered.
+        content:
+          application/json:
+            schema:
+              $ref: ./common.yaml#/components/schemas/CourierErrandView
+      "400":
+        $ref: ./common.yaml#/components/responses/ValidationFailed
+      "401":
+        $ref: ./common.yaml#/components/responses/Unauthenticated
+      "403":
+        $ref: ./common.yaml#/components/responses/Forbidden
+      "404":
+        $ref: ./common.yaml#/components/responses/ErrandNotFound
+      "409":
+        $ref: ./common.yaml#/components/responses/ErrandConflict
+      "500":
+        $ref: ./common.yaml#/components/responses/Internal
+      "503":
+        $ref: ./common.yaml#/components/responses/DependencyUnavailable
+
+  reportIssue:
+    operationId: reportIssue
+    tags: [Courier]
+    summary: Report a problem after pickup
+    description: >-
+      PICKED_UP → REVIEW_REQUIRED with reviewReason COURIER_ISSUE (F3.6.2).
+      The reason is required and becomes the review's note.
+    x-required-permissions: [errands:use]
+    x-required-relationship: assigned courier
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: ./common.yaml#/components/parameters/ErrandID
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: ./common.yaml#/components/schemas/ReasonedAction
+    responses:
+      "200":
+        description: Sent for review.
+        content:
+          application/json:
+            schema:
+              $ref: ./common.yaml#/components/schemas/CourierErrandView
+      "400":
+        $ref: ./common.yaml#/components/responses/ValidationFailed
+      "401":
+        $ref: ./common.yaml#/components/responses/Unauthenticated
+      "403":
+        $ref: ./common.yaml#/components/responses/Forbidden
+      "404":
+        $ref: ./common.yaml#/components/responses/ErrandNotFound
+      "409":
+        $ref: ./common.yaml#/components/responses/ErrandConflict
+      "500":
+        $ref: ./common.yaml#/components/responses/Internal
+      "503":
+        $ref: ./common.yaml#/components/responses/DependencyUnavailable
+
+  listRequestedErrands:
+    operationId: listRequestedErrands
+    tags: [My errands]
+    summary: List the caller's active requested errands
+    description: >-
+      Errands the caller requested that are in an active (non-terminal)
+      state, newest first by creation time (F3.11, F3.11.1).
+    x-required-permissions: [errands:use]
+    x-required-relationship: requester (implicit, from the token)
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: ./common.yaml#/components/parameters/Limit
+      - $ref: ./common.yaml#/components/parameters/Cursor
+    responses:
+      "200":
+        description: A page of the caller's active requested errands.
+        content:
+          application/json:
+            schema:
+              $ref: ./common.yaml#/components/schemas/RequesterErrandPage
+      "400":
+        $ref: ./common.yaml#/components/responses/InvalidArgument
+      "401":
+        $ref: ./common.yaml#/components/responses/Unauthenticated
+      "403":
+        $ref: ./common.yaml#/components/responses/Forbidden
+      "500":
+        $ref: ./common.yaml#/components/responses/Internal
+      "503":
+        $ref: ./common.yaml#/components/responses/DependencyUnavailable
+
+  listDeliveringErrands:
+    operationId: listDeliveringErrands
+    tags: [My errands]
+    summary: List the caller's active deliveries
+    description: >-
+      Active errands assigned to the caller as courier, most recently
+      updated first (F3.12).
+    x-required-permissions: [errands:use]
+    x-required-relationship: assigned courier (implicit, from the token)
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: ./common.yaml#/components/parameters/Limit
+      - $ref: ./common.yaml#/components/parameters/Cursor
+    responses:
+      "200":
+        description: A page of the caller's active deliveries.
+        content:
+          application/json:
+            schema:
+              $ref: ./common.yaml#/components/schemas/CourierErrandPage
+      "400":
+        $ref: ./common.yaml#/components/responses/InvalidArgument
+      "401":
+        $ref: ./common.yaml#/components/responses/Unauthenticated
+      "403":
+        $ref: ./common.yaml#/components/responses/Forbidden
+      "500":
+        $ref: ./common.yaml#/components/responses/Internal
+      "503":
+        $ref: ./common.yaml#/components/responses/DependencyUnavailable
+
+  listErrandHistory:
+    operationId: listErrandHistory
+    tags: [My errands]
+    summary: List the caller's finished errands
+    description: >-
+      Terminal errands the caller requested or delivered, most recently
+      updated first (F3.13). Each item is the requester or courier view
+      according to the caller's role in that errand. The courier view never
+      carries the contact person for terminal errands (NFR3.6.4). Pickup
+      details come from the stored supplier version, so they stay readable
+      after the supplier is deleted (F2.4.3). An errand the caller withdrew
+      from is not listed.
+    x-required-permissions: [errands:use]
+    x-required-relationship: requester or courier (implicit, from the token)
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: ./common.yaml#/components/parameters/Limit
+      - $ref: ./common.yaml#/components/parameters/Cursor
+    responses:
+      "200":
+        description: A page of the caller's terminal errands.
+        content:
+          application/json:
+            schema:
+              $ref: ./common.yaml#/components/schemas/HistoryPage
+      "400":
+        $ref: ./common.yaml#/components/responses/InvalidArgument
+      "401":
+        $ref: ./common.yaml#/components/responses/Unauthenticated
+      "403":
+        $ref: ./common.yaml#/components/responses/Forbidden
+      "500":
+        $ref: ./common.yaml#/components/responses/Internal
+      "503":
+        $ref: ./common.yaml#/components/responses/DependencyUnavailable
