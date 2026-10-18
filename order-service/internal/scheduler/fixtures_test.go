@@ -125,9 +125,9 @@ func newHarnessOver(t *testing.T, cfg scheduler.Config, wrap func(*testfakes.Fak
 	return h
 }
 
-func (h *harness) runOnce(t *testing.T, kind errand.DueKind) scheduler.BatchResult {
+func (h *harness) runOnce(t *testing.T, job string) scheduler.BatchResult {
 	t.Helper()
-	res, err := h.sched.RunOnce(context.Background(), kind)
+	res, err := h.sched.RunOnce(context.Background(), job)
 	require.NoError(t, err)
 	return res
 }

@@ -33,6 +33,23 @@
 // full. A panic in a batch is recovered, logged and counted, and never stops
 // the other jobs or the next tick.
 //
-// Reminder jobs (B4b) and the credit reconcilers (M5) are not part of this
-// package's deadline jobs.
+// When Config.Reminders and Config.Settings are set, two reminder jobs (B4b)
+// run alongside, every 5 s by default. They change no errand state: they
+// select candidates with a read-only query and insert one outbox row per
+// errand version through opsrepo, which ignores duplicates, so C's
+// dispatcher publishes them like any other event row (F3.10.3, NFR5.2):
+//
+//	job                    event                               key
+//	verification_reminder  errand.verification_reminder        {errandId}:verify-reminder:{version}
+//	pickup_reminder        errand.pickup_deadline_approaching  {errandId}:pickup-reminder:{version}
+//
+// The verification reminder is due once the verification deadline is
+// VerificationAfter − VerificationReminderAfter away (Settings; 5 min after
+// delivery by default). The pickup reminder is due once the pickup deadline
+// is Config.PickupReminderLead away (10 min by default). A reminder is
+// written only while the errand still has the status and version it was
+// selected with, so an errand that has moved on gets none, and a re-accepted
+// errand (a new version) is reminded again.
+//
+// The credit reconcilers are Person C's (M5), not part of this package.
 package scheduler

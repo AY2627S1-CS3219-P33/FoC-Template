@@ -24,7 +24,7 @@ func TestAcceptanceExpiryExpiresOnlyDueErrands(t *testing.T) {
 	h.store.Put(openErrand("future", t0.Add(time.Second)))
 	h.store.Put(assignedErrand("assigned", t0.Add(-time.Minute), t0.Add(time.Hour)))
 
-	res := h.runOnce(t, errand.AcceptanceExpiry)
+	res := h.runOnce(t, scheduler.JobAcceptanceExpiry)
 
 	assert.Equal(t, scheduler.BatchResult{Seen: 2, Applied: 2}, res)
 	assert.Equal(t, errand.StatusExpired, h.status(t, "past"))
@@ -50,7 +50,7 @@ func TestPickupDeadlineWithdrawsTheCourier(t *testing.T) {
 	h.store.Put(assignedErrand("expire", t0.Add(-time.Minute), t0.Add(-time.Minute)))
 	h.store.Put(assignedErrand("not-due", t0.Add(time.Hour), t0.Add(time.Minute)))
 
-	res := h.runOnce(t, errand.PickupDeadline)
+	res := h.runOnce(t, scheduler.JobPickupDeadline)
 
 	assert.Equal(t, scheduler.BatchResult{Seen: 2, Applied: 2}, res)
 
@@ -80,7 +80,7 @@ func TestDeliveryDeadlineOpensAnOverdueReview(t *testing.T) {
 	h.store.Put(pickedUpErrand("overdue", t0.Add(-time.Minute)))
 	h.store.Put(pickedUpErrand("on-time", t0.Add(time.Minute)))
 
-	res := h.runOnce(t, errand.DeliveryDeadline)
+	res := h.runOnce(t, scheduler.JobDeliveryDeadline)
 
 	assert.Equal(t, scheduler.BatchResult{Seen: 1, Applied: 1}, res)
 	overdue, _ := h.store.Errand("overdue")
@@ -104,7 +104,7 @@ func TestVerificationLapseCompletesAndTransfers(t *testing.T) {
 	h.store.Put(deliveredErrand("lapsed", t0))
 	h.store.Put(deliveredErrand("waiting", t0.Add(time.Minute)))
 
-	res := h.runOnce(t, errand.VerificationLapse)
+	res := h.runOnce(t, scheduler.JobVerificationLapse)
 
 	assert.Equal(t, scheduler.BatchResult{Seen: 1, Applied: 1}, res)
 	assert.Equal(t, errand.StatusCompleted, h.status(t, "lapsed"))
@@ -138,14 +138,14 @@ func TestSkipsAnErrandWhoseDeadlineWasExtended(t *testing.T) {
 	h.store.Put(openErrand("extended", t0.Add(-time.Minute)))
 	h.store.Put(openErrand("due", t0.Add(-time.Minute)))
 
-	res := h.runOnce(t, errand.AcceptanceExpiry)
+	res := h.runOnce(t, scheduler.JobAcceptanceExpiry)
 
 	assert.Equal(t, scheduler.BatchResult{Seen: 2, Applied: 1}, res)
 	assert.Equal(t, errand.StatusOpen, h.status(t, "extended"))
 	assert.Empty(t, h.outboxFor("extended"))
 	assert.Equal(t, errand.StatusExpired, h.status(t, "due"))
 
-	stats := h.sched.Stats()[errand.AcceptanceExpiry]
+	stats := h.sched.Stats()[scheduler.JobAcceptanceExpiry]
 	assert.Equal(t, scheduler.JobStats{Batches: 1, Seen: 2, Applied: 1, Skipped: 1}, stats)
 	assert.Contains(t, h.logs.String(), "no longer due")
 }
@@ -162,7 +162,7 @@ func TestSkipsAnErrandInAnotherState(t *testing.T) {
 	})
 	h.store.Put(openErrand("e1", t0.Add(-time.Minute)))
 
-	res := h.runOnce(t, errand.AcceptanceExpiry)
+	res := h.runOnce(t, scheduler.JobAcceptanceExpiry)
 
 	assert.Equal(t, scheduler.BatchResult{Seen: 1, Applied: 0}, res)
 	assert.Equal(t, errand.StatusOpen, h.status(t, "e1"))
@@ -174,20 +174,20 @@ func TestClaimDueErrorIsReportedAndCounted(t *testing.T) {
 	boom := errors.New("database unavailable")
 	h.store.FailNext("ClaimDue", boom)
 
-	_, err := h.sched.RunOnce(context.Background(), errand.AcceptanceExpiry)
+	_, err := h.sched.RunOnce(context.Background(), scheduler.JobAcceptanceExpiry)
 
 	require.ErrorIs(t, err, boom)
 	assert.Equal(t, errand.StatusOpen, h.status(t, "e1"))
-	assert.Equal(t, scheduler.JobStats{Batches: 1, Failures: 1}, h.sched.Stats()[errand.AcceptanceExpiry])
+	assert.Equal(t, scheduler.JobStats{Batches: 1, Failures: 1}, h.sched.Stats()[scheduler.JobAcceptanceExpiry])
 	assert.Contains(t, h.logs.String(), "scheduler batch failed")
 
 	// The next run succeeds.
-	assert.Equal(t, scheduler.BatchResult{Seen: 1, Applied: 1}, h.runOnce(t, errand.AcceptanceExpiry))
+	assert.Equal(t, scheduler.BatchResult{Seen: 1, Applied: 1}, h.runOnce(t, scheduler.JobAcceptanceExpiry))
 }
 
 func TestRunOnceRejectsAnUnknownKind(t *testing.T) {
 	h := newHarness(t, scheduler.Config{})
-	_, err := h.sched.RunOnce(context.Background(), errand.StuckReservation)
+	_, err := h.sched.RunOnce(context.Background(), "stuck_reservation")
 	require.Error(t, err)
 }
 
@@ -195,7 +195,7 @@ func TestLogsOneLinePerTransitionWithoutPersonalData(t *testing.T) {
 	h := newHarness(t, scheduler.Config{})
 	h.store.Put(deliveredErrand("e1", t0.Add(-time.Minute)))
 
-	h.runOnce(t, errand.VerificationLapse)
+	h.runOnce(t, scheduler.JobVerificationLapse)
 
 	logs := h.logs.String()
 	assert.Contains(t, logs, `"msg":"scheduler applied transition"`)
@@ -244,7 +244,7 @@ func TestAcceptRacesExpiry(t *testing.T) {
 					runtime.Gosched()
 				}
 			}
-			res, jobErr = h.sched.RunOnce(ctx, errand.AcceptanceExpiry)
+			res, jobErr = h.sched.RunOnce(ctx, scheduler.JobAcceptanceExpiry)
 		}()
 		close(start)
 		wg.Wait()

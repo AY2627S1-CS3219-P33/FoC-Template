@@ -56,12 +56,12 @@ func TestRunDrainsFullBatchesAtOnce(t *testing.T) {
 
 	// Batches of 2, 2 and 1 on the first run, without waiting an interval.
 	require.Eventually(t, func() bool {
-		return h.sched.Stats()[errand.AcceptanceExpiry].Applied == 5
+		return h.sched.Stats()[scheduler.JobAcceptanceExpiry].Applied == 5
 	}, 2*time.Second, 5*time.Millisecond)
 	for i := range 5 {
 		assert.Equal(t, errand.StatusExpired, h.status(t, fmt.Sprintf("e%d", i)))
 	}
-	assert.Equal(t, uint64(3), h.sched.Stats()[errand.AcceptanceExpiry].Batches)
+	assert.Equal(t, uint64(3), h.sched.Stats()[scheduler.JobAcceptanceExpiry].Batches)
 }
 
 func TestRunStopsDrainingWhenAFullBatchAppliesNothing(t *testing.T) {
@@ -88,7 +88,7 @@ func TestRunStopsDrainingWhenAFullBatchAppliesNothing(t *testing.T) {
 	require.Eventually(t, func() bool { return calls.Load() >= 1 }, 2*time.Second, 5*time.Millisecond)
 	time.Sleep(50 * time.Millisecond)
 	assert.Equal(t, int64(1), calls.Load(), "a full batch of skips must not be re-run at once")
-	assert.Equal(t, scheduler.JobStats{Batches: 1, Seen: 2, Skipped: 2}, h.sched.Stats()[errand.AcceptanceExpiry])
+	assert.Equal(t, scheduler.JobStats{Batches: 1, Seen: 2, Skipped: 2}, h.sched.Stats()[scheduler.JobAcceptanceExpiry])
 }
 
 func TestRunKeepsTickingAndIsolatesPanics(t *testing.T) {
@@ -118,7 +118,7 @@ func TestRunKeepsTickingAndIsolatesPanics(t *testing.T) {
 	// The verification job keeps working and the panicking job keeps being
 	// retried on later ticks.
 	require.Eventually(t, func() bool {
-		return h.sched.Stats()[errand.AcceptanceExpiry].Panics >= 3 &&
+		return h.sched.Stats()[scheduler.JobAcceptanceExpiry].Panics >= 3 &&
 			statusOf(h, "delivered") == errand.StatusCompleted
 	}, 2*time.Second, 5*time.Millisecond)
 	// A later deliverable errand is still picked up by the healthy jobs.
@@ -151,11 +151,29 @@ func TestRunReturnsWhenCancelled(t *testing.T) {
 	}
 }
 
-func TestKindsAreTheFourDeadlineJobs(t *testing.T) {
+func TestJobsAreTheDeadlineJobsWithoutReminderDependencies(t *testing.T) {
 	h := newHarness(t, scheduler.Config{})
-	assert.Equal(t, []errand.DueKind{
-		errand.AcceptanceExpiry, errand.PickupDeadline, errand.DeliveryDeadline, errand.VerificationLapse,
-	}, h.sched.Kinds())
+	assert.Equal(t, []string{
+		scheduler.JobAcceptanceExpiry, scheduler.JobPickupDeadline,
+		scheduler.JobDeliveryDeadline, scheduler.JobVerificationLapse,
+	}, h.sched.Jobs())
+}
+
+func TestJobsIncludeRemindersWhenConfigured(t *testing.T) {
+	h := newReminderHarness(t)
+	assert.Equal(t, []string{
+		scheduler.JobAcceptanceExpiry, scheduler.JobPickupDeadline,
+		scheduler.JobDeliveryDeadline, scheduler.JobVerificationLapse,
+		scheduler.JobVerificationReminder, scheduler.JobPickupReminder,
+	}, h.sched.Jobs())
+}
+
+func TestNewRejectsRemindersWithoutSettings(t *testing.T) {
+	assert.Panics(t, func() {
+		scheduler.New(testfakes.NewFakeStore(), testfakes.NewFakeClock(t0), scheduler.Config{
+			Reminders: newFakeReminders(testfakes.NewFakeStore()),
+		})
+	})
 }
 
 // statusOf is harness.status for Eventually conditions, which run outside

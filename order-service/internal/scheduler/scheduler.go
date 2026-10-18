@@ -13,32 +13,59 @@ import (
 	"github.com/CS3219-AY2627S1/FoC-Template/order-service/internal/errand"
 )
 
-// Defaults for Config.
+// Job names, used in logs, Stats and RunOnce. A deadline job is named after
+// its DueKind.
 const (
-	DefaultAcceptanceExpiryInterval  = 5 * time.Second
-	DefaultPickupDeadlineInterval    = 15 * time.Second
-	DefaultDeliveryDeadlineInterval  = 15 * time.Second
-	DefaultVerificationLapseInterval = 5 * time.Second
-	DefaultJitter                    = 0.2
-	DefaultBatchSize                 = 100
+	JobAcceptanceExpiry     = string(errand.AcceptanceExpiry)
+	JobPickupDeadline       = string(errand.PickupDeadline)
+	JobDeliveryDeadline     = string(errand.DeliveryDeadline)
+	JobVerificationLapse    = string(errand.VerificationLapse)
+	JobVerificationReminder = "verification_reminder"
+	JobPickupReminder       = "pickup_reminder"
 )
 
-// Config tunes a Scheduler. The zero value is usable.
+// Defaults for Config.
+const (
+	DefaultAcceptanceExpiryInterval     = 5 * time.Second
+	DefaultPickupDeadlineInterval       = 15 * time.Second
+	DefaultDeliveryDeadlineInterval     = 15 * time.Second
+	DefaultVerificationLapseInterval    = 5 * time.Second
+	DefaultVerificationReminderInterval = 5 * time.Second
+	DefaultPickupReminderInterval       = 5 * time.Second
+	DefaultPickupReminderLead           = 10 * time.Minute
+	DefaultJitter                       = 0.2
+	DefaultBatchSize                    = 100
+)
+
+// Config tunes a Scheduler. The zero value is usable and runs the deadline
+// jobs only.
 type Config struct {
 	// Intervals between two runs of each job. Zero means the job's default.
-	AcceptanceExpiryInterval  time.Duration
-	PickupDeadlineInterval    time.Duration
-	DeliveryDeadlineInterval  time.Duration
-	VerificationLapseInterval time.Duration
+	AcceptanceExpiryInterval     time.Duration
+	PickupDeadlineInterval       time.Duration
+	DeliveryDeadlineInterval     time.Duration
+	VerificationLapseInterval    time.Duration
+	VerificationReminderInterval time.Duration
+	PickupReminderInterval       time.Duration
+	// PickupReminderLead is how long before the pickup deadline the courier
+	// is reminded. Zero means DefaultPickupReminderLead. The verification
+	// reminder's timing comes from Settings instead.
+	PickupReminderLead time.Duration
 	// Jitter is the fraction each interval is randomly shortened or
 	// lengthened by. Zero means DefaultJitter; a negative value disables
 	// jitter. Values of 1 or more are capped just below 1.
 	Jitter float64
-	// BatchSize is the limit passed to ClaimDue. Zero means
+	// BatchSize is the number of errands one batch handles. Zero means
 	// DefaultBatchSize.
 	BatchSize int
-	// Logger receives one line per applied transition and per failure. nil
-	// means slog.Default().
+
+	// Reminders and Settings enable the reminder jobs (B4b). Set both or
+	// neither.
+	Reminders ReminderStore
+	Settings  errand.Settings
+
+	// Logger receives one line per applied transition, per reminder and per
+	// failure. nil means slog.Default().
 	Logger *slog.Logger
 	// Rand returns a uniform value in [0, n) for n > 0. Tests inject a
 	// deterministic source; nil means math/rand/v2.Int64N.
@@ -55,6 +82,9 @@ func (c Config) withDefaults() Config {
 	orDefault(&c.PickupDeadlineInterval, DefaultPickupDeadlineInterval)
 	orDefault(&c.DeliveryDeadlineInterval, DefaultDeliveryDeadlineInterval)
 	orDefault(&c.VerificationLapseInterval, DefaultVerificationLapseInterval)
+	orDefault(&c.VerificationReminderInterval, DefaultVerificationReminderInterval)
+	orDefault(&c.PickupReminderInterval, DefaultPickupReminderInterval)
+	orDefault(&c.PickupReminderLead, DefaultPickupReminderLead)
 	switch {
 	case c.Jitter == 0:
 		c.Jitter = DefaultJitter
@@ -75,25 +105,30 @@ func (c Config) withDefaults() Config {
 	return c
 }
 
-// Scheduler runs the deadline jobs. Create it with New and start it with
-// Run. It is safe for concurrent use.
+// Scheduler runs the deadline jobs and, when configured, the reminder jobs.
+// Create it with New and start it with Run. It is safe for concurrent use.
 type Scheduler struct {
-	store  errand.Store
-	clock  errand.Clock
-	cfg    Config
-	logger *slog.Logger
-	jobs   []*job
+	store     errand.Store
+	clock     errand.Clock
+	reminders ReminderStore
+	settings  errand.Settings
+	cfg       Config
+	logger    *slog.Logger
+	jobs      []*job
 }
 
-// job is one deadline job and its counters.
+// job is one periodic job and its counters. run handles one batch.
 type job struct {
-	kind     errand.DueKind
-	event    errand.Event
+	name     string
 	interval time.Duration
-	stats    counters
+	// limit is the job's batch size; a batch that saw limit errands is full.
+	limit int
+	run   func(ctx context.Context, j *job) (BatchResult, error)
+	stats counters
 }
 
-// New returns a Scheduler over store, reading the time from clock.
+// New returns a Scheduler over store, reading the time from clock. The
+// reminder jobs are added when cfg.Reminders and cfg.Settings are set.
 func New(store errand.Store, clock errand.Clock, cfg Config) *Scheduler {
 	if store == nil {
 		panic("scheduler: store is required")
@@ -101,28 +136,36 @@ func New(store errand.Store, clock errand.Clock, cfg Config) *Scheduler {
 	if clock == nil {
 		panic("scheduler: clock is required")
 	}
-	cfg = cfg.withDefaults()
-	return &Scheduler{
-		store:  store,
-		clock:  clock,
-		cfg:    cfg,
-		logger: cfg.Logger,
-		jobs: []*job{
-			{kind: errand.AcceptanceExpiry, event: errand.EventAcceptanceDeadlinePassed, interval: cfg.AcceptanceExpiryInterval},
-			{kind: errand.PickupDeadline, event: errand.EventPickupDeadlinePassed, interval: cfg.PickupDeadlineInterval},
-			{kind: errand.DeliveryDeadline, event: errand.EventDeliveryDeadlinePassed, interval: cfg.DeliveryDeadlineInterval},
-			{kind: errand.VerificationLapse, event: errand.EventVerificationLapsed, interval: cfg.VerificationLapseInterval},
-		},
+	if (cfg.Reminders == nil) != (cfg.Settings == nil) {
+		panic("scheduler: reminders and settings must be set together")
 	}
+	cfg = cfg.withDefaults()
+	s := &Scheduler{
+		store:     store,
+		clock:     clock,
+		reminders: cfg.Reminders,
+		settings:  cfg.Settings,
+		cfg:       cfg,
+		logger:    cfg.Logger,
+	}
+	s.addDeadlineJob(errand.AcceptanceExpiry, errand.EventAcceptanceDeadlinePassed, cfg.AcceptanceExpiryInterval)
+	s.addDeadlineJob(errand.PickupDeadline, errand.EventPickupDeadlinePassed, cfg.PickupDeadlineInterval)
+	s.addDeadlineJob(errand.DeliveryDeadline, errand.EventDeliveryDeadlinePassed, cfg.DeliveryDeadlineInterval)
+	s.addDeadlineJob(errand.VerificationLapse, errand.EventVerificationLapsed, cfg.VerificationLapseInterval)
+	if s.reminders != nil {
+		s.addReminderJob(verificationReminder, cfg.VerificationReminderInterval)
+		s.addReminderJob(pickupReminder(cfg.PickupReminderLead), cfg.PickupReminderInterval)
+	}
+	return s
 }
 
-// Kinds lists the DueKinds the scheduler runs, one job each.
-func (s *Scheduler) Kinds() []errand.DueKind {
-	kinds := make([]errand.DueKind, len(s.jobs))
+// Jobs lists the names of the jobs the scheduler runs.
+func (s *Scheduler) Jobs() []string {
+	names := make([]string, len(s.jobs))
 	for i, j := range s.jobs {
-		kinds[i] = j.kind
+		names[i] = j.name
 	}
-	return kinds
+	return names
 }
 
 // Run starts one goroutine per job and blocks until ctx is cancelled and
@@ -154,14 +197,14 @@ func (s *Scheduler) loop(ctx context.Context, j *job) {
 	}
 }
 
-// drain runs batches of j while they come back full. A batch is full when
-// decide saw BatchSize errands, skipped ones included. A full batch in which
+// drain runs batches of j while they come back full. A batch is full when it
+// saw the job's limit of errands, skipped ones included. A full batch in which
 // nothing was applied stops the drain, because the next batch would select
 // the same errands again.
 func (s *Scheduler) drain(ctx context.Context, j *job) {
 	for ctx.Err() == nil {
 		res, err := s.runBatch(ctx, j)
-		if err != nil || res.Seen < s.cfg.BatchSize || res.Applied == 0 {
+		if err != nil || res.Seen < j.limit || res.Applied == 0 {
 			return
 		}
 	}
@@ -178,106 +221,60 @@ func (s *Scheduler) delay(interval time.Duration) time.Duration {
 
 // BatchResult is what one batch of a job did.
 type BatchResult struct {
-	// Seen is the number of errands decide was called for.
+	// Seen is the number of errands the batch considered: decide calls for
+	// a deadline job, candidates for a reminder job.
 	Seen int
-	// Applied is the number of transitions ClaimDue committed.
+	// Applied is the number of transitions committed, or reminder rows
+	// written.
 	Applied int
 }
 
-// RunOnce runs one batch of the job for kind at the clock's current time.
-// Run calls it on every tick; it is exported for tests and operational
-// tooling. A panic inside the batch is recovered and returned as an error.
-func (s *Scheduler) RunOnce(ctx context.Context, kind errand.DueKind) (BatchResult, error) {
+// RunOnce runs one batch of the named job at the clock's current time. Run
+// calls it on every tick; it is exported for tests and operational tooling.
+// A panic inside the batch is recovered and returned as an error.
+func (s *Scheduler) RunOnce(ctx context.Context, name string) (BatchResult, error) {
 	for _, j := range s.jobs {
-		if j.kind == kind {
+		if j.name == name {
 			return s.runBatch(ctx, j)
 		}
 	}
-	return BatchResult{}, fmt.Errorf("scheduler: no job for due kind %q", kind)
+	return BatchResult{}, fmt.Errorf("scheduler: no job named %q", name)
 }
 
+// runBatch runs one batch of j, recovering a panic and keeping the counters.
 func (s *Scheduler) runBatch(ctx context.Context, j *job) (res BatchResult, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			j.stats.panics.Add(1)
 			s.logger.LogAttrs(ctx, slog.LevelError, "scheduler job panicked",
-				slog.String("job", string(j.kind)),
+				slog.String("job", j.name),
 				slog.Any("panic", r),
 				slog.String("stack", string(debug.Stack())),
 			)
-			res, err = BatchResult{}, fmt.Errorf("scheduler: job %s panicked: %v", j.kind, r)
+			res, err = BatchResult{}, fmt.Errorf("scheduler: job %s panicked: %v", j.name, r)
 		}
 	}()
 
-	now := s.clock.Now()
-	var decided []errand.Transition
-	seen := 0
-	decide := func(e errand.Errand) (errand.Transition, bool, error) {
-		seen++
-		t, ok := s.decide(ctx, j, e, now)
-		if ok {
-			decided = append(decided, t)
-		}
-		return t, ok, nil
-	}
-
-	applied, err := s.store.ClaimDue(ctx, j.kind, now, s.cfg.BatchSize, decide)
+	res, err = j.run(ctx, j)
 	j.stats.batches.Add(1)
 	if err != nil {
 		j.stats.failures.Add(1)
 		s.logger.LogAttrs(ctx, slog.LevelError, "scheduler batch failed",
-			slog.String("job", string(j.kind)),
+			slog.String("job", j.name),
 			slog.String("error", err.Error()),
 		)
 		return BatchResult{}, err
 	}
-
-	j.stats.seen.Add(uint64(seen))
-	j.stats.applied.Add(uint64(applied))
-	j.stats.skipped.Add(uint64(seen - len(decided)))
-	for _, t := range decided {
-		s.logger.LogAttrs(ctx, slog.LevelInfo, "scheduler applied transition",
-			slog.String("job", string(j.kind)),
-			slog.String("errand_id", t.ErrandID),
-			slog.String("event", string(t.Event)),
-			slog.String("from", string(t.From)),
-			slog.String("to", string(t.To)),
-			slog.Int("version", t.NewVersion),
-		)
-	}
-	return BatchResult{Seen: seen, Applied: applied}, nil
-}
-
-// decide builds j's transition for the locked errand e at now, or reports a
-// skip. The errand is skipped when it is no longer due for j's kind (its
-// deadline was extended or it changed state after it was selected) or when
-// Next refuses the event; neither aborts the batch.
-func (s *Scheduler) decide(ctx context.Context, j *job, e errand.Errand, now time.Time) (errand.Transition, bool) {
-	if !j.kind.Due(e, now) {
-		s.logger.LogAttrs(ctx, slog.LevelDebug, "scheduler skipped errand that is no longer due",
-			slog.String("job", string(j.kind)),
-			slog.String("errand_id", e.ID),
-			slog.String("status", string(e.Status)),
-		)
-		return errand.Transition{}, false
-	}
-	t, err := errand.Next(e, j.event, errand.SystemActor(), errand.EventInput{}, now)
-	if err != nil {
-		s.logger.LogAttrs(ctx, slog.LevelWarn, "scheduler skipped errand refused by the state machine",
-			slog.String("job", string(j.kind)),
-			slog.String("errand_id", e.ID),
-			slog.String("status", string(e.Status)),
-			slog.String("error", err.Error()),
-		)
-		return errand.Transition{}, false
-	}
-	return t, true
+	j.stats.seen.Add(uint64(res.Seen))
+	j.stats.applied.Add(uint64(res.Applied))
+	j.stats.skipped.Add(uint64(res.Seen - res.Applied))
+	return res, nil
 }
 
 // JobStats are one job's counters since the Scheduler was created.
 type JobStats struct {
-	// Batches counts ClaimDue calls, Failures those that returned an error
-	// and Panics the batches that panicked.
+	// Batches counts batches run, Failures those that returned an error and
+	// Panics those that panicked.
 	Batches  uint64
 	Failures uint64
 	Panics   uint64
@@ -302,11 +299,11 @@ func (c *counters) snapshot() JobStats {
 	}
 }
 
-// Stats returns every job's counters, keyed by its DueKind.
-func (s *Scheduler) Stats() map[errand.DueKind]JobStats {
-	out := make(map[errand.DueKind]JobStats, len(s.jobs))
+// Stats returns every job's counters, keyed by job name.
+func (s *Scheduler) Stats() map[string]JobStats {
+	out := make(map[string]JobStats, len(s.jobs))
 	for _, j := range s.jobs {
-		out[j.kind] = j.stats.snapshot()
+		out[j.name] = j.stats.snapshot()
 	}
 	return out
 }
