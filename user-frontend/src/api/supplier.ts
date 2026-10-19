@@ -2,7 +2,9 @@
 // (supplier-service/openapi). The service is reached at /supplier-service (its
 // documented gateway route); in dev the Vite proxy forwards there.
 //
-// The Vite development proxy forwards this path to the supplier service.
+// Searching, filtering and sorting are the service's job: q, type, building and
+// sort are query parameters, and a cursor is bound to the filters and sort that
+// produced it. The client never re-sorts or re-filters a page.
 
 const BASE = "/supplier-service";
 
@@ -15,6 +17,12 @@ export type SupplierErrorCode =
   | "SUPPLIER_NAME_CONFLICT"
   | "SUPPLIER_HAS_ACTIVE_ERRANDS"
   | "DELETION_FENCE_UNAVAILABLE"
+  | "BUILDING_NOT_FOUND"
+  | "BUILDING_CONFLICT"
+  | "BUILDING_IN_USE"
+  | "SUPPLIER_TYPE_NOT_FOUND"
+  | "SUPPLIER_TYPE_CONFLICT"
+  | "SUPPLIER_TYPE_IN_USE"
   | "DEPENDENCY_UNAVAILABLE"
   | "INTERNAL"
   | "NETWORK";
@@ -39,6 +47,8 @@ export class SupplierError extends Error {
 
 export interface SupplierFields {
   name: string;
+  // building and type are the canonical names of managed lookup rows, not free
+  // text: they must match an existing, non-retired building or supplier type.
   type: string;
   building: string;
   floor: string;
@@ -53,6 +63,10 @@ export interface SupplierFields {
 export interface Supplier extends SupplierFields {
   supplierId: string;
   versionId: string;
+  // The lookup rows building and type resolve to. Lookup names never change, so
+  // a historical version keeps the name it was created with.
+  buildingId: string;
+  typeId: string;
   available: boolean;
   createdAt: string;
   updatedAt: string;
@@ -66,11 +80,30 @@ export interface SupplierPage {
 export type SupplierWrite = SupplierFields;
 export type SupplierPatch = Partial<SupplierFields>;
 
+// Ascending by name (default), type or building; the "-" prefix reverses every
+// key. Any other value is rejected as an invalid sort field.
+export type SupplierSort = "name" | "-name" | "type" | "-type" | "building" | "-building";
+
 export interface ListParams {
   q?: string;
   type?: string;
+  building?: string;
+  sort?: SupplierSort;
   limit?: number;
   cursor?: string;
+}
+
+// ---- lookups -----------------------------------------------------------------
+
+export interface Lookup {
+  id: string;
+  // Canonical display name. Immutable: there is no rename.
+  name: string;
+  retired: boolean;
+}
+
+export interface LookupList {
+  items: Lookup[];
 }
 
 // ---- HTTP implementation -----------------------------------------------------
@@ -89,31 +122,36 @@ async function parse<T>(response: Response): Promise<T> {
   return body as T;
 }
 
-function headers(token: string, json = false): HeadersInit {
+function headers(token: string, json = false): Record<string, string> {
   const h: Record<string, string> = { Authorization: `Bearer ${token}` };
   if (json) h["Content-Type"] = "application/json";
   return h;
 }
 
-async function httpList(token: string, params: ListParams): Promise<SupplierPage> {
-  const query = new URLSearchParams();
-  if (params.q) query.set("q", params.q);
-  if (params.type) query.set("type", params.type);
-  if (params.limit) query.set("limit", String(params.limit));
-  if (params.cursor) query.set("cursor", params.cursor);
-  const qs = query.toString();
+function query(params: Record<string, string | number | boolean | undefined>): string {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== "") search.set(key, String(value));
+  }
+  const qs = search.toString();
+  return qs ? `?${qs}` : "";
+}
+
+// ---- suppliers ---------------------------------------------------------------
+
+export async function listSuppliers(token: string, params: ListParams): Promise<SupplierPage> {
   return parse<SupplierPage>(
-    await fetch(`${BASE}/suppliers${qs ? `?${qs}` : ""}`, { headers: headers(token) }),
+    await fetch(`${BASE}/suppliers${query({ ...params })}`, { headers: headers(token) }),
   );
 }
 
-async function httpGet(token: string, id: string): Promise<Supplier> {
+export async function getSupplier(token: string, id: string): Promise<Supplier> {
   return parse<Supplier>(
     await fetch(`${BASE}/suppliers/${encodeURIComponent(id)}`, { headers: headers(token) }),
   );
 }
 
-async function httpCreate(token: string, body: SupplierWrite): Promise<Supplier> {
+export async function createSupplier(token: string, body: SupplierWrite): Promise<Supplier> {
   return parse<Supplier>(
     await fetch(`${BASE}/suppliers`, {
       method: "POST",
@@ -123,7 +161,11 @@ async function httpCreate(token: string, body: SupplierWrite): Promise<Supplier>
   );
 }
 
-async function httpUpdate(token: string, id: string, patch: SupplierPatch): Promise<Supplier> {
+export async function updateSupplier(
+  token: string,
+  id: string,
+  patch: SupplierPatch,
+): Promise<Supplier> {
   return parse<Supplier>(
     await fetch(`${BASE}/suppliers/${encodeURIComponent(id)}`, {
       method: "PATCH",
@@ -133,7 +175,7 @@ async function httpUpdate(token: string, id: string, patch: SupplierPatch): Prom
   );
 }
 
-async function httpDelete(token: string, id: string): Promise<void> {
+export async function deleteSupplier(token: string, id: string): Promise<void> {
   const response = await fetch(`${BASE}/suppliers/${encodeURIComponent(id)}`, {
     method: "DELETE",
     // Idempotency-Key identifies one logical deletion; reuse it when retrying.
@@ -143,20 +185,67 @@ async function httpDelete(token: string, id: string): Promise<void> {
   await parse<unknown>(response);
 }
 
-// ---- public API ---------------------------------------------------------------
+// ---- buildings ---------------------------------------------------------------
 
-export function listSuppliers(token: string, params: ListParams): Promise<SupplierPage> {
-  return httpList(token, params);
+// Unpaginated and capped at 500 rows, ordered by lookup key. includeRetired
+// adds retired rows, which cannot be assigned but still resolve for existing
+// versions.
+export async function listBuildings(token: string, includeRetired = false): Promise<LookupList> {
+  return parse<LookupList>(
+    await fetch(`${BASE}/buildings${query({ includeRetired: includeRetired || undefined })}`, {
+      headers: headers(token),
+    }),
+  );
 }
-export function getSupplier(token: string, id: string): Promise<Supplier> {
-  return httpGet(token, id);
+
+export async function createBuilding(token: string, name: string): Promise<Lookup> {
+  return parse<Lookup>(
+    await fetch(`${BASE}/buildings`, {
+      method: "POST",
+      headers: headers(token, true),
+      body: JSON.stringify({ name }),
+    }),
+  );
 }
-export function createSupplier(token: string, body: SupplierWrite): Promise<Supplier> {
-  return httpCreate(token, body);
+
+// Retiring an already retired building succeeds without change.
+export async function retireBuilding(token: string, id: string): Promise<void> {
+  const response = await fetch(`${BASE}/buildings/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    headers: headers(token),
+  });
+  if (response.status === 204) return;
+  await parse<unknown>(response);
 }
-export function updateSupplier(token: string, id: string, patch: SupplierPatch): Promise<Supplier> {
-  return httpUpdate(token, id, patch);
+
+// ---- supplier types ----------------------------------------------------------
+
+export async function listSupplierTypes(
+  token: string,
+  includeRetired = false,
+): Promise<LookupList> {
+  return parse<LookupList>(
+    await fetch(`${BASE}/supplier-types${query({ includeRetired: includeRetired || undefined })}`, {
+      headers: headers(token),
+    }),
+  );
 }
-export function deleteSupplier(token: string, id: string): Promise<void> {
-  return httpDelete(token, id);
+
+export async function createSupplierType(token: string, name: string): Promise<Lookup> {
+  return parse<Lookup>(
+    await fetch(`${BASE}/supplier-types`, {
+      method: "POST",
+      headers: headers(token, true),
+      body: JSON.stringify({ name }),
+    }),
+  );
+}
+
+export async function retireSupplierType(token: string, id: string): Promise<void> {
+  const response = await fetch(`${BASE}/supplier-types/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    headers: headers(token),
+  });
+  if (response.status === 204) return;
+  await parse<unknown>(response);
 }

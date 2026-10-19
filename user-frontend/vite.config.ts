@@ -18,6 +18,21 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/supplier-service/, ""),
       },
+      // Order service (documented gateway route /order-service), same
+      // prefix-stripping arrangement as the supplier service.
+      "/order-service": {
+        target: "http://localhost:3003",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/order-service/, ""),
+      },
+      // Credit service. No implementation exists yet, so this forwards nowhere
+      // until one is running; the credit screens then show a reachability
+      // error rather than failing silently.
+      "/credit-service": {
+        target: "http://localhost:3004",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/credit-service/, ""),
+      },
     },
     allowedHosts: ["russell-unjumbled-unputatively.ngrok-free.dev"],
   },
