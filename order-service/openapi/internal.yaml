@@ -1,0 +1,177 @@
+operations:
+  acquireFence:
+    operationId: acquireSupplierFence
+    tags: [Internal]
+    summary: Block new errands for a supplier, then check for active errands
+    description: >-
+      In one transaction: takes the exclusive advisory lock on the supplier
+      key (docs/contracts.md "Fence and creation locking"), creates the fence
+      in state open if this operation has none, then counts active errands.
+      Idempotent for the (operationId, supplierId) pair: a replay returns the
+      fence's current state and never reopens a released or committed fence.
+      The same operationId with another supplierId is INVALID_ARGUMENT
+      (supplier-service docs/contracts.md "Order-service deletion fence").
+    x-required-permissions: [orders:internal]
+    x-allowed-callers: [supplier-service]
+    security:
+      - serviceAuth: []
+    parameters:
+      - $ref: ./common.yaml#/components/parameters/OperationID
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: ./common.yaml#/components/schemas/FenceAcquire
+    responses:
+      "200":
+        description: The fence.
+        content:
+          application/json:
+            schema:
+              $ref: ./common.yaml#/components/schemas/Fence
+      "400":
+        $ref: ./common.yaml#/components/responses/ValidationFailed
+      "401":
+        $ref: ./common.yaml#/components/responses/Unauthenticated
+      "403":
+        $ref: ./common.yaml#/components/responses/Forbidden
+      "500":
+        $ref: ./common.yaml#/components/responses/Internal
+      "503":
+        $ref: ./common.yaml#/components/responses/DependencyUnavailable
+
+  inspectFence:
+    operationId: inspectSupplierFence
+    tags: [Internal]
+    summary: Read a fence
+    description: >-
+      Resolves an ambiguous Acquire or Commit. Same body as Acquire.
+    x-required-permissions: [orders:internal]
+    x-allowed-callers: [supplier-service]
+    security:
+      - serviceAuth: []
+    parameters:
+      - $ref: ./common.yaml#/components/parameters/OperationID
+    responses:
+      "200":
+        description: The fence.
+        content:
+          application/json:
+            schema:
+              $ref: ./common.yaml#/components/schemas/Fence
+      "400":
+        $ref: ./common.yaml#/components/responses/InvalidArgument
+      "401":
+        $ref: ./common.yaml#/components/responses/Unauthenticated
+      "403":
+        $ref: ./common.yaml#/components/responses/Forbidden
+      "404":
+        $ref: ./common.yaml#/components/responses/FenceNotFound
+      "500":
+        $ref: ./common.yaml#/components/responses/Internal
+      "503":
+        $ref: ./common.yaml#/components/responses/DependencyUnavailable
+
+  commitFence:
+    operationId: commitSupplierFence
+    tags: [Internal]
+    summary: Make a fence permanent
+    description: >-
+      open → committed, after supplier-service has soft-deleted the
+      supplier. Idempotent: committing a committed fence returns it
+      unchanged. A committed fence is never lifted.
+    x-required-permissions: [orders:internal]
+    x-allowed-callers: [supplier-service]
+    security:
+      - serviceAuth: []
+    parameters:
+      - $ref: ./common.yaml#/components/parameters/OperationID
+    responses:
+      "200":
+        description: The fence, now committed.
+        content:
+          application/json:
+            schema:
+              $ref: ./common.yaml#/components/schemas/Fence
+      "400":
+        $ref: ./common.yaml#/components/responses/InvalidArgument
+      "401":
+        $ref: ./common.yaml#/components/responses/Unauthenticated
+      "403":
+        $ref: ./common.yaml#/components/responses/Forbidden
+      "404":
+        $ref: ./common.yaml#/components/responses/FenceNotFound
+      "409":
+        $ref: ./common.yaml#/components/responses/FenceConflict
+      "500":
+        $ref: ./common.yaml#/components/responses/Internal
+      "503":
+        $ref: ./common.yaml#/components/responses/DependencyUnavailable
+
+  releaseFence:
+    operationId: releaseSupplierFence
+    tags: [Internal]
+    summary: Lift a fence
+    description: >-
+      open → released, when deletion is rejected or the supplier write
+      failed. Idempotent: releasing a released fence returns it unchanged.
+    x-required-permissions: [orders:internal]
+    x-allowed-callers: [supplier-service]
+    security:
+      - serviceAuth: []
+    parameters:
+      - $ref: ./common.yaml#/components/parameters/OperationID
+    responses:
+      "200":
+        description: The fence, now released.
+        content:
+          application/json:
+            schema:
+              $ref: ./common.yaml#/components/schemas/Fence
+      "400":
+        $ref: ./common.yaml#/components/responses/InvalidArgument
+      "401":
+        $ref: ./common.yaml#/components/responses/Unauthenticated
+      "403":
+        $ref: ./common.yaml#/components/responses/Forbidden
+      "404":
+        $ref: ./common.yaml#/components/responses/FenceNotFound
+      "409":
+        $ref: ./common.yaml#/components/responses/FenceConflict
+      "500":
+        $ref: ./common.yaml#/components/responses/Internal
+      "503":
+        $ref: ./common.yaml#/components/responses/DependencyUnavailable
+
+  getUserActiveErrands:
+    operationId: getUserActiveErrands
+    tags: [Internal]
+    summary: Count a user's active errands
+    description: >-
+      For user-service's account-deletion check: active errands the user
+      requested (credits reserved, F1.2.2) and active errands assigned to the
+      user as courier (F1.2.3). An unknown user has zero of both.
+    x-required-permissions: [orders:internal]
+    x-allowed-callers: [user-service]
+    security:
+      - serviceAuth: []
+    parameters:
+      - $ref: ./common.yaml#/components/parameters/UserID
+    responses:
+      "200":
+        description: Active errand counts.
+        content:
+          application/json:
+            schema:
+              $ref: ./common.yaml#/components/schemas/ActiveErrandCounts
+      "400":
+        $ref: ./common.yaml#/components/responses/InvalidArgument
+      "401":
+        $ref: ./common.yaml#/components/responses/Unauthenticated
+      "403":
+        $ref: ./common.yaml#/components/responses/Forbidden
+      "500":
+        $ref: ./common.yaml#/components/responses/Internal
+      "503":
+        $ref: ./common.yaml#/components/responses/DependencyUnavailable

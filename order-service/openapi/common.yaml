@@ -1,0 +1,1320 @@
+operations:
+  readiness:
+    operationId: getReadiness
+    tags: [Operations]
+    summary: Check whether errand operations can run
+    description: >-
+      Not ready only when Postgres is unreachable. Redis and RabbitMQ are
+      reported as degraded, because the service keeps working without the
+      cache and the outbox holds commands and events until the broker is back.
+      The response never contains connection strings or error text (B6).
+    security: []
+    responses:
+      "200":
+        description: Postgres is reachable; other dependencies are reported individually.
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Readiness"
+            examples:
+              degraded:
+                summary: RabbitMQ is down
+                value:
+                  status: degraded
+                  dependencies:
+                    postgres: ok
+                    redis: ok
+                    rabbitmq: degraded
+                    creditResults: stopped
+                    supplier: closed
+                    user: closed
+      "503":
+        description: Postgres is unreachable.
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Readiness"
+            examples:
+              notReady:
+                value:
+                  status: not_ready
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >-
+        Auth0 RS256 user access token for https://api.foc.local/order-service,
+        validated locally using cached JWKS. User routes require errands:use;
+        admin routes require errands:review (gate C3). A client-credentials
+        (service) token is refused on these routes with 403 whatever
+        permissions it carries (NFR3.5.3). Identity comes only from the
+        token's sub; identity or role fields in the request are ignored
+        (NFR3.3.1).
+    serviceAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >-
+        Auth0 client-credentials (M2M) token for
+        https://api.foc.local/order-service with the orders:internal
+        permission. Internal routes accept only service tokens; a user token
+        is refused with 403 even if valid. docs/contracts.md lists which
+        service may call which internal route.
+
+  parameters:
+    ErrandID:
+      name: errandId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    CreateIdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: >-
+        Caller-generated UUID identifying one logical errand submission.
+        Reuse it when retrying an ambiguous or interrupted request. It is
+        unique per requester: a replay returns the errand created by the
+        first request, whatever the replay's body contains (NFR7.3).
+      schema:
+        type: string
+        format: uuid
+    Limit:
+      name: limit
+      in: query
+      description: Maximum page size.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 25
+    Cursor:
+      name: cursor
+      in: query
+      description: >-
+        Opaque cursor returned as nextCursor by the preceding page. It is
+        bound to the filters that produced it; reusing it with other filters
+        is INVALID_ARGUMENT.
+      schema:
+        type: string
+        maxLength: 512
+    UserID:
+      name: userId
+      in: path
+      required: true
+      description: Auth0 subject of the user.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 255
+    OperationID:
+      name: operationId
+      in: path
+      required: true
+      description: >-
+        Supplier-service's deletion operation ID (its delete request's
+        Idempotency-Key).
+      schema:
+        type: string
+        format: uuid
+    OutboxRowID:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+
+  schemas:
+    ErrandStatus:
+      type: string
+      description: Diagram 1 state in order-requirements.md.
+      enum:
+        - PENDING_RESERVATION
+        - OPEN
+        - ASSIGNED
+        - PICKED_UP
+        - DELIVERED
+        - REVIEW_REQUIRED
+        - REJECTED
+        - CANCELLED
+        - EXPIRED
+        - COMPLETED
+        - REFUNDED
+
+    ReviewReason:
+      type: string
+      enum: [COURIER_ISSUE, REQUESTER_DISPUTE, DELIVERY_OVERDUE]
+
+    ActorType:
+      type: string
+      enum: [REQUESTER, COURIER, ADMIN, SYSTEM]
+
+    ExpectedVersion:
+      type: integer
+      minimum: 1
+      description: >-
+        The errand version the caller was shown. A stale version is
+        409 ERRAND_CHANGED (F3.3.7).
+
+    Item:
+      type: object
+      required: [description, quantity]
+      properties:
+        description:
+          type: string
+          minLength: 1
+          maxLength: 200
+          pattern: '\S'
+        quantity:
+          type: integer
+          minimum: 1
+          maximum: 99
+      additionalProperties: false
+
+    Items:
+      type: array
+      minItems: 1
+      maxItems: 20
+      items:
+        $ref: "#/components/schemas/Item"
+
+    Reward:
+      type: integer
+      format: int32
+      minimum: 1
+      description: Credit reward, a positive integer (F3.1.1).
+
+    DeliveryDetail:
+      type: string
+      minLength: 1
+      maxLength: 200
+      pattern: '\S'
+      description: Free-text delivery detail, e.g. "Block B, level 7 lounge".
+
+    Notes:
+      type: string
+      maxLength: 500
+      description: Optional delivery instructions. Never shown in the open list.
+
+    ContactName:
+      type: string
+      minLength: 1
+      maxLength: 100
+      pattern: '\S'
+      description: >-
+        Who the courier contacts about the errand, chosen by the requester
+        (NFR3.6.4). It need not be the requester; clients prefill it from the
+        requester's profile (NFR2.6.1). Same limits as a user-service display
+        name: not blank, no control characters.
+
+    ContactMobile:
+      type: string
+      minLength: 1
+      maxLength: 32
+      pattern: '\S'
+      description: >-
+        The contact person's mobile number. Same limits as a user-service
+        mobile number: not blank, no control characters; the format is not
+        checked.
+
+    AcceptanceDeadline:
+      type: string
+      format: date-time
+      description: >-
+        Must be in the future and 10 minutes to 24 hours from the time of the
+        request, both inclusive (F3.1.3). Defaults to one hour after creation.
+
+    PickupLocation:
+      type: object
+      description: >-
+        The pickup location from the supplier version stored on the errand,
+        so it stays readable after the supplier changes or is deleted
+        (F2.4.3, F2.5.1).
+      required: [name, building, floor, locationDescription, latitude, longitude]
+      properties:
+        name:
+          type: string
+        building:
+          type: string
+        floor:
+          type: string
+        locationDescription:
+          type: string
+        latitude:
+          type: number
+          format: double
+        longitude:
+          type: number
+          format: double
+      additionalProperties: false
+
+    DeliveryBuilding:
+      type: object
+      description: >-
+        Snapshot of supplier-service's building row taken when the errand was
+        created or edited (F3.1.1). Later renames or retirement do not change
+        it.
+      required: [id, name]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+      additionalProperties: false
+
+    ErrandCreate:
+      type: object
+      description: >-
+        Seven mandatory fields, of which the requester types at most five:
+        contactName and contactMobile are prefilled from the profile
+        (NFR2.6, NFR2.6.1). The pickup location is resolved to the
+        supplier's current version at submission (F2.5.2);
+        deliveryBuildingId must be an existing building that is not retired.
+      required:
+        - supplierId
+        - deliveryBuildingId
+        - deliveryDetail
+        - items
+        - reward
+        - contactName
+        - contactMobile
+      properties:
+        supplierId:
+          type: string
+          format: uuid
+        deliveryBuildingId:
+          type: string
+          format: uuid
+        deliveryDetail:
+          $ref: "#/components/schemas/DeliveryDetail"
+        items:
+          $ref: "#/components/schemas/Items"
+        notes:
+          $ref: "#/components/schemas/Notes"
+        contactName:
+          $ref: "#/components/schemas/ContactName"
+        contactMobile:
+          $ref: "#/components/schemas/ContactMobile"
+        reward:
+          $ref: "#/components/schemas/Reward"
+        acceptanceDeadline:
+          $ref: "#/components/schemas/AcceptanceDeadline"
+      additionalProperties: false
+
+    ErrandEdit:
+      type: object
+      description: >-
+        expectedVersion plus at least one field to change; omitted fields keep
+        their current value. The server builds the complete edited errand and
+        validates all of it. A changed acceptanceDeadline must be 10 minutes
+        to 24 hours from the time of the edit (F3.1.3); an unchanged one only
+        has to be in the future, so an edit to the notes still succeeds when
+        the deadline is less than 10 minutes away. A changed supplierId is resolved to that supplier's current version as
+        on creation; a changed deliveryBuildingId takes a new snapshot.
+      required: [expectedVersion]
+      minProperties: 2
+      properties:
+        expectedVersion:
+          $ref: "#/components/schemas/ExpectedVersion"
+        supplierId:
+          type: string
+          format: uuid
+        deliveryBuildingId:
+          type: string
+          format: uuid
+        deliveryDetail:
+          $ref: "#/components/schemas/DeliveryDetail"
+        items:
+          $ref: "#/components/schemas/Items"
+        notes:
+          $ref: "#/components/schemas/Notes"
+        contactName:
+          $ref: "#/components/schemas/ContactName"
+        contactMobile:
+          $ref: "#/components/schemas/ContactMobile"
+        reward:
+          $ref: "#/components/schemas/Reward"
+        acceptanceDeadline:
+          $ref: "#/components/schemas/AcceptanceDeadline"
+      additionalProperties: false
+
+    VersionedAction:
+      type: object
+      required: [expectedVersion]
+      properties:
+        expectedVersion:
+          $ref: "#/components/schemas/ExpectedVersion"
+      additionalProperties: false
+
+    ReasonedAction:
+      type: object
+      required: [expectedVersion, reason]
+      properties:
+        expectedVersion:
+          $ref: "#/components/schemas/ExpectedVersion"
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 500
+          pattern: '\S'
+      additionalProperties: false
+
+    # Open-list projection. It is the only errand shape that may be cached
+    # (docs/contracts.md "Cache contract") and has no requester identity and
+    # no notes (NFR3.6.4, NFR3.6.3). Mirrors errand.OpenErrandView.
+    OpenErrandFields:
+      type: object
+      required:
+        - errandId
+        - version
+        - supplierId
+        - supplierVersionId
+        - pickup
+        - deliveryBuilding
+        - deliveryDetail
+        - items
+        - reward
+        - createdAt
+        - acceptanceDeadline
+      properties:
+        errandId:
+          type: string
+          format: uuid
+        version:
+          type: integer
+          minimum: 1
+          description: Send it back as expectedVersion to accept.
+        supplierId:
+          type: string
+          format: uuid
+        supplierVersionId:
+          type: string
+          format: uuid
+        pickup:
+          $ref: "#/components/schemas/PickupLocation"
+        deliveryBuilding:
+          $ref: "#/components/schemas/DeliveryBuilding"
+        deliveryDetail:
+          type: string
+        items:
+          $ref: "#/components/schemas/Items"
+        reward:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+        acceptanceDeadline:
+          type: string
+          format: date-time
+
+    OpenErrandItem:
+      description: >-
+        One open errand as any courier sees it. No requester identity, no
+        notes.
+      allOf:
+        - $ref: "#/components/schemas/OpenErrandFields"
+        - type: object
+          required: [groupKey]
+          properties:
+            groupKey:
+              type: string
+              description: >-
+                Grouping key for F3.2.1: the supplierId and the creation time
+                truncated to 15 minutes in UTC, as
+                "{supplierId}:{yyyy-MM-ddTHH:mmZ}". Errands with the same key
+                can be picked up together. Clients must not parse it.
+            distanceMeters:
+              type: number
+              format: double
+              minimum: 0
+              description: >-
+                Great-circle distance from the supplied coordinates to the
+                pickup location. Present only when lat and lng were supplied.
+      unevaluatedProperties: false
+
+    OpenErrandPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/OpenErrandItem"
+        nextCursor:
+          type: string
+          description: Omitted when there is no next page.
+      additionalProperties: false
+
+    PublicErrandView:
+      description: >-
+        GET /errands/{errandId} for a caller who is neither the requester nor
+        the assigned courier, while the errand is OPEN: the open-list
+        projection.
+      allOf:
+        - $ref: "#/components/schemas/OpenErrandFields"
+        - type: object
+          required: [viewerRole]
+          properties:
+            viewerRole:
+              type: string
+              const: PUBLIC
+      unevaluatedProperties: false
+
+    # Fields the requester, the assigned courier and an admin all see.
+    ErrandFields:
+      type: object
+      required:
+        - errandId
+        - version
+        - status
+        - supplierId
+        - supplierVersionId
+        - pickup
+        - deliveryBuilding
+        - deliveryDetail
+        - items
+        - notes
+        - reward
+        - createdAt
+        - updatedAt
+        - acceptanceDeadline
+      properties:
+        errandId:
+          type: string
+          format: uuid
+        version:
+          type: integer
+          minimum: 1
+        status:
+          $ref: "#/components/schemas/ErrandStatus"
+        supplierId:
+          type: string
+          format: uuid
+        supplierVersionId:
+          type: string
+          format: uuid
+        pickup:
+          $ref: "#/components/schemas/PickupLocation"
+        deliveryBuilding:
+          $ref: "#/components/schemas/DeliveryBuilding"
+        deliveryDetail:
+          type: string
+        items:
+          $ref: "#/components/schemas/Items"
+        notes:
+          type: string
+        reward:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        acceptanceDeadline:
+          type: string
+          format: date-time
+        pickupDeadline:
+          type: string
+          format: date-time
+          description: Set while ASSIGNED or PICKED_UP.
+        deliveryDeadline:
+          type: string
+          format: date-time
+          description: Set while ASSIGNED or PICKED_UP.
+        deliveredAt:
+          type: string
+          format: date-time
+        verificationDeadline:
+          type: string
+          format: date-time
+          description: When a DELIVERED errand auto-completes (F3.10.3).
+        reviewReason:
+          $ref: "#/components/schemas/ReviewReason"
+
+    PendingEdit:
+      type: object
+      description: >-
+        A reward edit waiting for credit-service (F4.4). Couriers keep seeing,
+        and can accept, the current details until it is applied.
+      required:
+        - supplierId
+        - supplierVersionId
+        - pickup
+        - deliveryBuilding
+        - deliveryDetail
+        - items
+        - notes
+        - contactName
+        - contactMobile
+        - reward
+        - acceptanceDeadline
+        - requestedAt
+      properties:
+        supplierId:
+          type: string
+          format: uuid
+        supplierVersionId:
+          type: string
+          format: uuid
+        pickup:
+          $ref: "#/components/schemas/PickupLocation"
+        deliveryBuilding:
+          $ref: "#/components/schemas/DeliveryBuilding"
+        deliveryDetail:
+          type: string
+        items:
+          $ref: "#/components/schemas/Items"
+        notes:
+          type: string
+        contactName:
+          type: string
+        contactMobile:
+          type: string
+        reward:
+          type: integer
+        acceptanceDeadline:
+          type: string
+          format: date-time
+        requestedAt:
+          type: string
+          format: date-time
+      additionalProperties: false
+
+    RequesterErrandView:
+      description: >-
+        The errand as its requester sees it, including the contact person
+        they chose. Nothing about the courier is returned besides the
+        status: contact is one-way, courier to requester (NFR3.6.3,
+        NFR3.6.4).
+      allOf:
+        - $ref: "#/components/schemas/ErrandFields"
+        - type: object
+          required: [viewerRole, contactName, contactMobile]
+          properties:
+            viewerRole:
+              type: string
+              const: REQUESTER
+            contactName:
+              type: string
+            contactMobile:
+              type: string
+            pendingEdit:
+              $ref: "#/components/schemas/PendingEdit"
+            rejectionReason:
+              type: string
+              enum:
+                - INSUFFICIENT_CREDITS
+                - ACCOUNT_NOT_FOUND
+                - RESERVATION_RELEASED
+                - RESERVATION_FAILED
+              description: >-
+                Set only on a REJECTED errand: the credit-service refusal
+                code, or RESERVATION_FAILED when no result arrived in time
+                (F3.1.2, NFR7.5.1).
+      unevaluatedProperties: false
+
+    CourierErrandView:
+      description: >-
+        The errand as its assigned courier sees it, including the
+        requester's notes (F3.12). contactName and contactMobile, the
+        contact person the requester chose, are present only while the
+        errand is ASSIGNED, PICKED_UP, DELIVERED or REVIEW_REQUIRED
+        (NFR3.6.4). The requester's own identity is never returned.
+      allOf:
+        - $ref: "#/components/schemas/ErrandFields"
+        - type: object
+          required: [viewerRole]
+          properties:
+            viewerRole:
+              type: string
+              const: COURIER
+            contactName:
+              type: string
+            contactMobile:
+              type: string
+      unevaluatedProperties: false
+
+    ErrandView:
+      description: >-
+        GET /errands/{errandId} chooses the view from the caller's
+        relationship to the errand (NFR3.3.2), never from the request.
+      oneOf:
+        - $ref: "#/components/schemas/RequesterErrandView"
+        - $ref: "#/components/schemas/CourierErrandView"
+        - $ref: "#/components/schemas/PublicErrandView"
+      discriminator:
+        propertyName: viewerRole
+        mapping:
+          REQUESTER: "#/components/schemas/RequesterErrandView"
+          COURIER: "#/components/schemas/CourierErrandView"
+          PUBLIC: "#/components/schemas/PublicErrandView"
+
+    ParticipantErrandView:
+      description: An errand the caller requested or delivered.
+      oneOf:
+        - $ref: "#/components/schemas/RequesterErrandView"
+        - $ref: "#/components/schemas/CourierErrandView"
+      discriminator:
+        propertyName: viewerRole
+        mapping:
+          REQUESTER: "#/components/schemas/RequesterErrandView"
+          COURIER: "#/components/schemas/CourierErrandView"
+
+    RequesterErrandPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/RequesterErrandView"
+        nextCursor:
+          type: string
+          description: Omitted when there is no next page.
+      additionalProperties: false
+
+    CourierErrandPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/CourierErrandView"
+        nextCursor:
+          type: string
+          description: Omitted when there is no next page.
+      additionalProperties: false
+
+    HistoryPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/ParticipantErrandView"
+        nextCursor:
+          type: string
+          description: Omitted when there is no next page.
+      additionalProperties: false
+
+    Review:
+      type: object
+      required: [reason, createdAt]
+      properties:
+        reason:
+          $ref: "#/components/schemas/ReviewReason"
+        reporterId:
+          type: string
+          description: Omitted when the system raised the review (DELIVERY_OVERDUE).
+        note:
+          type: string
+          description: The reported issue or dispute reason.
+        createdAt:
+          type: string
+          format: date-time
+        resolution:
+          type: string
+          enum: [COMPLETED, REFUNDED]
+        resolverId:
+          type: string
+        resolutionReason:
+          type: string
+        resolvedAt:
+          type: string
+          format: date-time
+      additionalProperties: false
+
+    AdminErrandView:
+      description: >-
+        The errand as an administrator sees it in review (F6.1.1). Users are
+        identified by ID only; the contact person is not returned
+        (NFR3.6.3).
+      allOf:
+        - $ref: "#/components/schemas/ErrandFields"
+        - type: object
+          required: [viewerRole, requesterId, review]
+          properties:
+            viewerRole:
+              type: string
+              const: ADMIN
+            requesterId:
+              type: string
+            courierId:
+              type: string
+            review:
+              $ref: "#/components/schemas/Review"
+      unevaluatedProperties: false
+
+    AdminReviewPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/AdminErrandView"
+        nextCursor:
+          type: string
+          description: Omitted when there is no next page.
+      additionalProperties: false
+
+    ReviewResolution:
+      type: object
+      required: [outcome, reason, expectedVersion]
+      properties:
+        outcome:
+          type: string
+          enum: [COMPLETED, REFUNDED]
+          description: >-
+            COMPLETED transfers the reward to the courier; REFUNDED releases
+            it to the requester (F6.1.3).
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 500
+          pattern: '\S'
+          description: Required resolution reason (F6.1.4).
+        expectedVersion:
+          $ref: "#/components/schemas/ExpectedVersion"
+      additionalProperties: false
+
+    Settings:
+      type: object
+      description: >-
+        Admin-configurable deadlines and thresholds. Durations are whole
+        seconds and must be positive. Field names match the field paths in
+        VALIDATION_FAILED details.
+      required:
+        - pickupAfter
+        - deliveryAfter
+        - verificationAfter
+        - verificationReminderAfter
+        - withdrawalRestriction
+        - cancellationFlag
+        - reservationTimeout
+        - editTimeout
+        - outboxConfirmTimeout
+      properties:
+        pickupAfter:
+          type: integer
+          minimum: 1
+          description: Pickup deadline after acceptance, seconds (default 7200, F3.8.4).
+        deliveryAfter:
+          type: integer
+          minimum: 1
+          description: Delivery deadline after acceptance, seconds (default 7200, F3.8.5).
+        verificationAfter:
+          type: integer
+          minimum: 1
+          description: Auto-complete after delivery, seconds (default 1800, F3.10.3).
+        verificationReminderAfter:
+          type: integer
+          minimum: 1
+          description: >-
+            Verification reminder after delivery, seconds (default 300). Must
+            be less than verificationAfter.
+        withdrawalRestriction:
+          type: object
+          description: >-
+            count withdrawals within window restrict the courier for duration
+            (defaults 3, 900, 900; F3.6.4, F6.3.1).
+          required: [count, window, duration]
+          properties:
+            count:
+              type: integer
+              minimum: 1
+            window:
+              type: integer
+              minimum: 1
+            duration:
+              type: integer
+              minimum: 1
+          additionalProperties: false
+        cancellationFlag:
+          type: object
+          description: >-
+            More than count cancellations within window flag the requester
+            (defaults 20, 3600; F3.5.3, F6.3.2).
+          required: [count, window]
+          properties:
+            count:
+              type: integer
+              minimum: 1
+            window:
+              type: integer
+              minimum: 1
+          additionalProperties: false
+        reservationTimeout:
+          type: integer
+          minimum: 1
+          description: Stuck-reservation reconciler timeout, seconds (default 300).
+        editTimeout:
+          type: integer
+          minimum: 1
+          description: Stuck-edit reconciler timeout, seconds (default 300).
+        outboxConfirmTimeout:
+          type: integer
+          minimum: 1
+          description: Re-send a SENT credit command with no result after, seconds (default 600).
+      additionalProperties: false
+
+    TransitionRecord:
+      type: object
+      description: One errand_transitions row (F6.2.1).
+      required: [id, errandId, toStatus, event, actorType, errandVersion, at]
+      properties:
+        id:
+          type: integer
+          format: int64
+        errandId:
+          type: string
+          format: uuid
+        fromStatus:
+          $ref: "#/components/schemas/ErrandStatus"
+        toStatus:
+          $ref: "#/components/schemas/ErrandStatus"
+        event:
+          type: string
+          description: The domain event, e.g. accept or pickup_deadline_passed.
+        actorType:
+          $ref: "#/components/schemas/ActorType"
+        actorId:
+          type: string
+          description: Omitted for SYSTEM transitions.
+        reason:
+          type: string
+        errandVersion:
+          type: integer
+          minimum: 1
+        at:
+          type: string
+          format: date-time
+      additionalProperties: false
+
+    TransitionPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/TransitionRecord"
+        nextCursor:
+          type: string
+          description: Omitted when there is no next page.
+      additionalProperties: false
+
+    Flag:
+      type: object
+      required: [userId, kind, count, threshold, window, since, summary]
+      properties:
+        userId:
+          type: string
+        kind:
+          type: string
+          enum: [COURIER_WITHDRAWALS, REQUESTER_CANCELLATIONS]
+        count:
+          type: integer
+          minimum: 1
+          description: Withdrawals or cancellations within the window.
+        threshold:
+          type: integer
+          minimum: 1
+          description: The settings count the user reached or exceeded.
+        window:
+          type: integer
+          minimum: 1
+          description: Window length, seconds.
+        since:
+          type: string
+          format: date-time
+          description: Start of the window that was evaluated.
+        summary:
+          type: string
+          description: Human-readable trigger, e.g. "High withdrawal rate, 4 in 15 min" (F6.3.4).
+      additionalProperties: false
+
+    FlagList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          maxItems: 500
+          description: Ordered by count descending, then userId. Capped at 500.
+          items:
+            $ref: "#/components/schemas/Flag"
+      additionalProperties: false
+
+    OutboxRow:
+      type: object
+      description: >-
+        An outbox row without its payload, which can contain user IDs.
+      required: [id, kind, errandId, status, attempts, createdAt, nextAttemptAt]
+      properties:
+        id:
+          type: integer
+          format: int64
+        kind:
+          type: string
+          description: credit.reserve|adjust|release|transfer or event.errand.*.
+        errandId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [PENDING, SENT, CONFIRMED, FAILED]
+        attempts:
+          type: integer
+          minimum: 0
+        lastFailureCode:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        nextAttemptAt:
+          type: string
+          format: date-time
+        sentAt:
+          type: string
+          format: date-time
+      additionalProperties: false
+
+    OutboxRowPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/OutboxRow"
+        nextCursor:
+          type: string
+          description: Omitted when there is no next page.
+      additionalProperties: false
+
+    Requeue:
+      type: object
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 500
+          pattern: '\S'
+      additionalProperties: false
+
+    FenceAcquire:
+      type: object
+      required: [supplierId]
+      properties:
+        supplierId:
+          type: string
+          format: uuid
+      additionalProperties: false
+
+    Fence:
+      type: object
+      description: >-
+        A supplier deletion fence (supplier-service docs/contracts.md
+        "Order-service deletion fence"). state values match supplier-service's
+        deletefeature.FenceState.
+      required: [operationId, supplierId, state, hasActiveErrands]
+      properties:
+        operationId:
+          type: string
+          format: uuid
+        supplierId:
+          type: string
+          format: uuid
+        state:
+          type: string
+          enum: [open, committed, released]
+          description: >-
+            open blocks new errands for the supplier; committed blocks them
+            permanently; released lifts the block.
+        hasActiveErrands:
+          type: boolean
+          description: >-
+            Whether the supplier has an errand in an active (non-terminal)
+            state, or an active errand with a pending edit that moves it to
+            the supplier, counted when the response is built. While the
+            fence is open or committed no errand can be created for or
+            edited onto the supplier, so it can only change from true to
+            false.
+      additionalProperties: false
+
+    ActiveErrandCounts:
+      type: object
+      description: Active means any non-terminal state (F1.2.2, F1.2.3).
+      required: [userId, asRequester, asCourier]
+      properties:
+        userId:
+          type: string
+        asRequester:
+          type: integer
+          minimum: 0
+        asCourier:
+          type: integer
+          minimum: 0
+      additionalProperties: false
+
+    Readiness:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ready, degraded, not_ready]
+        dependencies:
+          type: object
+          description: Omitted when not_ready.
+          properties:
+            postgres:
+              type: string
+              enum: [ok]
+            redis:
+              type: string
+              enum: [ok, degraded, disabled]
+            rabbitmq:
+              type: string
+              enum: [ok, degraded]
+            creditResults:
+              type: string
+              enum: [running, stopped]
+            supplier:
+              type: string
+              enum: [closed, open, half_open]
+              description: Circuit-breaker state of the supplier-service client.
+            user:
+              type: string
+              enum: [closed, open, half_open]
+              description: Circuit-breaker state of the user-service client.
+          additionalProperties: false
+      additionalProperties: false
+
+    ErrorField:
+      type: object
+      required: [field, message]
+      properties:
+        field:
+          type: string
+        message:
+          type: string
+      additionalProperties: false
+
+    Error:
+      type: object
+      description: >-
+        Stable error codes from internal/apperror. VALIDATION_FAILED lists
+        every invalid field in fields (NFR2.2.1); INVALID_ARGUMENT is a
+        malformed request outside the body fields (path, query, header,
+        cursor).
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          enum:
+            - INVALID_ARGUMENT
+            - UNAUTHENTICATED
+            - FORBIDDEN
+            - VALIDATION_FAILED
+            - ERRAND_NOT_FOUND
+            - FENCE_NOT_FOUND
+            - OUTBOX_ROW_NOT_FOUND
+            - ERRAND_CHANGED
+            - ERRAND_UNAVAILABLE
+            - INVALID_TRANSITION
+            - NOT_ELIGIBLE
+            - COURIER_RESTRICTED
+            - INSUFFICIENT_CREDITS
+            - EDIT_PENDING
+            - SUPPLIER_UNAVAILABLE
+            - SUPPLIER_DELETION_IN_PROGRESS
+            - DEPENDENCY_UNAVAILABLE
+            - INTERNAL
+        message:
+          type: string
+        fields:
+          type: array
+          items:
+            $ref: "#/components/schemas/ErrorField"
+      additionalProperties: false
+
+  responses:
+    InvalidArgument:
+      description: The path, query or a header is malformed.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/Error"
+              - properties:
+                  code:
+                    const: INVALID_ARGUMENT
+    ValidationFailed:
+      description: >-
+        One or more body fields are invalid; fields names every one
+        (NFR2.2.1). A malformed path, query or header is INVALID_ARGUMENT.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/Error"
+              - properties:
+                  code:
+                    enum: [VALIDATION_FAILED, INVALID_ARGUMENT]
+          examples:
+            invalidErrand:
+              value:
+                code: VALIDATION_FAILED
+                message: errand is invalid
+                fields:
+                  - field: reward
+                    message: must be a positive integer
+                  - field: acceptanceDeadline
+                    message: must be at least 10 minutes from now
+    Unauthenticated:
+      description: A valid access token is required.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/Error"
+              - properties:
+                  code:
+                    const: UNAUTHENTICATED
+    Forbidden:
+      description: >-
+        The token lacks the required permission, is the wrong kind (service
+        token on a user route or the reverse), the account is disabled, or
+        the caller lacks the required relationship to the errand.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/Error"
+              - properties:
+                  code:
+                    const: FORBIDDEN
+    AcceptForbidden:
+      description: >-
+        FORBIDDEN as for every route; NOT_ELIGIBLE when the caller is the
+        requester or withdrew from this errand before; COURIER_RESTRICTED
+        while the caller is under a withdrawal restriction (F3.3.6, F3.6.4).
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/Error"
+              - properties:
+                  code:
+                    enum: [FORBIDDEN, NOT_ELIGIBLE, COURIER_RESTRICTED]
+    ErrandNotFound:
+      description: >-
+        No such errand, or the caller may not see it (it is not OPEN and the
+        caller is neither its requester nor its assigned courier).
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/Error"
+              - properties:
+                  code:
+                    const: ERRAND_NOT_FOUND
+    ErrandConflict:
+      description: >-
+        ERRAND_CHANGED: expectedVersion is stale. ERRAND_UNAVAILABLE: the
+        errand has moved past the state this action needs (for example it was
+        accepted, cancelled or expired meanwhile). INVALID_TRANSITION: the
+        action is not allowed from the errand's state yet (F3.3.7, NFR6.1.1).
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/Error"
+              - properties:
+                  code:
+                    enum: [ERRAND_CHANGED, ERRAND_UNAVAILABLE, INVALID_TRANSITION]
+    SupplierUnavailable:
+      description: >-
+        The pickup supplier does not exist, is deleted, or is outside its
+        opening hours now (F3.1.1).
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/Error"
+              - properties:
+                  code:
+                    const: SUPPLIER_UNAVAILABLE
+    DependencyUnavailable:
+      description: A required dependency is unavailable.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/Error"
+              - properties:
+                  code:
+                    const: DEPENDENCY_UNAVAILABLE
+    Internal:
+      description: An unexpected internal error occurred.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/Error"
+              - properties:
+                  code:
+                    const: INTERNAL
+    FenceNotFound:
+      description: No fence has this operation ID.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/Error"
+              - properties:
+                  code:
+                    const: FENCE_NOT_FOUND
+    FenceConflict:
+      description: >-
+        The fence is in a state this operation cannot leave: committing a
+        released fence, or releasing a committed one.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/Error"
+              - properties:
+                  code:
+                    const: INVALID_TRANSITION
+    OutboxRowNotFound:
+      description: No outbox row has this ID.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/Error"
+              - properties:
+                  code:
+                    const: OUTBOX_ROW_NOT_FOUND
