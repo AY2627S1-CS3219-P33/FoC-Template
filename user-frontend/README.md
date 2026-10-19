@@ -1,9 +1,19 @@
 # User Frontend
 
-Responsive SPA for the FoC **User Service**. It consumes the service's HTTP API to
-sign a user in, provision their local account, manage profile information, and
-provide an administrator user directory at `/admin`. It holds no business logic
-of its own — the user-service remains the source of truth.
+Responsive SPA for Friend on Campus. It is the single browser client for the
+platform's services and holds no business logic of its own — each service
+remains the source of truth for its own data and rules:
+
+| Service | What the SPA does with it | Client |
+| --- | --- | --- |
+| **user-service** | Sign in, provision the local account, profile, admin user directory | `src/api/client.ts` |
+| **supplier-service** | Browse and administer pickup locations; manage the building and supplier-type lists | `src/api/supplier.ts` |
+| **order-service** | Request, browse, accept and complete errands; errand administration | `src/api/order.ts` |
+| **credit-service** | Balance, reservations and ledger — **against a proposed contract**, see below | `src/api/credit.ts` |
+
+Every client module mirrors its service's frozen OpenAPI contract. Searching,
+filtering, sorting and paging are the services' job; the SPA sends query
+parameters and renders what comes back rather than re-sorting pages locally.
 
 Built with Vite + React + TypeScript.
 
@@ -20,6 +30,19 @@ Built to the D1 presentation wireframes (User Service screens only):
 | — | Profile (view + edit) | `src/pages/Profile.tsx` |
 | — | Admin user directory, search, role changes | `src/pages/admin/AdminUsersPage.tsx` |
 
+Beyond the D1 wireframes, the shell now carries the other services' screens:
+
+| Screen | What it covers | File |
+| --- | --- | --- |
+| Suppliers | Server-side search, type/building filters and sort; admin create, edit, delete | `src/pages/suppliers/SuppliersPage.tsx` |
+| Buildings & types | Admin: add and retire the managed lookup lists | `src/pages/admin/LookupsPage.tsx` |
+| Errands → Browse | Open errands, pickup filter, nearest-first ordering, accept | `src/pages/errands/OpenErrandList.tsx` |
+| Errands → Requested / Delivering / History | The caller's own errands, with the deadline that matters in each state | `src/pages/errands/MyErrandList.tsx` |
+| Errand detail | Role-aware lifecycle actions (edit, cancel, confirm, dispute, pick up, deliver, withdraw, report) | `src/pages/errands/ErrandDetail.tsx` |
+| Request errand | Supplier picker, building dropdown, items, reward, contact, deadline | `src/pages/errands/ErrandForm.tsx` |
+| Credits | Available / reserved / total, ledger and active holds | `src/pages/credit/CreditPage.tsx` |
+| Errand admin | Reviews, settings, transition log, flags, failed outbox | `src/pages/admin/OrderAdminPage.tsx` |
+
 ## Requirements implemented
 
 | Requirement | Where |
@@ -32,6 +55,19 @@ Built to the D1 presentation wireframes (User Service screens only):
 | F1.6 role awareness | `RoleBadge.tsx` |
 | NFR3.1.6 non-revealing auth errors | login + reset messages |
 | NFR2 responsive UI | sidebar collapses to bottom nav below 52rem |
+| F2.x supplier catalogue, backend search/filter/sort | `SuppliersPage.tsx`, `api/supplier.ts` |
+| F2.5.2 pickup resolved to the supplier's current version | pickup shown from the errand's stored snapshot |
+| F3.1.1–F3.1.3 errand creation, reward, acceptance deadline | `ErrandForm.tsx`, `orderValidation.ts` |
+| F3.1.2/F3.1.4 reservation outcome | `ErrandDetail.tsx` polls while `PENDING_RESERVATION` |
+| F3.2.1–F3.2.4 open list, supplier filter, distance ordering | `OpenErrandList.tsx` |
+| F3.3–F3.10 accept, pick up, deliver, withdraw, confirm, dispute, report | `ErrandDetail.tsx` |
+| F3.4/F4.4 edit an open errand; reward edits wait for credit-service | `ErrandForm.tsx` (pending-edit banner) |
+| F3.11–F3.13 requested, delivering and finished lists | `MyErrandList.tsx` |
+| F6.1 review queue and resolution; F6.2 transition log; F6.3 flags and settings | `src/pages/admin/` |
+| NFR3.6.3/NFR3.6.4 one-way contact, notes hidden from the open list | views are rendered as the service returns them |
+| NFR7.3 idempotent errand submission | one `Idempotency-Key` per logical submission, reused on retry |
+| NFR7.4 failed outbox replay | `FailedOutbox.tsx` |
+| F3.3.7/NFR6.1.1 optimistic concurrency | every action sends `expectedVersion`; a stale one reloads the errand |
 
 ### Auth model
 
@@ -102,14 +138,57 @@ References: [Auth0.js](https://auth0.com/docs/libraries/auth0js),
 
 ## Running locally
 
-The frontend expects the user-service running on `http://localhost:8080`. The Vite
-dev server proxies `/api` and `/health` to it, so browser calls stay
-same-origin.
+The Vite dev server proxies each service so browser calls stay same-origin and
+the frontend never hard-codes a backend host:
+
+| Path | Service | Dev target |
+| --- | --- | --- |
+| `/api`, `/health` | user-service | `http://localhost:8080` |
+| `/supplier-service` | supplier-service | `http://localhost:3002` |
+| `/order-service` | order-service | `http://localhost:3003` |
+| `/credit-service` | credit-service | `http://localhost:3004` |
+
+The gateway-route prefix is stripped before forwarding, because each Go service
+serves its routes without it. Only the user-service is needed to sign in; the
+other screens show a "could not reach" banner while their service is down, so
+the app stays usable.
 
 ```sh
 npm install
 npm run dev          # http://localhost:5173
 ```
+
+Each protected screen requests an access token for its own API audience and
+permissions, overridable through the environment (see `.env.example`):
+
+| Screen | Audience | Permissions requested |
+| --- | --- | --- |
+| Suppliers (read) | `VITE_SUPPLIER_AUDIENCE` | `suppliers:read` |
+| Suppliers (admin), Buildings & types | `VITE_SUPPLIER_AUDIENCE` | `suppliers:read suppliers:manage` |
+| Errands | `VITE_ORDER_AUDIENCE` | `errands:use` |
+| Errand admin | `VITE_ORDER_AUDIENCE` | `errands:review` |
+| Credits | `VITE_CREDIT_AUDIENCE` | `credits:read` |
+
+### credit-service is not implemented
+
+`credit-service/` contains no service and no agreed HTTP contract — credit
+appears in the repository only as the RabbitMQ command/result contract in
+`order-service/docs/contracts.md` and as the unimplemented
+`service.CreditBalanceReader` interface in user-service.
+
+So that the credit screens could be built now, `credit-service/openapi.yaml`
+proposes the minimal read-only surface they need, derived from that message
+contract, and `src/api/credit.ts` is its only client. **Both are provisional**:
+whoever owns credit-service should amend or replace them, and only those two
+files change when the real shapes land. The contract is read-only on purpose —
+the credit economy is closed, and credits move only through order-service's
+`credit.reserve` / `adjust` / `release` / `transfer` commands, never through a
+client request. One question is flagged in that file for the owner: user-service
+describes the balance as an exact decimal string, while order-service's reward
+is an `int32`; the draft uses integers to match the frozen order contract.
+
+Until the service exists, the Credits screen shows its unreachable banner and
+falls back to the balance already on the profile.
 
 The forms use real Auth0 credentials and require the tenant settings above. The
 public connection name defaults to
@@ -158,10 +237,38 @@ any directory or role controls. The existing Auth0 API and role setup must grant
 
 ```text
 src/
-  api/          HTTP client and response types (mirrors the service contract)
-  auth/         Auth context and embedded Auth0 integration
-  components/   AppShell (nav + header) and RoleBadge
-  pages/        AuthScreen, Profile, Settings, Placeholder
-    auth/       LoginForm, CreateAccountForm, ResetPassword
-  validation.ts Client-side mirror of profile + password validation
+  api/                 One module per service, each mirroring its OpenAPI contract
+    client.ts          user-service
+    supplier.ts        supplier-service: suppliers + building/type lookups
+    order.ts           order-service: errands, courier actions, administration
+    credit.ts          credit-service (provisional — see above)
+    types.ts           user-service response shapes
+  auth/                Auth context and embedded Auth0 integration
+  components/          AppShell (nav + header) and RoleBadge
+  pages/
+    auth/              LoginForm, CreateAccountForm, ResetPassword
+    suppliers/         List (server-driven search/filter/sort), detail, form
+    errands/           Tab shell, open list, my-errand lists, detail, form
+      format.ts        Status labels/tones, deadlines, durations, credits
+      messages.ts      Order error codes to actionable text
+      usePagedList.ts  Cursor paging shared by every errand list
+    credit/            Balance, ledger, active holds
+    admin/             User directory, lookups, and the five errand-admin screens
+  validation.ts        Profile + password validation (user-service)
+  supplierValidation.ts Supplier field contract
+  orderValidation.ts   Errand field contract, deadlines, datetime-local helpers
 ```
+
+### A note on the lists
+
+Supplier search, type and building filters and sort are all applied by
+supplier-service (the D2 change): `SupplierList` is presentational and the page
+sends `q`, `type`, `building` and `sort` as query parameters. Because a cursor
+is only valid with the filters and sort that produced it, changing any of them
+starts a fresh page sequence rather than appending to the old one.
+
+Buildings and supplier types are managed lookup lists, not free text. The
+supplier form and the errand form pick from them, and administrators add and
+retire rows under **Buildings & types**. Retired rows stay visible on records
+that already reference them — lookup names never change, so history stays
+readable — but cannot be assigned to anything new.
