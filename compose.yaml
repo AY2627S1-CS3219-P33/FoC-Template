@@ -1,0 +1,116 @@
+services:
+  user-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: user_service
+      POSTGRES_USER: user_service
+      POSTGRES_PASSWORD: ${USER_DB_PASSWORD:-user-local-dev}
+    volumes:
+      - user_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user_service -d user_service"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  supplier-db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: supplier_service
+      POSTGRES_USER: supplier_service
+      POSTGRES_PASSWORD: ${SUPPLIER_DB_PASSWORD:-supplier-local-dev}
+    volumes:
+      - supplier_postgres_data_pg17:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U supplier_service -d supplier_service"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  user-migrate:
+    image: foc-goose-migrator:local
+    build:
+      context: ./supplier-service
+      dockerfile: migrate.Dockerfile
+    command: ["-dir", "/migrations", "up"]
+    environment:
+      GOOSE_DRIVER: postgres
+      GOOSE_DBSTRING: postgresql://user_service:${USER_DB_PASSWORD:-user-local-dev}@user-db:5432/user_service?sslmode=disable
+    volumes:
+      - ./user-service/migrations:/migrations:ro
+    depends_on:
+      user-db:
+        condition: service_healthy
+    restart: "no"
+
+  supplier-migrate:
+    image: foc-goose-migrator:local
+    build:
+      context: ./supplier-service
+      dockerfile: migrate.Dockerfile
+    command: ["-dir", "/migrations", "up"]
+    environment:
+      GOOSE_DRIVER: postgres
+      GOOSE_DBSTRING: postgresql://supplier_service:${SUPPLIER_DB_PASSWORD:-supplier-local-dev}@supplier-db:5432/supplier_service?sslmode=disable
+    volumes:
+      - ./supplier-service/migrations:/migrations:ro
+    depends_on:
+      supplier-db:
+        condition: service_healthy
+    restart: "no"
+
+  user-service:
+    build: ./user-service
+    environment:
+      HTTP_ADDRESS: ":8080"
+      DATABASE_URL: postgresql://user_service:${USER_DB_PASSWORD:-user-local-dev}@user-db:5432/user_service?sslmode=disable
+      AUTH0_DOMAIN: ${AUTH0_DOMAIN:-your-tenant.auth0.com}
+      AUTH0_CLIENT_ID: ${AUTH0_CLIENT_ID:-replace-me}
+      AUTH0_AUDIENCE: ${AUTH0_AUDIENCE:-https://api.foc.local/user-service}
+      AUTH0_M2M_CLIENT_ID: ${AUTH0_M2M_CLIENT_ID:-}
+      AUTH0_M2M_CLIENT_SECRET: ${AUTH0_M2M_CLIENT_SECRET:-}
+      AUTH0_USER_ROLE_ID: ${AUTH0_USER_ROLE_ID:-}
+      AUTH0_ADMIN_ROLE_ID: ${AUTH0_ADMIN_ROLE_ID:-}
+      BOOTSTRAP_AUTH0_SUBJECT: ${BOOTSTRAP_AUTH0_SUBJECT:-}
+      BOOTSTRAP_USERNAME: ${BOOTSTRAP_USERNAME:-}
+      BOOTSTRAP_EMAIL: ${BOOTSTRAP_EMAIL:-}
+    depends_on:
+      user-db:
+        condition: service_healthy
+      user-migrate:
+        condition: service_completed_successfully
+
+  supplier-service:
+    build:
+      context: .
+      dockerfile: supplier-service/Dockerfile
+    environment:
+      APP_ENV: development
+      DATABASE_URL: postgresql://supplier_service:${SUPPLIER_DB_PASSWORD:-supplier-local-dev}@supplier-db:5432/supplier_service?sslmode=disable
+      AUTH0_ISSUER: ${SUPPLIER_AUTH0_ISSUER:-https://your-tenant.auth0.com/}
+      AUTH0_AUDIENCE: ${SUPPLIER_AUTH0_AUDIENCE:-https://api.foc.local/supplier-service}
+    depends_on:
+      supplier-db:
+        condition: service_healthy
+      supplier-migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3002/readyz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  user-frontend:
+    build: ./user-frontend
+    ports:
+      - "127.0.0.1:8081:80"
+    depends_on:
+      - user-service
+      - supplier-service
+
+volumes:
+  user_postgres_data:
+  supplier_postgres_data_pg17:
