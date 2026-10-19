@@ -1,704 +1,1657 @@
 asyncapi: 3.0.0
 info:
   title: Friend on Campus service messaging
-  version: 0.1.0
-  description: |
-    Shared application-level messaging contract for FoC services over RabbitMQ
-    using AMQP 0-9-1. The routing keys and workflows are derived from
-    `CS3219.drawio.xml`. Payload field choices are an initial contract proposal
-    and should be confirmed by the order and credit owners before implementation.
+  version: 0.2.0
+  description: |-
+    Shared application-level messaging contract over RabbitMQ / AMQP 0-9-1.
+    The baseline is order-service/docs/contracts.md and internal/errand/{ports,outbox,state}.go.
+    CS3219.drawio.xml supplies the business workflows; the order-service proposal
+    supplies the more detailed expiry, pending-edit and settlement behavior.
+    Credit-service and notification-service still need to implement this contract.
 
-    Suggested durable queues (declared by consuming applications):
-    `credit-service.commands` binds to `credit.reserve`,
-    `credit.reservation.update`, `credit.refund`, and `credit.transfer`;
-    `order-service.credit-outcomes` binds to `credit.reserved`,
-    `credit.reservation-failed`, `credit.refunded`, and `credit.transferred`;
-    `credit-service.order-events` binds to `order.cancelled`, `order.expired`,
-    and `order.delivery-completed`; `notification-service.requests` binds to
-    `notification.requested`.
+    Topology and ownership:
+    - foc.commands: durable direct exchange for credit commands.
+    - foc.events: durable topic exchange for errand events and credit results.
+    - Publishers declare their exchanges idempotently; consumers own their queues.
+    - credit-service.commands binds to the four credit command routing keys;
+      credit-service owns its dead-letter queue.
+    - order-service.credit-results binds to credit.# on foc.events. It is a quorum
+      queue with x-delivery-limit 5 and dead-letters to order-service.credit-results.dlq.
+    - Notification-service owns its queues, bound to errand.# or a subset. It chooses
+      user recipients from requesterId, courierId, actorId and reviewReason, stores
+      user-specific notifications and delivers them through its frontend interface.
+      There is no notification.requested command or requirement for a queue per user.
+    - Optional order-events.tap binds to errand.# only when AMQP_DECLARE_TAP is set.
+
+    Delivery and recovery:
+    - The transactional outbox is the only outbound path. State, history and outgoing
+      rows commit together. An event row kind is event.<routing key>; strip event.
+      before publishing. Credit row kinds already equal their routing keys.
+    - Publish persistent messages (delivery_mode 2) with broker confirmations.
+      AMQP message_id = messageId, type = routing key, content_type = application/json,
+      timestamp = occurredAt, correlation_id = correlationId when present.
+    - Delivery is at-least-once and may reorder. Deduplicate by messageId and ack
+      only after effects are durable. Reject undecodable/unknown messages without
+      requeue to dead-letter them. Older errandVersion events may be ignored, but
+      do not deduplicate by version alone: withdrawn and expired share a version.
+    - Credit command messageId is its stable outbox idempotency key, preserved on
+      retries, timeout resends and admin replay. Results set correlationId to that key
+      and use a stable messageId, proposed as <command messageId>:<result routing key>.
+    - Event rows end at SENT. Credit rows wait for a result; missing results cause a
+      resend with the same key (default confirmation timeout 10 minutes). Publish
+      failures use bounded backoff; exhausted rows require audited admin replay.
+    - Duplicate credit commands replay the original result without another balance
+      change. Release for an unknown errand records a tombstone so a late reserve
+      is refused with RESERVATION_RELEASED.
+    - credit.adjust uses absolute newAmount and a strictly increasing seq: edits
+      requested at version v use 2*v; reversals at new version w use 2*w-1. An adjust
+      with seq <= the last applied seq returns the current amount without changes.
+    - credit.operation_failed marks the outbox row FAILED, with no automatic retry.
+
+    Lifecycle:
+    - Submission persists PENDING_RESERVATION plus credit.reserve and errand.placed.
+      Reservation success opens it; refusal rejects it. Reservation timeout rejects
+      it and enqueues a compensating release (default timeout 5 minutes).
+    - Only OPEN errands can be edited or cancelled. Reward edits remain pending at
+      the same version. Acceptance uses original details and drops any pending edit,
+      enqueueing an adjustment back to the original reward. Matching credit results
+      apply/drop pending edits; stale results do not change the errand. Edit timeout
+      drops the edit and enqueues a reversal (default timeout 5 minutes).
+    - Pickup-deadline withdrawal returns ASSIGNED to OPEN if acceptance is still
+      possible; otherwise it emits withdrawn then expired at the same version and
+      releases the reservation. Delivery overdue from PICKED_UP requires review.
+    - DELIVERED completes on requester confirmation, verification lapse (default
+      30 minutes), or admin completion. Admin may instead refund a reviewed errand.
+      Completed/refunded states enqueue credit commands; their results confirm funds.
+    - Cancellation, expiry and completion events are notification facts, not a second
+      mechanism for credit-service to initiate release or transfer.
+
+    Known limitation retained from the proposal: adjustment seq orders adjustments
+    only. A transfer overtaking a compensating adjustment can settle the wrong
+    reservation amount; settlement ordering/recovery still needs agreement with
+    credit-service. This contract does not introduce a new blocking edit state.
+
+    Privacy: user IDs are Auth0 subjects, not UUIDs. Omit optional values rather than
+    sending null. Contact names and mobile numbers must never be published; pending
+    edit event details explicitly exclude them. Free-text reasons require the same
+    access controls as the events carrying them.
 servers:
   local:
     host: queue-service:5672
     protocol: amqp
-    protocolVersion: '0.9.1'
+    protocolVersion: 0.9.1
     description: RabbitMQ on the local Docker Compose network.
 defaultContentType: application/json
 channels:
   creditReserve:
     address: credit.reserve
-    description: Order service requests an idempotent reservation for an order.
+    description: Reserve a positive integer reward for a newly placed errand.
     messages:
-      reserveCredit:
-        $ref: '#/components/messages/ReserveCredit'
+      message:
+        $ref: "#/components/messages/CreditReserve"
     bindings:
-      amqp:
-        is: routingKey
-        exchange:
-          name: foc.commands
-          type: topic
-          durable: true
-          autoDelete: false
-          vhost: /
-        bindingVersion: '0.3.0'
-  creditReservationUpdate:
-    address: credit.reservation.update
-    description: Order service requests changing the reserved amount to the supplied target amount.
+      $ref: "#/components/channelBindings/CreditCommands"
+  creditAdjust:
+    address: credit.adjust
+    description: Set the absolute reservation amount. Used for reward edits and
+      compensating reversals; seq orders adjustments.
     messages:
-      updateCreditReservation:
-        $ref: '#/components/messages/UpdateCreditReservation'
+      message:
+        $ref: "#/components/messages/CreditAdjust"
     bindings:
-      amqp:
-        is: routingKey
-        exchange:
-          name: foc.commands
-          type: topic
-          durable: true
-          autoDelete: false
-          vhost: /
-        bindingVersion: '0.3.0'
-  creditRefund:
-    address: credit.refund
-    description: Order service requests releasing a requester's reservation after cancellation or expiry.
+      $ref: "#/components/channelBindings/CreditCommands"
+  creditRelease:
+    address: credit.release
+    description: Release the entire reservation on cancellation, expiry, admin
+      refund or reservation timeout compensation.
     messages:
-      refundCredit:
-        $ref: '#/components/messages/RefundCredit'
+      message:
+        $ref: "#/components/messages/CreditRelease"
     bindings:
-      amqp:
-        is: routingKey
-        exchange:
-          name: foc.commands
-          type: topic
-          durable: true
-          autoDelete: false
-          vhost: /
-        bindingVersion: '0.3.0'
+      $ref: "#/components/channelBindings/CreditCommands"
   creditTransfer:
     address: credit.transfer
-    description: Order service requests transferring reserved credits to the courier after delivery completion.
+    description: Transfer the reservation to the courier after requester
+      confirmation, verification lapse or admin completion.
     messages:
-      transferCredit:
-        $ref: '#/components/messages/TransferCredit'
+      message:
+        $ref: "#/components/messages/CreditTransfer"
     bindings:
-      amqp:
-        is: routingKey
-        exchange:
-          name: foc.commands
-          type: topic
-          durable: true
-          autoDelete: false
-          vhost: /
-        bindingVersion: '0.3.0'
+      $ref: "#/components/channelBindings/CreditCommands"
   creditReserved:
     address: credit.reserved
-    description: Credit service reports that the reservation succeeded.
+    description: Reservation succeeded; a matching PENDING_RESERVATION errand becomes OPEN.
     messages:
-      creditReserved:
-        $ref: '#/components/messages/CreditReserved'
+      message:
+        $ref: "#/components/messages/CreditReserved"
     bindings:
-      amqp:
-        is: routingKey
-        exchange:
-          name: foc.events
-          type: topic
-          durable: true
-          autoDelete: false
-          vhost: /
-        bindingVersion: '0.3.0'
-  creditReservationFailed:
-    address: credit.reservation-failed
-    description: Credit service reports that reservation or adjustment failed.
+      $ref: "#/components/channelBindings/Events"
+  creditReservationRefused:
+    address: credit.reservation_refused
+    description: Reservation refused; a matching pending errand becomes REJECTED
+      with the credit code as its reason.
     messages:
-      creditReservationFailed:
-        $ref: '#/components/messages/CreditReservationFailed'
+      message:
+        $ref: "#/components/messages/CreditReservationRefused"
     bindings:
-      amqp:
-        is: routingKey
-        exchange:
-          name: foc.events
-          type: topic
-          durable: true
-          autoDelete: false
-          vhost: /
-        bindingVersion: '0.3.0'
-  creditRefunded:
-    address: credit.refunded
-    description: Credit service reports that a reservation was released.
+      $ref: "#/components/channelBindings/Events"
+  creditAdjusted:
+    address: credit.adjusted
+    description: Adjustment acknowledged. Apply a pending edit only when its key
+      matches correlationId; ignore stale edit outcomes.
     messages:
-      creditRefunded:
-        $ref: '#/components/messages/CreditRefunded'
+      message:
+        $ref: "#/components/messages/CreditAdjusted"
     bindings:
-      amqp:
-        is: routingKey
-        exchange:
-          name: foc.events
-          type: topic
-          durable: true
-          autoDelete: false
-          vhost: /
-        bindingVersion: '0.3.0'
+      $ref: "#/components/channelBindings/Events"
+  creditAdjustRefused:
+    address: credit.adjust_refused
+    description: Adjustment refused. Drop only the pending edit matching
+      correlationId and retain the original details.
+    messages:
+      message:
+        $ref: "#/components/messages/CreditAdjustRefused"
+    bindings:
+      $ref: "#/components/channelBindings/Events"
+  creditReleased:
+    address: credit.released
+    description: Reservation released, including an already released reservation.
+      Confirm the matching outbox row.
+    messages:
+      message:
+        $ref: "#/components/messages/CreditReleased"
+    bindings:
+      $ref: "#/components/channelBindings/Events"
   creditTransferred:
     address: credit.transferred
-    description: Credit service reports that reserved credits were paid to the courier.
+    description: Reservation transferred, including an already transferred
+      reservation. Confirm the matching outbox row.
     messages:
-      creditTransferred:
-        $ref: '#/components/messages/CreditTransferred'
+      message:
+        $ref: "#/components/messages/CreditTransferred"
     bindings:
-      amqp:
-        is: routingKey
-        exchange:
-          name: foc.events
-          type: topic
-          durable: true
-          autoDelete: false
-          vhost: /
-        bindingVersion: '0.3.0'
-  orderCreated:
-    address: order.created
-    description: A new order is open after its credit reservation succeeded.
+      $ref: "#/components/channelBindings/Events"
+  creditOperationFailed:
+    address: credit.operation_failed
+    description: Impossible state or contract failure. Mark the matching outbox row
+      FAILED for admin review; do not retry automatically.
     messages:
-      orderCreated:
-        $ref: '#/components/messages/OrderLifecycleEvent'
+      message:
+        $ref: "#/components/messages/CreditOperationFailed"
     bindings:
-      amqp:
-        is: routingKey
-        exchange: { name: foc.events, type: topic, durable: true, autoDelete: false, vhost: / }
-        bindingVersion: '0.3.0'
-  orderEdited:
-    address: order.edited
-    description: An open order was edited after any required credit adjustment succeeded.
+      $ref: "#/components/channelBindings/Events"
+  errandPlaced:
+    address: errand.placed
+    description: Submitted in PENDING_RESERVATION; credit.reserve is recorded in the
+      same transaction. This is not yet an available order.
     messages:
-      orderEdited:
-        $ref: '#/components/messages/OrderLifecycleEvent'
+      message:
+        $ref: "#/components/messages/ErrandPlaced"
     bindings:
-      amqp:
-        is: routingKey
-        exchange: { name: foc.events, type: topic, durable: true, autoDelete: false, vhost: / }
-        bindingVersion: '0.3.0'
-  orderAssigned:
-    address: order.assigned
-    description: A courier accepted the order.
+      $ref: "#/components/channelBindings/Events"
+  errandOpened:
+    address: errand.opened
+    description: Reservation succeeded and the errand is OPEN. Corresponds to
+      OrderCreated in CS3219.drawio.xml.
     messages:
-      orderAssigned:
-        $ref: '#/components/messages/OrderLifecycleEvent'
+      message:
+        $ref: "#/components/messages/ErrandOpened"
     bindings:
-      amqp:
-        is: routingKey
-        exchange: { name: foc.events, type: topic, durable: true, autoDelete: false, vhost: / }
-        bindingVersion: '0.3.0'
-  orderPickedUp:
-    address: order.picked-up
-    description: The assigned courier picked up the order.
+      $ref: "#/components/channelBindings/Events"
+  errandRejected:
+    address: errand.rejected
+    description: Reservation refused or timed out. Notify the requester; timeout
+      compensation also requests credit.release.
     messages:
-      orderPickedUp:
-        $ref: '#/components/messages/OrderLifecycleEvent'
+      message:
+        $ref: "#/components/messages/ErrandRejected"
     bindings:
-      amqp:
-        is: routingKey
-        exchange: { name: foc.events, type: topic, durable: true, autoDelete: false, vhost: / }
-        bindingVersion: '0.3.0'
-  orderCancelled:
-    address: order.cancelled
-    description: Order was cancelled; credit service releases its reservation.
+      $ref: "#/components/channelBindings/Events"
+  errandEdited:
+    address: errand.edited
+    description: An OPEN errand edit was applied immediately when reward was
+      unchanged, or after credit.adjusted.
     messages:
-      orderCancelled:
-        $ref: '#/components/messages/OrderLifecycleEvent'
+      message:
+        $ref: "#/components/messages/ErrandEdited"
     bindings:
-      amqp:
-        is: routingKey
-        exchange:
-          name: foc.events
-          type: topic
-          durable: true
-          autoDelete: false
-          vhost: /
-        bindingVersion: '0.3.0'
-  orderWithdrawn:
-    address: order.withdrawn
-    description: A courier forcefully withdrew from an order.
+      $ref: "#/components/channelBindings/Events"
+  errandEditRequested:
+    address: errand.edit_requested
+    description: Reward-changing edit is pending while the errand remains OPEN at
+      the same version. pendingEdit excludes contact fields.
     messages:
-      orderWithdrawn:
-        $ref: '#/components/messages/OrderLifecycleEvent'
+      message:
+        $ref: "#/components/messages/ErrandEditRequested"
     bindings:
-      amqp:
-        is: routingKey
-        exchange: { name: foc.events, type: topic, durable: true, autoDelete: false, vhost: / }
-        bindingVersion: '0.3.0'
-  orderDelivered:
-    address: order.delivered
-    description: The courier marked the order as delivered, awaiting requester confirmation.
+      $ref: "#/components/channelBindings/Events"
+  errandEditRejected:
+    address: errand.edit_rejected
+    description: Pending edit was refused or timed out; original details remain.
+      Notify the requester. A timeout also sends a compensating adjustment.
     messages:
-      orderDelivered:
-        $ref: '#/components/messages/OrderLifecycleEvent'
+      message:
+        $ref: "#/components/messages/ErrandEditRejected"
     bindings:
-      amqp:
-        is: routingKey
-        exchange: { name: foc.events, type: topic, durable: true, autoDelete: false, vhost: / }
-        bindingVersion: '0.3.0'
-  orderReviewRequired:
-    address: order.review-required
-    description: A delivery issue, deadline, or dispute requires review.
+      $ref: "#/components/channelBindings/Events"
+  errandAccepted:
+    address: errand.accepted
+    description: "Courier accepted the OPEN errand; status is ASSIGNED. Acceptance
+      wins over a pending edit: discard it, set editDropped and enqueue
+      credit.adjust to restore the original reward."
     messages:
-      orderReviewRequired:
-        $ref: '#/components/messages/OrderLifecycleEvent'
+      message:
+        $ref: "#/components/messages/ErrandAccepted"
     bindings:
-      amqp:
-        is: routingKey
-        exchange: { name: foc.events, type: topic, durable: true, autoDelete: false, vhost: / }
-        bindingVersion: '0.3.0'
-  orderExpired:
-    address: order.expired
-    description: Order expired; credit service releases its reservation.
+      $ref: "#/components/channelBindings/Events"
+  errandCancelled:
+    address: errand.cancelled
+    description: Requester cancelled an OPEN errand; credit.release is recorded
+      atomically. Notification processing must not initiate another refund.
     messages:
-      orderExpired:
-        $ref: '#/components/messages/OrderLifecycleEvent'
+      message:
+        $ref: "#/components/messages/ErrandCancelled"
     bindings:
-      amqp:
-        is: routingKey
-        exchange:
-          name: foc.events
-          type: topic
-          durable: true
-          autoDelete: false
-          vhost: /
-        bindingVersion: '0.3.0'
-  orderDeliveryCompleted:
-    address: order.delivery-completed
-    description: Requester accepted delivery; credit service transfers the reservation to the courier.
+      $ref: "#/components/channelBindings/Events"
+  errandWithdrawn:
+    address: errand.withdrawn
+    description: Courier withdrew voluntarily or was removed at the pickup deadline.
+      Return to OPEN if the acceptance deadline is future; otherwise expire.
+      courierId identifies the removed courier.
     messages:
-      orderDeliveryCompleted:
-        $ref: '#/components/messages/OrderLifecycleEvent'
+      message:
+        $ref: "#/components/messages/ErrandWithdrawn"
     bindings:
-      amqp:
-        is: routingKey
-        exchange:
-          name: foc.events
-          type: topic
-          durable: true
-          autoDelete: false
-          vhost: /
-        bindingVersion: '0.3.0'
-  notificationRequested:
-    address: notification.requested
-    description: Order workflow requests a notification for a user or administrator.
+      $ref: "#/components/channelBindings/Events"
+  errandExpired:
+    address: errand.expired
+    description: Acceptance deadline passed while OPEN, or withdrawal occurred after
+      that deadline. Release the reservation. Notify requester only when
+      unassigned, otherwise requester and the removed courier.
     messages:
-      notificationRequested:
-        $ref: '#/components/messages/NotificationRequested'
+      message:
+        $ref: "#/components/messages/ErrandExpired"
     bindings:
+      $ref: "#/components/channelBindings/Events"
+  errandPickedUp:
+    address: errand.picked_up
+    description: Assigned courier picked up the errand; status is PICKED_UP.
+    messages:
+      message:
+        $ref: "#/components/messages/ErrandPickedUp"
+    bindings:
+      $ref: "#/components/channelBindings/Events"
+  errandDelivered:
+    address: errand.delivered
+    description: Courier marked delivery; status is DELIVERED while requester
+      verification is pending.
+    messages:
+      message:
+        $ref: "#/components/messages/ErrandDelivered"
+    bindings:
+      $ref: "#/components/channelBindings/Events"
+  errandReviewRequired:
+    address: errand.review_required
+    description: Delivery issue, overdue delivery or requester dispute requires
+      review. Notify requester and admin for COURIER_ISSUE or DELIVERY_OVERDUE;
+      admin for REQUESTER_DISPUTE.
+    messages:
+      message:
+        $ref: "#/components/messages/ErrandReviewRequired"
+    bindings:
+      $ref: "#/components/channelBindings/Events"
+  errandCompleted:
+    address: errand.completed
+    description: Requester confirmed delivery, verification lapsed or admin
+      completed review. credit.transfer is recorded atomically. This event is
+      not proof that payout has completed.
+    messages:
+      message:
+        $ref: "#/components/messages/ErrandCompleted"
+    bindings:
+      $ref: "#/components/channelBindings/Events"
+  errandRefunded:
+    address: errand.refunded
+    description: Admin resolved review for the requester. credit.release is recorded
+      atomically; this event is not proof that release has completed.
+    messages:
+      message:
+        $ref: "#/components/messages/ErrandRefunded"
+    bindings:
+      $ref: "#/components/channelBindings/Events"
+  errandAcceptRejected:
+    address: errand.accept_rejected
+    description: Acceptance refused by a state/version check (409), not a 403
+      eligibility refusal. Notify the courier in actorId.
+    messages:
+      message:
+        $ref: "#/components/messages/ErrandAcceptRejected"
+    bindings:
+      $ref: "#/components/channelBindings/Events"
+  errandCancelRejected:
+    address: errand.cancel_rejected
+    description: Cancellation refused by a state check (409). Notify the requester
+      in actorId.
+    messages:
+      message:
+        $ref: "#/components/messages/ErrandCancelRejected"
+    bindings:
+      $ref: "#/components/channelBindings/Events"
+  errandPickupRejected:
+    address: errand.pickup_rejected
+    description: Pickup refused by a state check (409). Notify the courier in actorId.
+    messages:
+      message:
+        $ref: "#/components/messages/ErrandPickupRejected"
+    bindings:
+      $ref: "#/components/channelBindings/Events"
+  errandVerificationReminder:
+    address: errand.verification_reminder
+    description: Remind the requester to verify a DELIVERED errand before
+      verificationDeadline.
+    messages:
+      message:
+        $ref: "#/components/messages/ErrandVerificationReminder"
+    bindings:
+      $ref: "#/components/channelBindings/Events"
+  errandPickupDeadlineApproaching:
+    address: errand.pickup_deadline_approaching
+    description: Remind the assigned courier before pickupDeadline.
+    messages:
+      message:
+        $ref: "#/components/messages/ErrandPickupDeadlineApproaching"
+    bindings:
+      $ref: "#/components/channelBindings/Events"
+operations:
+  orderSendsCreditReserve:
+    action: send
+    channel:
+      $ref: "#/channels/creditReserve"
+    messages:
+      - $ref: "#/channels/creditReserve/messages/message"
+  creditReceivesCreditReserve:
+    action: receive
+    channel:
+      $ref: "#/channels/creditReserve"
+    messages:
+      - $ref: "#/channels/creditReserve/messages/message"
+  orderSendsCreditAdjust:
+    action: send
+    channel:
+      $ref: "#/channels/creditAdjust"
+    messages:
+      - $ref: "#/channels/creditAdjust/messages/message"
+  creditReceivesCreditAdjust:
+    action: receive
+    channel:
+      $ref: "#/channels/creditAdjust"
+    messages:
+      - $ref: "#/channels/creditAdjust/messages/message"
+  orderSendsCreditRelease:
+    action: send
+    channel:
+      $ref: "#/channels/creditRelease"
+    messages:
+      - $ref: "#/channels/creditRelease/messages/message"
+  creditReceivesCreditRelease:
+    action: receive
+    channel:
+      $ref: "#/channels/creditRelease"
+    messages:
+      - $ref: "#/channels/creditRelease/messages/message"
+  orderSendsCreditTransfer:
+    action: send
+    channel:
+      $ref: "#/channels/creditTransfer"
+    messages:
+      - $ref: "#/channels/creditTransfer/messages/message"
+  creditReceivesCreditTransfer:
+    action: receive
+    channel:
+      $ref: "#/channels/creditTransfer"
+    messages:
+      - $ref: "#/channels/creditTransfer/messages/message"
+  creditSendsCreditReserved:
+    action: send
+    channel:
+      $ref: "#/channels/creditReserved"
+    messages:
+      - $ref: "#/channels/creditReserved/messages/message"
+  orderReceivesCreditReserved:
+    action: receive
+    channel:
+      $ref: "#/channels/creditReserved"
+    messages:
+      - $ref: "#/channels/creditReserved/messages/message"
+  creditSendsCreditReservationRefused:
+    action: send
+    channel:
+      $ref: "#/channels/creditReservationRefused"
+    messages:
+      - $ref: "#/channels/creditReservationRefused/messages/message"
+  orderReceivesCreditReservationRefused:
+    action: receive
+    channel:
+      $ref: "#/channels/creditReservationRefused"
+    messages:
+      - $ref: "#/channels/creditReservationRefused/messages/message"
+  creditSendsCreditAdjusted:
+    action: send
+    channel:
+      $ref: "#/channels/creditAdjusted"
+    messages:
+      - $ref: "#/channels/creditAdjusted/messages/message"
+  orderReceivesCreditAdjusted:
+    action: receive
+    channel:
+      $ref: "#/channels/creditAdjusted"
+    messages:
+      - $ref: "#/channels/creditAdjusted/messages/message"
+  creditSendsCreditAdjustRefused:
+    action: send
+    channel:
+      $ref: "#/channels/creditAdjustRefused"
+    messages:
+      - $ref: "#/channels/creditAdjustRefused/messages/message"
+  orderReceivesCreditAdjustRefused:
+    action: receive
+    channel:
+      $ref: "#/channels/creditAdjustRefused"
+    messages:
+      - $ref: "#/channels/creditAdjustRefused/messages/message"
+  creditSendsCreditReleased:
+    action: send
+    channel:
+      $ref: "#/channels/creditReleased"
+    messages:
+      - $ref: "#/channels/creditReleased/messages/message"
+  orderReceivesCreditReleased:
+    action: receive
+    channel:
+      $ref: "#/channels/creditReleased"
+    messages:
+      - $ref: "#/channels/creditReleased/messages/message"
+  creditSendsCreditTransferred:
+    action: send
+    channel:
+      $ref: "#/channels/creditTransferred"
+    messages:
+      - $ref: "#/channels/creditTransferred/messages/message"
+  orderReceivesCreditTransferred:
+    action: receive
+    channel:
+      $ref: "#/channels/creditTransferred"
+    messages:
+      - $ref: "#/channels/creditTransferred/messages/message"
+  creditSendsCreditOperationFailed:
+    action: send
+    channel:
+      $ref: "#/channels/creditOperationFailed"
+    messages:
+      - $ref: "#/channels/creditOperationFailed/messages/message"
+  orderReceivesCreditOperationFailed:
+    action: receive
+    channel:
+      $ref: "#/channels/creditOperationFailed"
+    messages:
+      - $ref: "#/channels/creditOperationFailed/messages/message"
+  orderSendsErrandPlaced:
+    action: send
+    channel:
+      $ref: "#/channels/errandPlaced"
+    messages:
+      - $ref: "#/channels/errandPlaced/messages/message"
+  notificationReceivesErrandPlaced:
+    action: receive
+    channel:
+      $ref: "#/channels/errandPlaced"
+    messages:
+      - $ref: "#/channels/errandPlaced/messages/message"
+  orderSendsErrandOpened:
+    action: send
+    channel:
+      $ref: "#/channels/errandOpened"
+    messages:
+      - $ref: "#/channels/errandOpened/messages/message"
+  notificationReceivesErrandOpened:
+    action: receive
+    channel:
+      $ref: "#/channels/errandOpened"
+    messages:
+      - $ref: "#/channels/errandOpened/messages/message"
+  orderSendsErrandRejected:
+    action: send
+    channel:
+      $ref: "#/channels/errandRejected"
+    messages:
+      - $ref: "#/channels/errandRejected/messages/message"
+  notificationReceivesErrandRejected:
+    action: receive
+    channel:
+      $ref: "#/channels/errandRejected"
+    messages:
+      - $ref: "#/channels/errandRejected/messages/message"
+  orderSendsErrandEdited:
+    action: send
+    channel:
+      $ref: "#/channels/errandEdited"
+    messages:
+      - $ref: "#/channels/errandEdited/messages/message"
+  notificationReceivesErrandEdited:
+    action: receive
+    channel:
+      $ref: "#/channels/errandEdited"
+    messages:
+      - $ref: "#/channels/errandEdited/messages/message"
+  orderSendsErrandEditRequested:
+    action: send
+    channel:
+      $ref: "#/channels/errandEditRequested"
+    messages:
+      - $ref: "#/channels/errandEditRequested/messages/message"
+  notificationReceivesErrandEditRequested:
+    action: receive
+    channel:
+      $ref: "#/channels/errandEditRequested"
+    messages:
+      - $ref: "#/channels/errandEditRequested/messages/message"
+  orderSendsErrandEditRejected:
+    action: send
+    channel:
+      $ref: "#/channels/errandEditRejected"
+    messages:
+      - $ref: "#/channels/errandEditRejected/messages/message"
+  notificationReceivesErrandEditRejected:
+    action: receive
+    channel:
+      $ref: "#/channels/errandEditRejected"
+    messages:
+      - $ref: "#/channels/errandEditRejected/messages/message"
+  orderSendsErrandAccepted:
+    action: send
+    channel:
+      $ref: "#/channels/errandAccepted"
+    messages:
+      - $ref: "#/channels/errandAccepted/messages/message"
+  notificationReceivesErrandAccepted:
+    action: receive
+    channel:
+      $ref: "#/channels/errandAccepted"
+    messages:
+      - $ref: "#/channels/errandAccepted/messages/message"
+  orderSendsErrandCancelled:
+    action: send
+    channel:
+      $ref: "#/channels/errandCancelled"
+    messages:
+      - $ref: "#/channels/errandCancelled/messages/message"
+  notificationReceivesErrandCancelled:
+    action: receive
+    channel:
+      $ref: "#/channels/errandCancelled"
+    messages:
+      - $ref: "#/channels/errandCancelled/messages/message"
+  orderSendsErrandWithdrawn:
+    action: send
+    channel:
+      $ref: "#/channels/errandWithdrawn"
+    messages:
+      - $ref: "#/channels/errandWithdrawn/messages/message"
+  notificationReceivesErrandWithdrawn:
+    action: receive
+    channel:
+      $ref: "#/channels/errandWithdrawn"
+    messages:
+      - $ref: "#/channels/errandWithdrawn/messages/message"
+  orderSendsErrandExpired:
+    action: send
+    channel:
+      $ref: "#/channels/errandExpired"
+    messages:
+      - $ref: "#/channels/errandExpired/messages/message"
+  notificationReceivesErrandExpired:
+    action: receive
+    channel:
+      $ref: "#/channels/errandExpired"
+    messages:
+      - $ref: "#/channels/errandExpired/messages/message"
+  orderSendsErrandPickedUp:
+    action: send
+    channel:
+      $ref: "#/channels/errandPickedUp"
+    messages:
+      - $ref: "#/channels/errandPickedUp/messages/message"
+  notificationReceivesErrandPickedUp:
+    action: receive
+    channel:
+      $ref: "#/channels/errandPickedUp"
+    messages:
+      - $ref: "#/channels/errandPickedUp/messages/message"
+  orderSendsErrandDelivered:
+    action: send
+    channel:
+      $ref: "#/channels/errandDelivered"
+    messages:
+      - $ref: "#/channels/errandDelivered/messages/message"
+  notificationReceivesErrandDelivered:
+    action: receive
+    channel:
+      $ref: "#/channels/errandDelivered"
+    messages:
+      - $ref: "#/channels/errandDelivered/messages/message"
+  orderSendsErrandReviewRequired:
+    action: send
+    channel:
+      $ref: "#/channels/errandReviewRequired"
+    messages:
+      - $ref: "#/channels/errandReviewRequired/messages/message"
+  notificationReceivesErrandReviewRequired:
+    action: receive
+    channel:
+      $ref: "#/channels/errandReviewRequired"
+    messages:
+      - $ref: "#/channels/errandReviewRequired/messages/message"
+  orderSendsErrandCompleted:
+    action: send
+    channel:
+      $ref: "#/channels/errandCompleted"
+    messages:
+      - $ref: "#/channels/errandCompleted/messages/message"
+  notificationReceivesErrandCompleted:
+    action: receive
+    channel:
+      $ref: "#/channels/errandCompleted"
+    messages:
+      - $ref: "#/channels/errandCompleted/messages/message"
+  orderSendsErrandRefunded:
+    action: send
+    channel:
+      $ref: "#/channels/errandRefunded"
+    messages:
+      - $ref: "#/channels/errandRefunded/messages/message"
+  notificationReceivesErrandRefunded:
+    action: receive
+    channel:
+      $ref: "#/channels/errandRefunded"
+    messages:
+      - $ref: "#/channels/errandRefunded/messages/message"
+  orderSendsErrandAcceptRejected:
+    action: send
+    channel:
+      $ref: "#/channels/errandAcceptRejected"
+    messages:
+      - $ref: "#/channels/errandAcceptRejected/messages/message"
+  notificationReceivesErrandAcceptRejected:
+    action: receive
+    channel:
+      $ref: "#/channels/errandAcceptRejected"
+    messages:
+      - $ref: "#/channels/errandAcceptRejected/messages/message"
+  orderSendsErrandCancelRejected:
+    action: send
+    channel:
+      $ref: "#/channels/errandCancelRejected"
+    messages:
+      - $ref: "#/channels/errandCancelRejected/messages/message"
+  notificationReceivesErrandCancelRejected:
+    action: receive
+    channel:
+      $ref: "#/channels/errandCancelRejected"
+    messages:
+      - $ref: "#/channels/errandCancelRejected/messages/message"
+  orderSendsErrandPickupRejected:
+    action: send
+    channel:
+      $ref: "#/channels/errandPickupRejected"
+    messages:
+      - $ref: "#/channels/errandPickupRejected/messages/message"
+  notificationReceivesErrandPickupRejected:
+    action: receive
+    channel:
+      $ref: "#/channels/errandPickupRejected"
+    messages:
+      - $ref: "#/channels/errandPickupRejected/messages/message"
+  orderSendsErrandVerificationReminder:
+    action: send
+    channel:
+      $ref: "#/channels/errandVerificationReminder"
+    messages:
+      - $ref: "#/channels/errandVerificationReminder/messages/message"
+  notificationReceivesErrandVerificationReminder:
+    action: receive
+    channel:
+      $ref: "#/channels/errandVerificationReminder"
+    messages:
+      - $ref: "#/channels/errandVerificationReminder/messages/message"
+  orderSendsErrandPickupDeadlineApproaching:
+    action: send
+    channel:
+      $ref: "#/channels/errandPickupDeadlineApproaching"
+    messages:
+      - $ref: "#/channels/errandPickupDeadlineApproaching/messages/message"
+  notificationReceivesErrandPickupDeadlineApproaching:
+    action: receive
+    channel:
+      $ref: "#/channels/errandPickupDeadlineApproaching"
+    messages:
+      - $ref: "#/channels/errandPickupDeadlineApproaching/messages/message"
+components:
+  channelBindings:
+    CreditCommands:
       amqp:
         is: routingKey
         exchange:
           name: foc.commands
+          type: direct
+          durable: true
+          autoDelete: false
+          vhost: /
+        bindingVersion: 0.3.0
+    Events:
+      amqp:
+        is: routingKey
+        exchange:
+          name: foc.events
           type: topic
           durable: true
           autoDelete: false
           vhost: /
-        bindingVersion: '0.3.0'
-operations:
-  orderRequestsCreditReservation:
-    action: send
-    channel:
-      $ref: '#/channels/creditReserve'
-    messages:
-      - $ref: '#/channels/creditReserve/messages/reserveCredit'
-  creditReceivesReservationRequest:
-    action: receive
-    channel:
-      $ref: '#/channels/creditReserve'
-    messages:
-      - $ref: '#/channels/creditReserve/messages/reserveCredit'
-  orderRequestsReservationUpdate:
-    action: send
-    channel:
-      $ref: '#/channels/creditReservationUpdate'
-    messages:
-      - $ref: '#/channels/creditReservationUpdate/messages/updateCreditReservation'
-  creditReceivesReservationUpdate:
-    action: receive
-    channel:
-      $ref: '#/channels/creditReservationUpdate'
-    messages:
-      - $ref: '#/channels/creditReservationUpdate/messages/updateCreditReservation'
-  orderRequestsRefund:
-    action: send
-    channel:
-      $ref: '#/channels/creditRefund'
-    messages:
-      - $ref: '#/channels/creditRefund/messages/refundCredit'
-  creditReceivesRefundRequest:
-    action: receive
-    channel:
-      $ref: '#/channels/creditRefund'
-    messages:
-      - $ref: '#/channels/creditRefund/messages/refundCredit'
-  orderRequestsTransfer:
-    action: send
-    channel:
-      $ref: '#/channels/creditTransfer'
-    messages:
-      - $ref: '#/channels/creditTransfer/messages/transferCredit'
-  creditReceivesTransferRequest:
-    action: receive
-    channel:
-      $ref: '#/channels/creditTransfer'
-    messages:
-      - $ref: '#/channels/creditTransfer/messages/transferCredit'
-  creditPublishesReservationSuccess:
-    action: send
-    channel:
-      $ref: '#/channels/creditReserved'
-    messages:
-      - $ref: '#/channels/creditReserved/messages/creditReserved'
-  orderReceivesReservationSuccess:
-    action: receive
-    channel:
-      $ref: '#/channels/creditReserved'
-    messages:
-      - $ref: '#/channels/creditReserved/messages/creditReserved'
-  creditPublishesReservationFailure:
-    action: send
-    channel:
-      $ref: '#/channels/creditReservationFailed'
-    messages:
-      - $ref: '#/channels/creditReservationFailed/messages/creditReservationFailed'
-  orderReceivesReservationFailure:
-    action: receive
-    channel:
-      $ref: '#/channels/creditReservationFailed'
-    messages:
-      - $ref: '#/channels/creditReservationFailed/messages/creditReservationFailed'
-  creditPublishesRefunded:
-    action: send
-    channel:
-      $ref: '#/channels/creditRefunded'
-    messages:
-      - $ref: '#/channels/creditRefunded/messages/creditRefunded'
-  orderReceivesRefunded:
-    action: receive
-    channel:
-      $ref: '#/channels/creditRefunded'
-    messages:
-      - $ref: '#/channels/creditRefunded/messages/creditRefunded'
-  creditPublishesTransfer:
-    action: send
-    channel:
-      $ref: '#/channels/creditTransferred'
-    messages:
-      - $ref: '#/channels/creditTransferred/messages/creditTransferred'
-  orderReceivesTransfer:
-    action: receive
-    channel:
-      $ref: '#/channels/creditTransferred'
-    messages:
-      - $ref: '#/channels/creditTransferred/messages/creditTransferred'
-  orderPublishesCancellation:
-    action: send
-    channel:
-      $ref: '#/channels/orderCancelled'
-    messages:
-      - $ref: '#/channels/orderCancelled/messages/orderCancelled'
-  creditReceivesCancellation:
-    action: receive
-    channel:
-      $ref: '#/channels/orderCancelled'
-    messages:
-      - $ref: '#/channels/orderCancelled/messages/orderCancelled'
-  orderPublishesExpiry:
-    action: send
-    channel:
-      $ref: '#/channels/orderExpired'
-    messages:
-      - $ref: '#/channels/orderExpired/messages/orderExpired'
-  creditReceivesExpiry:
-    action: receive
-    channel:
-      $ref: '#/channels/orderExpired'
-    messages:
-      - $ref: '#/channels/orderExpired/messages/orderExpired'
-  orderPublishesDeliveryCompletion:
-    action: send
-    channel:
-      $ref: '#/channels/orderDeliveryCompleted'
-    messages:
-      - $ref: '#/channels/orderDeliveryCompleted/messages/orderDeliveryCompleted'
-  creditReceivesDeliveryCompletion:
-    action: receive
-    channel:
-      $ref: '#/channels/orderDeliveryCompleted'
-    messages:
-      - $ref: '#/channels/orderDeliveryCompleted/messages/orderDeliveryCompleted'
-  orderRequestsNotification:
-    action: send
-    channel:
-      $ref: '#/channels/notificationRequested'
-    messages:
-      - $ref: '#/channels/notificationRequested/messages/notificationRequested'
-  orderPublishesCreated:
-    action: send
-    channel:
-      $ref: '#/channels/orderCreated'
-    messages:
-      - $ref: '#/channels/orderCreated/messages/orderCreated'
-  orderPublishesEdited:
-    action: send
-    channel:
-      $ref: '#/channels/orderEdited'
-    messages:
-      - $ref: '#/channels/orderEdited/messages/orderEdited'
-  orderPublishesAssignment:
-    action: send
-    channel:
-      $ref: '#/channels/orderAssigned'
-    messages:
-      - $ref: '#/channels/orderAssigned/messages/orderAssigned'
-  orderPublishesPickup:
-    action: send
-    channel:
-      $ref: '#/channels/orderPickedUp'
-    messages:
-      - $ref: '#/channels/orderPickedUp/messages/orderPickedUp'
-  orderPublishesWithdrawal:
-    action: send
-    channel:
-      $ref: '#/channels/orderWithdrawn'
-    messages:
-      - $ref: '#/channels/orderWithdrawn/messages/orderWithdrawn'
-  orderPublishesDelivery:
-    action: send
-    channel:
-      $ref: '#/channels/orderDelivered'
-    messages:
-      - $ref: '#/channels/orderDelivered/messages/orderDelivered'
-  orderPublishesReviewRequired:
-    action: send
-    channel:
-      $ref: '#/channels/orderReviewRequired'
-    messages:
-      - $ref: '#/channels/orderReviewRequired/messages/orderReviewRequired'
-components:
+        bindingVersion: 0.3.0
   messages:
-    ReserveCredit:
-      name: ReserveCredit
-      title: Reserve credits
-      summary: Reserve the requested amount for a new order.
+    CreditReserve:
+      name: CreditReserve
       contentType: application/json
       payload:
-        $ref: '#/components/schemas/ReserveCreditPayload'
+        allOf:
+          - $ref: "#/components/schemas/Envelope"
+          - type: object
+            properties:
+              type:
+                type: string
+                const: credit.reserve
+              data:
+                $ref: "#/components/schemas/ReserveCreditData"
       bindings:
         amqp:
           messageType: credit.reserve
-          bindingVersion: '0.3.0'
-    UpdateCreditReservation:
-      name: UpdateCreditReservation
-      title: Update credit reservation
-      summary: Change the reserved amount for an order edit.
+          bindingVersion: 0.3.0
+    CreditAdjust:
+      name: CreditAdjust
       contentType: application/json
       payload:
-        $ref: '#/components/schemas/UpdateCreditReservationPayload'
+        allOf:
+          - $ref: "#/components/schemas/Envelope"
+          - type: object
+            properties:
+              type:
+                type: string
+                const: credit.adjust
+              data:
+                $ref: "#/components/schemas/AdjustCreditData"
       bindings:
         amqp:
-          messageType: credit.reservation.update
-          bindingVersion: '0.3.0'
-    RefundCredit:
-      name: RefundCredit
-      title: Release reserved credits
-      summary: Release credits reserved for a cancelled or expired order.
+          messageType: credit.adjust
+          bindingVersion: 0.3.0
+    CreditRelease:
+      name: CreditRelease
       contentType: application/json
       payload:
-        $ref: '#/components/schemas/RefundCreditPayload'
+        allOf:
+          - $ref: "#/components/schemas/Envelope"
+          - type: object
+            properties:
+              type:
+                type: string
+                const: credit.release
+              data:
+                $ref: "#/components/schemas/ReleaseCreditData"
       bindings:
         amqp:
-          messageType: credit.refund
-          bindingVersion: '0.3.0'
-    TransferCredit:
-      name: TransferCredit
-      title: Pay courier
-      summary: Transfer the reserved amount from requester to courier.
+          messageType: credit.release
+          bindingVersion: 0.3.0
+    CreditTransfer:
+      name: CreditTransfer
       contentType: application/json
       payload:
-        $ref: '#/components/schemas/TransferCreditPayload'
+        allOf:
+          - $ref: "#/components/schemas/Envelope"
+          - type: object
+            properties:
+              type:
+                type: string
+                const: credit.transfer
+              data:
+                $ref: "#/components/schemas/TransferCreditData"
       bindings:
         amqp:
           messageType: credit.transfer
-          bindingVersion: '0.3.0'
+          bindingVersion: 0.3.0
     CreditReserved:
       name: CreditReserved
-      title: Credits reserved
-      summary: Reservation or reservation update succeeded.
       contentType: application/json
+      correlationId:
+        location: $message.payload#/correlationId
       payload:
-        $ref: '#/components/schemas/CreditOperationSucceededPayload'
+        allOf:
+          - $ref: "#/components/schemas/Envelope"
+          - type: object
+            required:
+              - correlationId
+            properties:
+              type:
+                type: string
+                const: credit.reserved
+              data:
+                $ref: "#/components/schemas/ReservedCreditData"
       bindings:
         amqp:
           messageType: credit.reserved
-          bindingVersion: '0.3.0'
-    CreditReservationFailed:
-      name: CreditReservationFailed
-      title: Credit reservation failed
-      summary: Reservation or reservation update failed, for example because the balance was insufficient.
+          bindingVersion: 0.3.0
+    CreditReservationRefused:
+      name: CreditReservationRefused
       contentType: application/json
+      correlationId:
+        location: $message.payload#/correlationId
       payload:
-        $ref: '#/components/schemas/CreditOperationFailedPayload'
+        allOf:
+          - $ref: "#/components/schemas/Envelope"
+          - type: object
+            required:
+              - correlationId
+            properties:
+              type:
+                type: string
+                const: credit.reservation_refused
+              data:
+                $ref: "#/components/schemas/ReservationRefusedData"
       bindings:
         amqp:
-          messageType: credit.reservation-failed
-          bindingVersion: '0.3.0'
-    CreditRefunded:
-      name: CreditRefunded
-      title: Credits released
-      summary: Reserved credits were released.
+          messageType: credit.reservation_refused
+          bindingVersion: 0.3.0
+    CreditAdjusted:
+      name: CreditAdjusted
       contentType: application/json
+      correlationId:
+        location: $message.payload#/correlationId
       payload:
-        $ref: '#/components/schemas/CreditOperationSucceededPayload'
+        allOf:
+          - $ref: "#/components/schemas/Envelope"
+          - type: object
+            required:
+              - correlationId
+            properties:
+              type:
+                type: string
+                const: credit.adjusted
+              data:
+                $ref: "#/components/schemas/AdjustedCreditData"
       bindings:
         amqp:
-          messageType: credit.refunded
-          bindingVersion: '0.3.0'
+          messageType: credit.adjusted
+          bindingVersion: 0.3.0
+    CreditAdjustRefused:
+      name: CreditAdjustRefused
+      contentType: application/json
+      correlationId:
+        location: $message.payload#/correlationId
+      payload:
+        allOf:
+          - $ref: "#/components/schemas/Envelope"
+          - type: object
+            required:
+              - correlationId
+            properties:
+              type:
+                type: string
+                const: credit.adjust_refused
+              data:
+                $ref: "#/components/schemas/AdjustRefusedData"
+      bindings:
+        amqp:
+          messageType: credit.adjust_refused
+          bindingVersion: 0.3.0
+    CreditReleased:
+      name: CreditReleased
+      contentType: application/json
+      correlationId:
+        location: $message.payload#/correlationId
+      payload:
+        allOf:
+          - $ref: "#/components/schemas/Envelope"
+          - type: object
+            required:
+              - correlationId
+            properties:
+              type:
+                type: string
+                const: credit.released
+              data:
+                $ref: "#/components/schemas/EmptyResultData"
+      bindings:
+        amqp:
+          messageType: credit.released
+          bindingVersion: 0.3.0
     CreditTransferred:
       name: CreditTransferred
-      title: Credits transferred
-      summary: Reserved credits were transferred to the courier.
       contentType: application/json
+      correlationId:
+        location: $message.payload#/correlationId
       payload:
-        $ref: '#/components/schemas/CreditOperationSucceededPayload'
+        allOf:
+          - $ref: "#/components/schemas/Envelope"
+          - type: object
+            required:
+              - correlationId
+            properties:
+              type:
+                type: string
+                const: credit.transferred
+              data:
+                $ref: "#/components/schemas/EmptyResultData"
       bindings:
         amqp:
           messageType: credit.transferred
-          bindingVersion: '0.3.0'
-    OrderLifecycleEvent:
-      name: OrderLifecycleEvent
-      title: Order lifecycle event
-      summary: Order state change consumed by credit or notification processing.
+          bindingVersion: 0.3.0
+    CreditOperationFailed:
+      name: CreditOperationFailed
       contentType: application/json
+      correlationId:
+        location: $message.payload#/correlationId
       payload:
-        $ref: '#/components/schemas/OrderLifecycleEventPayload'
+        allOf:
+          - $ref: "#/components/schemas/Envelope"
+          - type: object
+            required:
+              - correlationId
+            properties:
+              type:
+                type: string
+                const: credit.operation_failed
+              data:
+                $ref: "#/components/schemas/OperationFailedData"
       bindings:
         amqp:
-          messageType: order.lifecycle
-          bindingVersion: '0.3.0'
-    NotificationRequested:
-      name: NotificationRequested
-      title: Notification requested
-      summary: Ask the notification component to notify a recipient about an order outcome.
+          messageType: credit.operation_failed
+          bindingVersion: 0.3.0
+    ErrandPlaced:
+      name: ErrandPlaced
       contentType: application/json
       payload:
-        $ref: '#/components/schemas/NotificationRequestedPayload'
+        allOf:
+          - $ref: "#/components/schemas/Envelope"
+          - type: object
+            properties:
+              type:
+                type: string
+                const: errand.placed
+              data:
+                $ref: "#/components/schemas/ErrandEventData"
       bindings:
         amqp:
-          messageType: notification.requested
-          bindingVersion: '0.3.0'
+          messageType: errand.placed
+          bindingVersion: 0.3.0
+    ErrandOpened:
+      name: ErrandOpened
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: "#/components/schemas/Envelope"
+          - type: object
+            properties:
+              type:
+                type: string
+                const: errand.opened
+              data:
+                $ref: "#/components/schemas/ErrandEventData"
+      bindings:
+        amqp:
+          messageType: errand.opened
+          bindingVersion: 0.3.0
+    ErrandRejected:
+      name: ErrandRejected
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: "#/components/schemas/Envelope"
+          - type: object
+            properties:
+              type:
+                type: string
+                const: errand.rejected
+              data:
+                $ref: "#/components/schemas/ErrandEventData"
+      bindings:
+        amqp:
+          messageType: errand.rejected
+          bindingVersion: 0.3.0
+    ErrandEdited:
+      name: ErrandEdited
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: "#/components/schemas/Envelope"
+          - type: object
+            properties:
+              type:
+                type: string
+                const: errand.edited
+              data:
+                $ref: "#/components/schemas/ErrandEventData"
+      bindings:
+        amqp:
+          messageType: errand.edited
+          bindingVersion: 0.3.0
+    ErrandEditRequested:
+      name: ErrandEditRequested
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: "#/components/schemas/Envelope"
+          - type: object
+            properties:
+              type:
+                type: string
+                const: errand.edit_requested
+              data:
+                $ref: "#/components/schemas/ErrandEventData"
+      bindings:
+        amqp:
+          messageType: errand.edit_requested
+          bindingVersion: 0.3.0
+    ErrandEditRejected:
+      name: ErrandEditRejected
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: "#/components/schemas/Envelope"
+          - type: object
+            properties:
+              type:
+                type: string
+                const: errand.edit_rejected
+              data:
+                $ref: "#/components/schemas/ErrandEventData"
+      bindings:
+        amqp:
+          messageType: errand.edit_rejected
+          bindingVersion: 0.3.0
+    ErrandAccepted:
+      name: ErrandAccepted
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: "#/components/schemas/Envelope"
+          - type: object
+            properties:
+              type:
+                type: string
+                const: errand.accepted
+              data:
+                $ref: "#/components/schemas/ErrandEventData"
+      bindings:
+        amqp:
+          messageType: errand.accepted
+          bindingVersion: 0.3.0
+    ErrandCancelled:
+      name: ErrandCancelled
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: "#/components/schemas/Envelope"
+          - type: object
+            properties:
+              type:
+                type: string
+                const: errand.cancelled
+              data:
+                $ref: "#/components/schemas/ErrandEventData"
+      bindings:
+        amqp:
+          messageType: errand.cancelled
+          bindingVersion: 0.3.0
+    ErrandWithdrawn:
+      name: ErrandWithdrawn
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: "#/components/schemas/Envelope"
+          - type: object
+            properties:
+              type:
+                type: string
+                const: errand.withdrawn
+              data:
+                $ref: "#/components/schemas/ErrandEventData"
+      bindings:
+        amqp:
+          messageType: errand.withdrawn
+          bindingVersion: 0.3.0
+    ErrandExpired:
+      name: ErrandExpired
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: "#/components/schemas/Envelope"
+          - type: object
+            properties:
+              type:
+                type: string
+                const: errand.expired
+              data:
+                $ref: "#/components/schemas/ErrandEventData"
+      bindings:
+        amqp:
+          messageType: errand.expired
+          bindingVersion: 0.3.0
+    ErrandPickedUp:
+      name: ErrandPickedUp
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: "#/components/schemas/Envelope"
+          - type: object
+            properties:
+              type:
+                type: string
+                const: errand.picked_up
+              data:
+                $ref: "#/components/schemas/ErrandEventData"
+      bindings:
+        amqp:
+          messageType: errand.picked_up
+          bindingVersion: 0.3.0
+    ErrandDelivered:
+      name: ErrandDelivered
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: "#/components/schemas/Envelope"
+          - type: object
+            properties:
+              type:
+                type: string
+                const: errand.delivered
+              data:
+                $ref: "#/components/schemas/ErrandEventData"
+      bindings:
+        amqp:
+          messageType: errand.delivered
+          bindingVersion: 0.3.0
+    ErrandReviewRequired:
+      name: ErrandReviewRequired
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: "#/components/schemas/Envelope"
+          - type: object
+            properties:
+              type:
+                type: string
+                const: errand.review_required
+              data:
+                $ref: "#/components/schemas/ErrandEventData"
+      bindings:
+        amqp:
+          messageType: errand.review_required
+          bindingVersion: 0.3.0
+    ErrandCompleted:
+      name: ErrandCompleted
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: "#/components/schemas/Envelope"
+          - type: object
+            properties:
+              type:
+                type: string
+                const: errand.completed
+              data:
+                $ref: "#/components/schemas/ErrandEventData"
+      bindings:
+        amqp:
+          messageType: errand.completed
+          bindingVersion: 0.3.0
+    ErrandRefunded:
+      name: ErrandRefunded
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: "#/components/schemas/Envelope"
+          - type: object
+            properties:
+              type:
+                type: string
+                const: errand.refunded
+              data:
+                $ref: "#/components/schemas/ErrandEventData"
+      bindings:
+        amqp:
+          messageType: errand.refunded
+          bindingVersion: 0.3.0
+    ErrandAcceptRejected:
+      name: ErrandAcceptRejected
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: "#/components/schemas/Envelope"
+          - type: object
+            properties:
+              type:
+                type: string
+                const: errand.accept_rejected
+              data:
+                $ref: "#/components/schemas/RejectionData"
+      bindings:
+        amqp:
+          messageType: errand.accept_rejected
+          bindingVersion: 0.3.0
+    ErrandCancelRejected:
+      name: ErrandCancelRejected
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: "#/components/schemas/Envelope"
+          - type: object
+            properties:
+              type:
+                type: string
+                const: errand.cancel_rejected
+              data:
+                $ref: "#/components/schemas/RejectionData"
+      bindings:
+        amqp:
+          messageType: errand.cancel_rejected
+          bindingVersion: 0.3.0
+    ErrandPickupRejected:
+      name: ErrandPickupRejected
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: "#/components/schemas/Envelope"
+          - type: object
+            properties:
+              type:
+                type: string
+                const: errand.pickup_rejected
+              data:
+                $ref: "#/components/schemas/RejectionData"
+      bindings:
+        amqp:
+          messageType: errand.pickup_rejected
+          bindingVersion: 0.3.0
+    ErrandVerificationReminder:
+      name: ErrandVerificationReminder
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: "#/components/schemas/Envelope"
+          - type: object
+            properties:
+              type:
+                type: string
+                const: errand.verification_reminder
+              data:
+                $ref: "#/components/schemas/ReminderData"
+      bindings:
+        amqp:
+          messageType: errand.verification_reminder
+          bindingVersion: 0.3.0
+    ErrandPickupDeadlineApproaching:
+      name: ErrandPickupDeadlineApproaching
+      contentType: application/json
+      payload:
+        allOf:
+          - $ref: "#/components/schemas/Envelope"
+          - type: object
+            properties:
+              type:
+                type: string
+                const: errand.pickup_deadline_approaching
+              data:
+                $ref: "#/components/schemas/ReminderData"
+      bindings:
+        amqp:
+          messageType: errand.pickup_deadline_approaching
+          bindingVersion: 0.3.0
   schemas:
-    MessageMetadata:
+    UserId:
+      type: string
+      minLength: 1
+      description: Auth0 subject, for example auth0|req1. Not a UUID.
+    ErrandStatus:
+      type: string
+      enum:
+        - PENDING_RESERVATION
+        - OPEN
+        - ASSIGNED
+        - PICKED_UP
+        - DELIVERED
+        - REVIEW_REQUIRED
+        - REJECTED
+        - CANCELLED
+        - EXPIRED
+        - COMPLETED
+        - REFUNDED
+      description: WITHDRAWN is an event; withdrawal leads to OPEN or EXPIRED.
+    Envelope:
       type: object
-      required: [messageId, correlationId]
+      required:
+        - messageId
+        - type
+        - occurredAt
+        - errandId
+        - errandVersion
+        - data
       properties:
         messageId:
           type: string
-          format: uuid
-          description: Unique message identifier used for duplicate detection.
+          minLength: 1
+          description: Stable deduplication key, not a UUID. Commands use
+            <errandId>:reserve/release/transfer, <errandId>:adjust:<version> or
+            <errandId>:adjust-revert:<newVersion>. Transition events use
+            <errandId>:<event suffix>:<version>; rejections add the HTTP request
+            ID; reminders use verify-reminder or pickup-reminder and version.
         correlationId:
           type: string
-          format: uuid
-          description: Identifier shared by messages in the same order workflow.
-        causationId:
+          minLength: 1
+          description: "Credit results only: messageId of the command answered. Omitted
+            otherwise."
+        type:
           type: string
-          format: uuid
-          description: Message identifier that caused this message, when applicable.
+          minLength: 1
+          description: Must equal the AMQP routing key and type property.
         occurredAt:
           type: string
           format: date-time
-    ReserveCreditPayload:
-      allOf:
-        - $ref: '#/components/schemas/MessageMetadata'
-        - type: object
-          required: [orderId, userId, amount]
-          properties:
-            orderId: { type: string, format: uuid }
-            userId: { type: string, format: uuid }
-            amount:
-              type: string
-              pattern: '^[0-9]+([.][0-9]{1,2})?$'
-              description: Positive decimal number of credits; encoded as text to avoid floating-point rounding.
-    UpdateCreditReservationPayload:
-      allOf:
-        - $ref: '#/components/schemas/MessageMetadata'
-        - type: object
-          required: [orderId, userId, targetAmount]
-          properties:
-            orderId: { type: string, format: uuid }
-            userId: { type: string, format: uuid }
-            targetAmount:
-              type: string
-              pattern: '^[0-9]+([.][0-9]{1,2})?$'
-              description: Desired total reservation after the edit, not a delta.
-    RefundCreditPayload:
-      allOf:
-        - $ref: '#/components/schemas/MessageMetadata'
-        - type: object
-          required: [orderId, userId]
-          properties:
-            orderId: { type: string, format: uuid }
-            userId: { type: string, format: uuid }
-            reason:
-              type: string
-              enum: [cancelled, expired]
-    TransferCreditPayload:
-      allOf:
-        - $ref: '#/components/schemas/MessageMetadata'
-        - type: object
-          required: [orderId, requesterId, courierId]
-          properties:
-            orderId: { type: string, format: uuid }
-            requesterId: { type: string, format: uuid }
-            courierId: { type: string, format: uuid }
-    CreditOperationSucceededPayload:
-      allOf:
-        - $ref: '#/components/schemas/MessageMetadata'
-        - type: object
-          required: [causationId, orderId, amount]
-          properties:
-            causationId:
-              type: string
-              format: uuid
-              description: Message ID of the command that produced this result.
-            orderId: { type: string, format: uuid }
-            amount: { type: string, pattern: '^[0-9]+([.][0-9]{1,2})?$' }
-    CreditOperationFailedPayload:
-      allOf:
-        - $ref: '#/components/schemas/MessageMetadata'
-        - type: object
-          required: [causationId, orderId, failureCode]
-          properties:
-            causationId: { type: string, format: uuid }
-            orderId: { type: string, format: uuid }
-            failureCode:
-              type: string
-              enum: [insufficient_credits, reservation_not_found, account_not_found, invalid_request]
-              description: Stable safe failure code; never include credentials or internal error details.
-    OrderLifecycleEventPayload:
-      allOf:
-        - $ref: '#/components/schemas/MessageMetadata'
-        - type: object
-          required: [orderId, requesterId, status]
-          properties:
-            orderId: { type: string, format: uuid }
-            requesterId: { type: string, format: uuid }
-            courierId:
-              type: [string, 'null']
-              format: uuid
-            status:
-              type: string
-              enum: [OPEN, ASSIGNED, PICKED_UP, CANCELLED, EXPIRED, WITHDRAWN, DELIVERED, REVIEW_REQUIRED, COMPLETED]
-            reason:
-              type: string
-              description: Optional stable reason code, not free-form user input.
-    NotificationRequestedPayload:
-      allOf:
-        - $ref: '#/components/schemas/MessageMetadata'
-        - type: object
-          required: [orderId, recipientId, notificationType]
-          properties:
-            orderId: { type: string, format: uuid }
-            recipientId: { type: string, format: uuid }
-            notificationType:
-              type: string
-              enum: [order_created, order_rejected, order_cancelled, order_expired, order_assigned, pickup_rejected, review_required, delivery_completed]
+          description: Transition/result time, not publish/retry time.
+        errandId:
+          &a1
+          type: string
+          format: uuid
+        errandVersion:
+          &a2
+          type: integer
+          minimum: 1
+        data:
+          type: object
+    ReserveCreditData:
+      type: object
+      required:
+        - errandId
+        - errandVersion
+        - requesterId
+        - amount
+      properties:
+        errandId: *a1
+        errandVersion: *a2
+        requesterId:
+          &a3
+          $ref: "#/components/schemas/UserId"
+        amount: *a2
+    AdjustCreditData:
+      type: object
+      required:
+        - errandId
+        - errandVersion
+        - requesterId
+        - newAmount
+        - seq
+      properties:
+        errandId: *a1
+        errandVersion: *a2
+        requesterId: *a3
+        newAmount:
+          type: integer
+          minimum: 1
+          description: Absolute target reservation, not a delta.
+        seq: *a2
+    ReleaseCreditData:
+      type: object
+      description: Release the entire reservation; no amount is sent.
+      required:
+        - errandId
+        - errandVersion
+        - requesterId
+      properties:
+        errandId: *a1
+        errandVersion: *a2
+        requesterId: *a3
+    TransferCreditData:
+      type: object
+      required:
+        - errandId
+        - errandVersion
+        - requesterId
+        - courierId
+        - amount
+      properties:
+        errandId: *a1
+        errandVersion: *a2
+        requesterId: *a3
+        courierId:
+          $ref: "#/components/schemas/UserId"
+        amount: *a2
+    ReservedCreditData:
+      type: object
+      required:
+        - amount
+      properties:
+        amount: *a2
+    AdjustedCreditData:
+      type: object
+      required:
+        - amount
+        - seq
+      properties:
+        amount: *a2
+        seq: *a2
+    ReservationRefusedData:
+      type: object
+      required:
+        - code
+      properties:
+        code:
+          type: string
+          enum:
+            - INSUFFICIENT_CREDITS
+            - ACCOUNT_NOT_FOUND
+            - RESERVATION_RELEASED
+    AdjustRefusedData:
+      type: object
+      required:
+        - code
+        - seq
+      properties:
+        code:
+          type: string
+          enum:
+            - INSUFFICIENT_CREDITS
+            - RESERVATION_NOT_ACTIVE
+        seq: *a2
+    OperationFailedData:
+      type: object
+      required:
+        - code
+      properties:
+        code:
+          type: string
+          enum:
+            - INSUFFICIENT_CREDITS
+            - ACCOUNT_NOT_FOUND
+            - RESERVATION_RELEASED
+            - RESERVATION_NOT_ACTIVE
+            - RESERVATION_ALREADY_TRANSFERRED
+            - RESERVATION_ALREADY_RELEASED
+          description: Stable credit failure code; no credentials or internal error details.
+    EmptyResultData:
+      type: object
+      properties: {}
+      additionalProperties: false
+      description: Released/transferred results have empty data; amount and seq are
+        omitted by CreditResult.
+    PendingEditDetails:
+      type: object
+      description: Requested details with contactName and contactMobile removed,
+        matching Details.WithoutContact().
+      required:
+        - supplierId
+        - supplierVersionId
+        - deliveryBuildingId
+        - deliveryBuildingSnapshot
+        - deliveryDetail
+        - items
+        - notes
+        - reward
+        - acceptanceDeadline
+      properties:
+        supplierId: *a1
+        supplierVersionId: *a1
+        deliveryBuildingId: *a1
+        deliveryBuildingSnapshot:
+          type: object
+        deliveryDetail:
+          type: string
+        items:
+          type: array
+          minItems: 1
+          items:
+            type: object
+        notes:
+          type: string
+        reward: *a2
+        acceptanceDeadline:
+          &a4
+          type: string
+          format: date-time
+      additionalProperties: false
+    ErrandEventData:
+      type: object
+      required:
+        - errandId
+        - errandVersion
+        - event
+        - to
+        - actorType
+        - requesterId
+        - reward
+        - at
+      properties:
+        errandId: *a1
+        errandVersion: *a2
+        event:
+          type: string
+          enum:
+            - submit
+            - reservation_confirmed
+            - reservation_refused
+            - reservation_failed
+            - edit
+            - cancel
+            - confirm
+            - dispute
+            - edit_confirmed
+            - edit_refused
+            - accept
+            - withdraw
+            - pick_up
+            - deliver
+            - report_issue
+            - acceptance_deadline_passed
+            - pickup_deadline_passed
+            - delivery_deadline_passed
+            - verification_lapsed
+            - admin_complete
+            - admin_refund
+        from:
+          $ref: "#/components/schemas/ErrandStatus"
+        to:
+          $ref: "#/components/schemas/ErrandStatus"
+        actorType:
+          type: string
+          enum:
+            - REQUESTER
+            - COURIER
+            - ADMIN
+            - SYSTEM
+        actorId:
+          $ref: "#/components/schemas/UserId"
+          description: Omitted for SYSTEM actors.
+        reason:
+          type: string
+          description: Free text for disputes/issues/admin resolutions, or a stable reason
+            code for credit failures.
+        reviewReason:
+          type: string
+          enum:
+            - COURIER_ISSUE
+            - DELIVERY_OVERDUE
+            - REQUESTER_DISPUTE
+        requesterId:
+          $ref: "#/components/schemas/UserId"
+        courierId:
+          $ref: "#/components/schemas/UserId"
+          description: Courier involved, including a courier just removed by withdrawal.
+        reward: *a2
+        at: *a4
+        pendingEdit:
+          $ref: "#/components/schemas/PendingEditDetails"
+        editDropped:
+          type: boolean
+          description: True on acceptance that discarded a pending edit.
+    RejectionData:
+      type: object
+      required:
+        - errandId
+        - errandVersion
+        - status
+        - action
+        - code
+        - actorType
+        - actorId
+        - at
+      properties:
+        errandId: *a1
+        errandVersion: *a2
+        status:
+          $ref: "#/components/schemas/ErrandStatus"
+        action:
+          type: string
+          enum:
+            - accept
+            - cancel
+            - pickup
+        code:
+          type: string
+          enum:
+            - ERRAND_CHANGED
+            - ERRAND_UNAVAILABLE
+            - INVALID_TRANSITION
+        actorType:
+          type: string
+          enum:
+            - REQUESTER
+            - COURIER
+        actorId:
+          $ref: "#/components/schemas/UserId"
+        at: *a4
+    ReminderData:
+      type: object
+      required:
+        - errandId
+        - errandVersion
+        - status
+        - requesterId
+        - courierId
+        - deadline
+        - at
+      properties:
+        errandId: *a1
+        errandVersion: *a2
+        status:
+          $ref: "#/components/schemas/ErrandStatus"
+        requesterId:
+          $ref: "#/components/schemas/UserId"
+        courierId:
+          $ref: "#/components/schemas/UserId"
+        deadline: *a4
+        at: *a4
