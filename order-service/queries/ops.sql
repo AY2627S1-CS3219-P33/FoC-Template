@@ -102,6 +102,19 @@ WHERE status = ANY (@active_statuses::text[])
         AND (pending_edit->>'supplierId')::uuid = @supplier_id::uuid)
   );
 
+-- name: CountActiveErrandsForUser :one
+-- CountActiveErrandsForUser counts errands in one of active_statuses that
+-- user_id requested (credits reserved, F1.2.2) and that are assigned to
+-- user_id as courier (F1.2.3), for user-service's account-deletion check.
+-- courier_id is cleared when an errand returns to OPEN, so it names only the
+-- current courier.
+SELECT
+    count(*) FILTER (WHERE requester_id = @user_id::text) AS as_requester,
+    count(*) FILTER (WHERE courier_id = @user_id::text) AS as_courier
+FROM errands
+WHERE status = ANY (@active_statuses::text[])
+  AND (requester_id = @user_id::text OR courier_id = @user_id::text);
+
 -- name: ListOpenReviews :many
 -- ListOpenReviews returns unresolved reviews, oldest first, with the errand
 -- fields an admin needs to decide. after_id is the last review ID of the
