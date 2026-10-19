@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"strings"
 
 	"golang.org/x/sync/singleflight"
 
@@ -108,13 +107,11 @@ func (h Handler) get(response http.ResponseWriter, request *http.Request) {
 	if !ok {
 		return
 	}
-	id := request.PathValue("errandId")
-	if !uuidPattern.MatchString(id) {
-		errandhttp.WriteError(response, apperror.InvalidArgument, "errandId must be a UUID")
+	id, err := errandhttp.ErrandID(request)
+	if err != nil {
+		h.fail(response, request, "get", "", err)
 		return
 	}
-	id = strings.ToLower(id)
-
 	e, err := h.store.Get(request.Context(), id)
 	if err != nil {
 		h.fail(response, request, "get", id, err)
