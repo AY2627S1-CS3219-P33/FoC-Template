@@ -3,8 +3,12 @@ package errandhttp
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"slices"
 	"time"
 
+	"github.com/CS3219-AY2627S1/FoC-Template/order-service/internal/apperror"
 	"github.com/CS3219-AY2627S1/FoC-Template/order-service/internal/errand"
 )
 
@@ -128,6 +132,10 @@ type Pickups map[string]errand.SupplierVersion
 // LoadPickups reads the supplier versions a view of e needs: e's own and its
 // pending edit's. Versions are immutable, so the gate may serve them from a
 // cache (F2.4.3, F2.5.1).
+//
+// A version supplier-service does not know is a plain error, not
+// SUPPLIER_UNAVAILABLE: versions are kept for deleted suppliers, so a stored
+// errand's version always exists, and a 422 would blame the client.
 func LoadPickups(ctx context.Context, suppliers errand.SupplierGate, e errand.Errand) (Pickups, error) {
 	ids := []string{e.Details.SupplierVersionID}
 	if e.PendingEdit != nil {
@@ -140,6 +148,11 @@ func LoadPickups(ctx context.Context, suppliers errand.SupplierGate, e errand.Er
 		}
 		v, err := suppliers.GetVersion(ctx, id)
 		if err != nil {
+			var appErr *apperror.Error
+			if errors.As(err, &appErr) && appErr.Code == apperror.SupplierUnavailable {
+				// %v, not %w: the code must not reach the client.
+				return nil, fmt.Errorf("errandhttp: errand %s has an unknown supplier version %s: %v", e.ID, id, err)
+			}
 			return nil, err
 		}
 		pickups[id] = v
@@ -172,6 +185,104 @@ func RequesterView(e errand.Errand, pickups Pickups) RequesterErrand {
 			AcceptanceDeadline: d.AcceptanceDeadline,
 			RequestedAt:        p.At,
 		}
+	}
+	return view
+}
+
+// OpenViewOf is the redacted open-list projection of e (errand.OpenErrandView),
+// the only errand shape that may be cached. The delivery building is
+// projected to its id and name, as DeliveryBuilding allows.
+func OpenViewOf(e errand.Errand, pickup errand.SupplierVersion) errand.OpenErrandView {
+	building, _ := json.Marshal(BuildingOf(e.Details))
+	return errand.OpenErrandView{
+		ErrandID:           e.ID,
+		Version:            e.Version,
+		SupplierID:         e.Details.SupplierID,
+		SupplierVersionID:  e.Details.SupplierVersionID,
+		Pickup:             errand.OpenPickupView(PickupOf(pickup)),
+		DeliveryBuilding:   building,
+		DeliveryDetail:     e.Details.DeliveryDetail,
+		Items:              e.Details.Items,
+		Reward:             e.Details.Reward,
+		CreatedAt:          e.CreatedAt,
+		AcceptanceDeadline: e.Details.AcceptanceDeadline,
+	}
+}
+
+// OpenFields is OpenErrandFields: what any user may see of an open errand.
+// It has no requester identity, no notes and no contact person (NFR3.6.4).
+type OpenFields struct {
+	ErrandID           string          `json:"errandId"`
+	Version            int             `json:"version"`
+	SupplierID         string          `json:"supplierId"`
+	SupplierVersionID  string          `json:"supplierVersionId"`
+	Pickup             Pickup          `json:"pickup"`
+	DeliveryBuilding   Building        `json:"deliveryBuilding"`
+	DeliveryDetail     string          `json:"deliveryDetail"`
+	Items              json.RawMessage `json:"items"`
+	Reward             int             `json:"reward"`
+	CreatedAt          time.Time       `json:"createdAt"`
+	AcceptanceDeadline time.Time       `json:"acceptanceDeadline"`
+}
+
+func OpenFieldsOf(v errand.OpenErrandView) OpenFields {
+	var building Building
+	_ = json.Unmarshal(v.DeliveryBuilding, &building)
+	return OpenFields{
+		ErrandID:           v.ErrandID,
+		Version:            v.Version,
+		SupplierID:         v.SupplierID,
+		SupplierVersionID:  v.SupplierVersionID,
+		Pickup:             Pickup(v.Pickup),
+		DeliveryBuilding:   building,
+		DeliveryDetail:     v.DeliveryDetail,
+		Items:              v.Items,
+		Reward:             v.Reward,
+		CreatedAt:          v.CreatedAt,
+		AcceptanceDeadline: v.AcceptanceDeadline,
+	}
+}
+
+// PublicErrand is PublicErrandView: GET /errands/{id} for a caller who is
+// neither the requester nor the assigned courier, while the errand is OPEN.
+type PublicErrand struct {
+	OpenFields
+	ViewerRole string `json:"viewerRole"`
+}
+
+// ViewerPublic is PublicErrandView's viewerRole.
+const ViewerPublic = "PUBLIC"
+
+func PublicView(e errand.Errand, pickups Pickups) PublicErrand {
+	return PublicErrand{
+		OpenFields: OpenFieldsOf(OpenViewOf(e, pickups[e.Details.SupplierVersionID])),
+		ViewerRole: ViewerPublic,
+	}
+}
+
+// CourierErrand is CourierErrandView: the errand as its assigned courier sees
+// it, with the requester's notes (F3.12) but never the requester's identity.
+type CourierErrand struct {
+	Fields
+	ViewerRole    string `json:"viewerRole"`
+	ContactName   string `json:"contactName,omitempty"`
+	ContactMobile string `json:"contactMobile,omitempty"`
+}
+
+// contactStatuses are the states in which the courier sees the contact
+// person (NFR3.6.4).
+var contactStatuses = []errand.Status{
+	errand.StatusAssigned, errand.StatusPickedUp, errand.StatusDelivered, errand.StatusReviewRequired,
+}
+
+func CourierView(e errand.Errand, pickups Pickups) CourierErrand {
+	view := CourierErrand{
+		Fields:     FieldsOf(e, pickups[e.Details.SupplierVersionID]),
+		ViewerRole: string(errand.ActorCourier),
+	}
+	if slices.Contains(contactStatuses, e.Status) {
+		view.ContactName = e.Details.ContactName
+		view.ContactMobile = e.Details.ContactMobile
 	}
 	return view
 }
