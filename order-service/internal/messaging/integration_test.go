@@ -105,7 +105,7 @@ func testBroker(t *testing.T) (string, *amqp.Connection, *amqp.Channel) {
 	t.Cleanup(func() { _ = conn.CloseDeadline(time.Now().Add(time.Second)) })
 	ch, err := conn.Channel()
 	require.NoError(t, err)
-	require.NoError(t, declareTopology(ch, false))
+	require.NoError(t, DeclareTopology(ch, false))
 	return url, conn, ch
 }
 

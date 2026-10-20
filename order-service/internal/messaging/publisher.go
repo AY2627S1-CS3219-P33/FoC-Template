@@ -179,7 +179,7 @@ func (p *Publisher) connect(ctx context.Context) (func() bool, error) {
 	channel, err := conn.Channel()
 	if err == nil {
 		p.channel = channel
-		err = declareTopology(channel, p.tap)
+		err = DeclareTopology(channel, p.tap)
 	}
 	if err == nil {
 		err = channel.Confirm(false)
@@ -193,7 +193,12 @@ func (p *Publisher) connect(ctx context.Context) (func() bool, error) {
 	return stop, nil
 }
 
-func declareTopology(ch *amqp.Channel, tap bool) error {
+// DeclareTopology idempotently declares order-service's side of the broker
+// topology: both exchanges, the credit-results quorum queue and its DLQ, and
+// with tap the events tap queue. The publisher and the credit-result consumer
+// both call it on every (re)connect; the arguments must never differ between
+// them, because RabbitMQ refuses to redeclare a queue with other arguments.
+func DeclareTopology(ch *amqp.Channel, tap bool) error {
 	for name, kind := range map[string]string{errand.ExchangeCommands: "direct", errand.ExchangeEvents: "topic"} {
 		if err := ch.ExchangeDeclare(name, kind, true, false, false, false, nil); err != nil {
 			return err
