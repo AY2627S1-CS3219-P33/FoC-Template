@@ -4,7 +4,6 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
 	"errors"
 	"log/slog"
 	"os"
@@ -58,9 +57,11 @@ func run(logger *slog.Logger) error {
 	if err != nil {
 		return errors.New("database connection failed")
 	}
-	worker := rand.Text()
-	logger.Info("outbox worker started", slog.String("worker", worker), slog.Bool("event_tap", tap))
-	dispatcher := messaging.NewDispatcher(msgrepo.New(pool), publisher, opsrepo.New(pool), logger, worker)
+	dispatcher, err := messaging.NewDispatcher(msgrepo.New(pool), publisher, opsrepo.New(pool), logger, messaging.DispatcherConfig{})
+	if err != nil {
+		return err
+	}
+	logger.Info("outbox worker started", slog.String("worker", dispatcher.WorkerID()), slog.Bool("event_tap", tap))
 	err = dispatcher.Run(ctx)
 	if errors.Is(err, context.Canceled) && ctx.Err() != nil {
 		return nil

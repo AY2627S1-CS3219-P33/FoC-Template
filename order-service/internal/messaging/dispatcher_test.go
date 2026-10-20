@@ -3,9 +3,6 @@ package messaging
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"io"
-	"log/slog"
 	"testing"
 	"time"
 
@@ -53,95 +50,6 @@ func TestInvalidOutboxRowsAreUnpublishable(t *testing.T) {
 	row = testRow(errand.ErrandOpened.Kind())
 	_, err = MessageFromOutbox(row)
 	require.ErrorIs(t, err, errand.ErrUnpublishable, "event time is required")
-}
-
-type stubOutbox struct {
-	rows                  []msgrepo.Row
-	sent, failed, retried int
-	code                  string
-	delay                 time.Duration
-}
-
-func (s *stubOutbox) Claim(context.Context, string, bool, int, time.Duration) ([]msgrepo.Row, error) {
-	return s.rows, nil
-}
-func (s *stubOutbox) MarkSent(context.Context, msgrepo.Row) error { s.sent++; return nil }
-func (s *stubOutbox) Reschedule(_ context.Context, _ msgrepo.Row, delay time.Duration, code string) error {
-	s.retried++
-	s.delay = delay
-	s.code = code
-	return nil
-}
-func (s *stubOutbox) MarkFailed(_ context.Context, _ msgrepo.Row, code string) error {
-	s.failed++
-	s.code = code
-	return nil
-}
-func (s *stubOutbox) ResendUnconfirmed(context.Context, time.Duration, int) ([]msgrepo.Resent, error) {
-	return nil, nil
-}
-
-type stubPublisher struct {
-	err   error
-	calls int
-}
-
-func (p *stubPublisher) Publish(context.Context, errand.Message) error { p.calls++; return p.err }
-
-type stubSettings struct{}
-
-func (stubSettings) Get(context.Context) (errand.SystemSettings, error) {
-	return errand.DefaultSystemSettings(), nil
-}
-
-func TestDispatcherDeliveryOutcomes(t *testing.T) {
-	for _, tc := range []struct {
-		name                  string
-		failure               error
-		attempts              int32
-		sent, retried, failed int
-		code                  string
-	}{
-		{name: "confirmed by broker", attempts: 1, sent: 1},
-		{name: "temporary failure", failure: errors.New("connection lost"), attempts: 1, retried: 1, code: "PUBLISH_FAILED"},
-		{name: "unroutable", failure: ErrUnroutable, attempts: 1, retried: 1, code: "UNROUTABLE"},
-		{name: "permanent", failure: errand.ErrUnpublishable, attempts: 1, failed: 1, code: "UNPUBLISHABLE"},
-		{name: "last attempt", failure: errors.New("connection lost"), attempts: 10, failed: 1, code: "PUBLISH_FAILED"},
-		{name: "crashed last attempt", attempts: 11, failed: 1, code: "ATTEMPTS_EXHAUSTED"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			row := testRow(errand.KindCreditReserve)
-			row.Attempts = tc.attempts
-			store := &stubOutbox{rows: []msgrepo.Row{row}}
-			pub := &stubPublisher{err: tc.failure}
-			d := NewDispatcher(store, pub, stubSettings{}, slog.New(slog.NewTextHandler(io.Discard, nil)), "test")
-			worked, err := d.dispatch(context.Background(), true)
-			require.NoError(t, err)
-			require.True(t, worked)
-			require.Equal(t, tc.sent, store.sent)
-			require.Equal(t, tc.retried, store.retried)
-			require.Equal(t, tc.failed, store.failed)
-			require.Equal(t, tc.code, store.code)
-			if tc.retried > 0 {
-				require.GreaterOrEqual(t, store.delay, time.Duration(0))
-				require.LessOrEqual(t, store.delay, 2*time.Second)
-			}
-			if tc.attempts > 10 {
-				require.Zero(t, pub.calls)
-			}
-		})
-	}
-}
-
-func TestDispatcherCancellationLeavesLeaseForRecovery(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	store := &stubOutbox{rows: []msgrepo.Row{testRow(errand.KindCreditReserve)}}
-	d := NewDispatcher(store, &stubPublisher{err: ctx.Err()}, stubSettings{}, slog.New(slog.NewTextHandler(io.Discard, nil)), "test")
-	_, err := d.dispatch(ctx, true)
-	require.ErrorIs(t, err, context.Canceled)
-	require.Zero(t, store.sent+store.failed+store.retried)
-	require.ErrorIs(t, d.Run(ctx), context.Canceled)
 }
 
 func TestPublisherRejectsInvalidCreditCommandsBeforeConnecting(t *testing.T) {

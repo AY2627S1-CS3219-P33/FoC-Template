@@ -105,3 +105,11 @@ RETURNING *;
 INSERT INTO admin_audit (actor_id, action, target_type, target_id, reason, outcome)
 VALUES (sqlc.arg(actor_id), 'OUTBOX_REQUEUE', 'OUTBOX', sqlc.arg(target_id), sqlc.arg(reason), sqlc.arg(outcome))
 RETURNING id;
+
+-- name: CountDueOutbox :one
+-- The dispatcher's backlog: rows of one family due now. Uses outbox_due_idx.
+SELECT count(*) FROM outbox
+WHERE status = 'PENDING'
+  AND next_attempt_at <= clock_timestamp()
+  AND ((sqlc.arg(credit)::boolean AND kind LIKE 'credit.%')
+    OR (NOT sqlc.arg(credit)::boolean AND kind LIKE 'event.%'));
