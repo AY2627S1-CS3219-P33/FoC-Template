@@ -77,7 +77,9 @@ func (s *stubOutbox) MarkFailed(_ context.Context, _ msgrepo.Row, code string) e
 	s.code = code
 	return nil
 }
-func (s *stubOutbox) RequeueUnconfirmed(context.Context, time.Duration) error { return nil }
+func (s *stubOutbox) ResendUnconfirmed(context.Context, time.Duration, int) ([]msgrepo.Resent, error) {
+	return nil, nil
+}
 
 type stubPublisher struct {
 	err   error

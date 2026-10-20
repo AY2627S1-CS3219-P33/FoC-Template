@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"os"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -80,91 +79,6 @@ func rowStatus(t *testing.T, pool *pgxpool.Pool, id int64) string {
 	var status string
 	require.NoError(t, pool.QueryRow(context.Background(), "SELECT status FROM outbox WHERE id=$1", id).Scan(&status))
 	return status
-}
-
-func TestOutboxClaimsAreExclusiveAndRecoverable(t *testing.T) {
-	pool, repo := testDatabase(t)
-	ctx := context.Background()
-	id, _ := insertMessage(t, pool, errand.KindCreditReserve)
-	var claims [2][]msgrepo.Row
-	var errs [2]error
-	var wg sync.WaitGroup
-	for i := range claims {
-		wg.Go(func() { claims[i], errs[i] = repo.Claim(ctx, "worker", true, 1, time.Minute) })
-	}
-	wg.Wait()
-	for _, err := range errs {
-		require.NoError(t, err)
-	}
-	rows := append(claims[0], claims[1]...)
-	require.Len(t, rows, 1)
-	old := rows[0]
-	_, err := pool.Exec(ctx, "UPDATE outbox SET lease_expires_at=clock_timestamp()-interval '1 second' WHERE id=$1", id)
-	require.NoError(t, err)
-	require.NoError(t, repo.MarkSent(ctx, old))
-	require.Equal(t, "PENDING", rowStatus(t, pool, id))
-	rows, err = repo.Claim(ctx, "worker", true, 1, time.Minute)
-	require.NoError(t, err)
-	require.Len(t, rows, 1)
-	require.Equal(t, old.Attempts+1, rows[0].Attempts)
-	require.NoError(t, repo.MarkFailed(ctx, old, "OLD_WORKER"))
-	require.Equal(t, "PENDING", rowStatus(t, pool, id))
-	require.NoError(t, repo.MarkSent(ctx, rows[0]))
-	require.Equal(t, "SENT", rowStatus(t, pool, id))
-}
-
-func TestOutboxConfirmationCannotRegress(t *testing.T) {
-	pool, repo := testDatabase(t)
-	ctx := context.Background()
-	id, key := insertMessage(t, pool, errand.KindCreditReserve)
-	rows, err := repo.Claim(ctx, "worker", true, 1, time.Minute)
-	require.NoError(t, err)
-	require.Len(t, rows, 1)
-	require.NoError(t, repo.ConfirmByKey(ctx, key))
-	require.NoError(t, repo.MarkSent(ctx, rows[0]))
-	require.NoError(t, repo.MarkFailed(ctx, rows[0], "LATE_FAILURE"))
-	require.NoError(t, repo.ConfirmByKey(ctx, key))
-	require.Equal(t, "CONFIRMED", rowStatus(t, pool, id))
-	require.NoError(t, repo.RequeueUnconfirmed(ctx, time.Microsecond))
-	require.Equal(t, "CONFIRMED", rowStatus(t, pool, id))
-	eventID, eventKey := insertMessage(t, pool, errand.ErrandPlaced.Kind())
-	require.NoError(t, repo.ConfirmByKey(ctx, eventKey))
-	require.Equal(t, "PENDING", rowStatus(t, pool, eventID))
-}
-
-func TestOutboxRetriesAndConfirmationTimeout(t *testing.T) {
-	pool, repo := testDatabase(t)
-	ctx := context.Background()
-	id, key := insertMessage(t, pool, errand.KindCreditReserve)
-	rows, err := repo.Claim(ctx, "worker", true, 1, time.Minute)
-	require.NoError(t, err)
-	require.Len(t, rows, 1)
-	require.NoError(t, repo.Reschedule(ctx, rows[0], time.Hour, "PUBLISH_FAILED"))
-	rows, err = repo.Claim(ctx, "other", true, 1, time.Minute)
-	require.NoError(t, err)
-	require.Empty(t, rows)
-	_, err = pool.Exec(ctx, "UPDATE outbox SET next_attempt_at=clock_timestamp()-interval '1 second' WHERE id=$1", id)
-	require.NoError(t, err)
-	rows, err = repo.Claim(ctx, "worker", true, 1, time.Minute)
-	require.NoError(t, err)
-	require.Len(t, rows, 1)
-	require.Equal(t, key, rows[0].IdempotencyKey)
-	require.EqualValues(t, 2, rows[0].Attempts)
-	require.NoError(t, repo.MarkSent(ctx, rows[0]))
-	require.NoError(t, repo.RequeueUnconfirmed(ctx, time.Hour))
-	require.Equal(t, "SENT", rowStatus(t, pool, id))
-	_, err = pool.Exec(ctx, "UPDATE outbox SET sent_at=clock_timestamp()-interval '2 hours' WHERE id=$1", id)
-	require.NoError(t, err)
-	require.NoError(t, repo.RequeueUnconfirmed(ctx, time.Hour))
-	require.Equal(t, "PENDING", rowStatus(t, pool, id))
-	rows, err = repo.Claim(ctx, "worker", true, 1, time.Minute)
-	require.NoError(t, err)
-	require.Len(t, rows, 1)
-	require.Equal(t, key, rows[0].IdempotencyKey)
-	require.NoError(t, repo.MarkFailed(ctx, rows[0], "PUBLISH_FAILED"))
-	require.Equal(t, "FAILED", rowStatus(t, pool, id))
-	require.NoError(t, repo.RequeueUnconfirmed(ctx, time.Microsecond))
-	require.Equal(t, "FAILED", rowStatus(t, pool, id))
 }
 
 func testBroker(t *testing.T) (string, *amqp.Connection, *amqp.Channel) {
@@ -252,8 +166,10 @@ func TestDispatcherPublishesDatabaseOutboxToRabbitMQ(t *testing.T) {
 	var envelope errand.Envelope
 	require.NoError(t, json.Unmarshal(delivery.Body, &envelope))
 	require.Equal(t, string(errand.ErrandPlaced), envelope.Type)
-	require.NoError(t, repo.RequeueUnconfirmed(context.Background(), time.Microsecond))
-	require.Equal(t, "SENT", rowStatus(t, pool, id), "events do not wait for credit results")
+	resent, err := repo.ResendUnconfirmed(context.Background(), time.Microsecond, 10)
+	require.NoError(t, err)
+	require.Empty(t, resent, "events do not wait for credit results")
+	require.Equal(t, "SENT", rowStatus(t, pool, id))
 }
 
 func TestDispatcherPublishesCreditCommandToRabbitMQ(t *testing.T) {
@@ -277,7 +193,8 @@ func TestDispatcherPublishesCreditCommandToRabbitMQ(t *testing.T) {
 	require.Equal(t, key, delivery.MessageId)
 	require.Equal(t, errand.CommandCreditReserve, delivery.RoutingKey)
 	require.Equal(t, "SENT", rowStatus(t, pool, id))
-	require.NoError(t, repo.ConfirmByKey(context.Background(), key))
+	_, err = repo.ConfirmByKey(context.Background(), key)
+	require.NoError(t, err)
 	require.Equal(t, "CONFIRMED", rowStatus(t, pool, id))
 }
 

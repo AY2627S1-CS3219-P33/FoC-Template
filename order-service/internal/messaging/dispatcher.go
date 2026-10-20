@@ -23,7 +23,7 @@ type Outbox interface {
 	MarkSent(context.Context, msgrepo.Row) error
 	Reschedule(context.Context, msgrepo.Row, time.Duration, string) error
 	MarkFailed(context.Context, msgrepo.Row, string) error
-	RequeueUnconfirmed(context.Context, time.Duration) error
+	ResendUnconfirmed(context.Context, time.Duration, int) ([]msgrepo.Resent, error)
 }
 
 type Dispatcher struct {
@@ -79,7 +79,7 @@ func (d *Dispatcher) dispatch(ctx context.Context, credit bool) (bool, error) {
 		if err != nil {
 			return false, err
 		}
-		if err := d.outbox.RequeueUnconfirmed(ctx, settings.OutboxConfirmTimeout); err != nil {
+		if _, err := d.outbox.ResendUnconfirmed(ctx, settings.OutboxConfirmTimeout, 100); err != nil {
 			return false, err
 		}
 	}
@@ -89,7 +89,7 @@ func (d *Dispatcher) dispatch(ctx context.Context, credit bool) (bool, error) {
 	}
 	for _, row := range rows {
 		if row.Attempts > 10 {
-			if err := d.outbox.MarkFailed(ctx, row, "ATTEMPTS_EXHAUSTED"); err != nil {
+			if err := d.leased(ctx, row, d.outbox.MarkFailed(ctx, row, "ATTEMPTS_EXHAUSTED")); err != nil {
 				return true, err
 			}
 			continue
@@ -104,7 +104,7 @@ func (d *Dispatcher) dispatch(ctx context.Context, credit bool) (bool, error) {
 			return true, ctx.Err()
 		}
 		if err == nil {
-			if err := d.outbox.MarkSent(ctx, row); err != nil {
+			if err := d.leased(ctx, row, d.outbox.MarkSent(ctx, row)); err != nil {
 				return true, err
 			}
 			continue
@@ -122,11 +122,21 @@ func (d *Dispatcher) dispatch(ctx context.Context, credit bool) (bool, error) {
 		} else {
 			err = d.outbox.Reschedule(ctx, row, resilience.Backoff(int(row.Attempts)), code)
 		}
-		if err != nil {
+		if err := d.leased(ctx, row, err); err != nil {
 			return true, err
 		}
 	}
 	return len(rows) > 0, nil
+}
+
+// leased drops ErrLeaseLost: another worker owns the row now, or a credit
+// result already settled it.
+func (d *Dispatcher) leased(ctx context.Context, row msgrepo.Row, err error) error {
+	if errors.Is(err, msgrepo.ErrLeaseLost) {
+		d.logger.WarnContext(ctx, "outbox lease lost", slog.Int64("outbox_id", row.ID), slog.String("kind", row.Kind))
+		return nil
+	}
+	return err
 }
 
 // MessageFromOutbox preserves the original identity, version and occurrence
