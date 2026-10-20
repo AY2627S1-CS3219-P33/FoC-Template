@@ -12,14 +12,27 @@ import (
 	"time"
 
 	"github.com/CS3219-AY2627S1/FoC-Template/order-service/internal/errand"
+	"github.com/CS3219-AY2627S1/FoC-Template/order-service/internal/resilience"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
-var ErrUnroutable = errors.New("messaging: no queue matched the message")
+var (
+	ErrUnroutable = errors.New("messaging: no queue matched the message")
+	// ErrBrokerUnavailable marks a publish or ping that could not reach
+	// RabbitMQ. It is retryable; it never carries the AMQP URL.
+	ErrBrokerUnavailable = errors.New("messaging: RabbitMQ unavailable")
+	errClosed            = errors.New("messaging: publisher is closed")
+)
+
+// Reconnect backoff after a failed dial or channel setup.
+var defaultReconnectBackoff = resilience.BackoffPolicy{Base: 500 * time.Millisecond, Cap: 30 * time.Second}
 
 // Publisher owns a single confirm-mode channel, with one in-flight publish so
-// mandatory returns can be matched unambiguously. Failed sessions reconnect on
-// the next outbox attempt; the outbox owns retry scheduling.
+// mandatory returns can be matched unambiguously. A lost session reconnects on
+// the next Publish or Ping; after a failed reconnect, further attempts fail
+// fast with ErrBrokerUnavailable until the backoff delay passes, so a broker
+// outage does not cost every outbox row a dial. The outbox owns per-row retry
+// scheduling.
 type Publisher struct {
 	url     string
 	tap     bool
@@ -29,6 +42,10 @@ type Publisher struct {
 	socket  net.Conn
 	returns <-chan amqp.Return
 	closed  bool
+
+	backoff  resilience.BackoffPolicy
+	failures int
+	retryAt  time.Time
 }
 
 var _ errand.Publisher = (*Publisher)(nil)
@@ -41,7 +58,7 @@ func NewPublisher(url string, declareTap bool) (*Publisher, error) {
 	if _, err := amqp.ParseURI(url); err != nil {
 		return nil, errors.New("messaging: invalid AMQP URL")
 	}
-	return &Publisher{url: url, tap: declareTap, gate: make(chan struct{}, 1)}, nil
+	return &Publisher{url: url, tap: declareTap, gate: make(chan struct{}, 1), backoff: defaultReconnectBackoff}, nil
 }
 
 func (p *Publisher) Publish(ctx context.Context, m errand.Message) (err error) {
@@ -58,13 +75,12 @@ func (p *Publisher) Publish(ctx context.Context, m errand.Message) (err error) {
 	}
 	defer func() { <-p.gate }()
 	if p.closed {
-		return errors.New("messaging: publisher is closed")
+		return errClosed
 	}
 	// Closing the socket interrupts AMQP RPCs and writes, which do not all honor context.
 	var stop func() bool
-	if p.conn == nil || p.conn.IsClosed() || p.channel.IsClosed() {
-		p.disconnect()
-		stop, err = p.connect(ctx)
+	if !p.connected() {
+		stop, err = p.reconnect(ctx)
 		if err != nil {
 			return err
 		}
@@ -157,7 +173,7 @@ func (p *Publisher) connect(ctx context.Context) (func() bool, error) {
 		}
 		p.disconnect()
 		// Dial errors can contain the URI, including credentials.
-		return nil, errors.New("messaging: RabbitMQ connection failed")
+		return nil, fmt.Errorf("%w: connection failed", ErrBrokerUnavailable)
 	}
 	p.conn = conn
 	channel, err := conn.Channel()
@@ -171,7 +187,7 @@ func (p *Publisher) connect(ctx context.Context) (func() bool, error) {
 	if err != nil {
 		stop()
 		p.disconnect()
-		return nil, fmt.Errorf("messaging: RabbitMQ setup failed: %w", err)
+		return nil, fmt.Errorf("%w: setup failed: %w", ErrBrokerUnavailable, err)
 	}
 	p.returns = channel.NotifyReturn(make(chan amqp.Return, 1))
 	return stop, nil
@@ -201,6 +217,55 @@ func declareTopology(ch *amqp.Channel, tap bool) error {
 		return ch.QueueBind(errand.QueueEventsTap, errand.BindingErrandEvents, errand.ExchangeEvents, false, nil)
 	}
 	return nil
+}
+
+// Ping reports whether RabbitMQ is reachable, connecting if needed, for
+// readiness checks. It honours the reconnect backoff.
+func (p *Publisher) Ping(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	select {
+	case p.gate <- struct{}{}:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	defer func() { <-p.gate }()
+	if p.closed {
+		return errClosed
+	}
+	if p.connected() {
+		return nil
+	}
+	stop, err := p.reconnect(ctx)
+	if err != nil {
+		return err
+	}
+	stop()
+	return nil
+}
+
+func (p *Publisher) connected() bool {
+	return p.conn != nil && !p.conn.IsClosed() && p.channel != nil && !p.channel.IsClosed()
+}
+
+// reconnect replaces a lost session unless a recent failure's backoff has not
+// passed. Caller holds the gate.
+func (p *Publisher) reconnect(ctx context.Context) (func() bool, error) {
+	if wait := time.Until(p.retryAt); wait > 0 {
+		return nil, fmt.Errorf("%w: reconnecting in %s", ErrBrokerUnavailable, wait.Round(time.Millisecond))
+	}
+	p.disconnect()
+	stop, err := p.connect(ctx)
+	if err != nil {
+		// A cancelled caller says nothing about the broker.
+		if ctx.Err() == nil {
+			p.failures++
+			p.retryAt = time.Now().Add(p.backoff.Backoff(p.failures))
+		}
+		return nil, err
+	}
+	p.failures, p.retryAt = 0, time.Time{}
+	return stop, nil
 }
 
 func (p *Publisher) disconnect() {

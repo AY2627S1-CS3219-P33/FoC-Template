@@ -119,7 +119,11 @@ func TestPublisherDeliversPersistentEnvelopeAndReconnects(t *testing.T) {
 			require.NoError(t, p.socket.Close())
 		}
 		// A lost connection is retried by the dispatcher, with the same message ID.
-		require.Eventually(t, func() bool { return p.Publish(context.Background(), m) == nil }, 15*time.Second, 50*time.Millisecond)
+		require.Eventually(t, func() bool {
+			err := p.Publish(context.Background(), m)
+			require.NotErrorIs(t, err, errand.ErrUnpublishable, "a closed connection is retryable")
+			return err == nil
+		}, 15*time.Second, 50*time.Millisecond)
 		delivery, ok, err := ch.Get(queue, true)
 		require.NoError(t, err)
 		require.True(t, ok)
@@ -130,6 +134,51 @@ func TestPublisherDeliversPersistentEnvelopeAndReconnects(t *testing.T) {
 		var envelope errand.Envelope
 		require.NoError(t, json.Unmarshal(delivery.Body, &envelope))
 		require.Equal(t, m.Envelope, envelope)
+	}
+}
+
+func TestPublisherDeclaresEventTap(t *testing.T) {
+	url, _, ch := testBroker(t)
+	p, err := NewPublisher(url, true)
+	require.NoError(t, err)
+	defer p.Close()
+	require.NoError(t, p.Ping(context.Background()), "ping connects and declares the topology")
+	_, err = ch.QueuePurge(errand.QueueEventsTap, false)
+	require.NoError(t, err)
+	row := testRow(errand.ErrandOpened.Kind())
+	row.Payload, _ = json.Marshal(errand.EventData{ErrandID: row.ErrandID, ErrandVersion: 2, At: row.CreatedAt})
+	m, err := MessageFromOutbox(row)
+	require.NoError(t, err)
+	require.NoError(t, p.Publish(context.Background(), m))
+	delivery, ok, err := ch.Get(errand.QueueEventsTap, true)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, m.Envelope.MessageID, delivery.MessageId)
+	require.Equal(t, string(errand.ErrandOpened), delivery.RoutingKey)
+}
+
+// Publishing is at-least-once: a row published twice (for example after a
+// crash before MarkSent) arrives twice with the same MessageId, and consumers
+// deduplicate by it.
+func TestPublisherRepublishKeepsMessageID(t *testing.T) {
+	url, _, ch := testBroker(t)
+	q, err := ch.QueueDeclare("", false, true, true, false, nil)
+	require.NoError(t, err)
+	require.NoError(t, ch.QueueBind(q.Name, errand.CommandCreditRelease, errand.ExchangeCommands, false, nil))
+	p, err := NewPublisher(url, false)
+	require.NoError(t, err)
+	defer p.Close()
+	m, err := MessageFromOutbox(testRow(errand.KindCreditRelease))
+	require.NoError(t, err)
+	for range 2 {
+		require.NoError(t, p.Publish(context.Background(), m))
+	}
+	for range 2 {
+		delivery, ok, err := ch.Get(q.Name, true)
+		require.NoError(t, err)
+		require.True(t, ok)
+		require.Equal(t, m.Envelope.MessageID, delivery.MessageId)
+		require.Equal(t, errand.CommandCreditRelease, delivery.Type)
 	}
 }
 
