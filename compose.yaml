@@ -97,7 +97,8 @@ services:
       supplier-migrate:
         condition: service_completed_successfully
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3002/readyz"]
+      test:
+        ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3002/readyz"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -111,6 +112,29 @@ services:
       - user-service
       - supplier-service
 
+  queue-service:
+    build:
+      context: ./queue-service
+    image: foc-queue-service:local
+    container_name: foc-queue-service
+    hostname: foc-queue-service
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-foc}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:-foc-local-dev}
+    ports:
+      - "127.0.0.1:5672:5672"
+      - "127.0.0.1:15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
 volumes:
   user_postgres_data:
   supplier_postgres_data_pg17:
+  rabbitmq_data:

@@ -8,7 +8,6 @@ package deps
 
 import (
 	_ "github.com/jackc/pgx/v5"
-	_ "github.com/rabbitmq/amqp091-go"
 	_ "github.com/redis/go-redis/v9"
 	_ "golang.org/x/sync/singleflight"
 )
