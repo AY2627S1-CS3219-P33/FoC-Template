@@ -171,6 +171,12 @@ func (r *Repository) ResendUnconfirmed(ctx context.Context, timeout time.Duratio
 	return result, nil
 }
 
+// CountDue returns how many rows of one family are due now: the
+// dispatcher's backlog.
+func (r *Repository) CountDue(ctx context.Context, credit bool) (int64, error) {
+	return r.queries.CountDueOutbox(ctx, credit)
+}
+
 // GetByKey returns the row with key, or ErrNotFound.
 func (r *Repository) GetByKey(ctx context.Context, key string) (Record, error) {
 	row, err := r.queries.GetOutboxByKey(ctx, key)

@@ -4,8 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
-	"io"
-	"log/slog"
 	"os"
 	"strings"
 	"testing"
@@ -72,6 +70,21 @@ func insertMessage(t *testing.T, pool *pgxpool.Pool, kind string) (int64, string
 	err = pool.QueryRow(ctx, `INSERT INTO outbox(kind,idempotency_key,errand_id,payload) VALUES($1,$2,$3,$4) RETURNING id`, kind, key, id, data).Scan(&rowID)
 	require.NoError(t, err)
 	return rowID, key
+}
+
+// insertCommand adds a credit command for the errand of an existing row.
+func insertCommand(t *testing.T, pool *pgxpool.Pool, sibling int64, kind string, cmd errand.CreditCommand) (int64, string) {
+	t.Helper()
+	ctx := context.Background()
+	var errandID string
+	require.NoError(t, pool.QueryRow(ctx, "SELECT errand_id::text FROM outbox WHERE id=$1", sibling).Scan(&errandID))
+	cmd.ErrandID = errandID
+	data, err := json.Marshal(cmd)
+	require.NoError(t, err)
+	key := errandID + ":" + kind
+	var id int64
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO outbox(kind,idempotency_key,errand_id,payload) VALUES($1,$2,$3,$4) RETURNING id`, kind, key, errandID, data).Scan(&id))
+	return id, key
 }
 
 func rowStatus(t *testing.T, pool *pgxpool.Pool, id int64) string {
@@ -203,10 +216,9 @@ func TestDispatcherPublishesDatabaseOutboxToRabbitMQ(t *testing.T) {
 	require.NoError(t, err)
 	defer p.Close()
 	id, key := insertMessage(t, pool, errand.ErrandPlaced.Kind())
-	d := NewDispatcher(repo, p, stubSettings{}, slog.New(slog.NewTextHandler(io.Discard, nil)), "integration")
-	worked, err := d.dispatch(context.Background(), false)
+	d := newTestDispatcher(t, repo, p, DispatcherConfig{WorkerID: "integration", PollInterval: 10 * time.Millisecond})
+	_, err = d.dispatch(context.Background(), false)
 	require.NoError(t, err)
-	require.True(t, worked)
 	require.Equal(t, "SENT", rowStatus(t, pool, id))
 	delivery, ok, err := ch.Get(queue, true)
 	require.NoError(t, err)
@@ -232,10 +244,9 @@ func TestDispatcherPublishesCreditCommandToRabbitMQ(t *testing.T) {
 	require.NoError(t, err)
 	defer p.Close()
 	id, key := insertMessage(t, pool, errand.KindCreditReserve)
-	d := NewDispatcher(repo, p, stubSettings{}, slog.New(slog.NewTextHandler(io.Discard, nil)), "credit-integration")
-	worked, err := d.dispatch(context.Background(), true)
+	d := newTestDispatcher(t, repo, p, DispatcherConfig{WorkerID: "credit-integration", PollInterval: 10 * time.Millisecond})
+	_, err = d.dispatch(context.Background(), true)
 	require.NoError(t, err)
-	require.True(t, worked)
 	delivery, ok, err := ch.Get(q.Name, true)
 	require.NoError(t, err)
 	require.True(t, ok)
@@ -257,7 +268,7 @@ func TestDispatcherRunProcessesBothLoopsAndStops(t *testing.T) {
 	defer p.Close()
 	creditID, _ := insertMessage(t, pool, errand.KindCreditReserve)
 	eventID, _ := insertMessage(t, pool, errand.ErrandPlaced.Kind())
-	d := NewDispatcher(repo, p, stubSettings{}, slog.New(slog.NewTextHandler(io.Discard, nil)), "run-integration")
+	d := newTestDispatcher(t, repo, p, DispatcherConfig{WorkerID: "run-integration", PollInterval: 10 * time.Millisecond})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan error, 1)

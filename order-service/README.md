@@ -150,13 +150,18 @@ use `queue-service:5672`.
 The RabbitMQ connection and topology are created on the first publication.
 An idle worker with an empty outbox does not connect to the broker yet.
 
-The worker claims one row per loop, with independent credit and event loops,
-a one-minute lease, a ten-second publish timeout and a one-second idle/error
-poll interval. Failed publishes use the existing jittered backoff (2 seconds
-base, 5 minutes cap), with at most 10 publication attempts. The confirmation
-timeout comes from stored settings (default 10 minutes). Messages retain their
-original IDs on retry. Expired claims recover automatically; writes from old
-claims cannot overwrite a newer claim or credit confirmation.
+The worker has independent credit and event loops. Each claims batches of up
+to 10 rows under a two-minute lease, publishes each with a ten-second timeout,
+and polls again at once after a full batch or after about a second (±20%
+jitter) otherwise. Failed publishes use the existing jittered backoff (2 seconds
+base, 5 minutes cap), with at most 10 publication attempts. A failed broker
+connection is retried after its own backoff (500 ms base, 30 s cap) rather
+than on every row. Once a minute a sweep re-sends `SENT` credit commands that
+have had no result for the confirmation timeout from stored settings (default
+10 minutes), and records the backlog. Messages retain their original IDs on
+retry. Expired claims recover automatically; writes from old claims cannot
+overwrite a newer claim or credit confirmation. On `SIGINT`/`SIGTERM` each loop
+finishes the row it is publishing and hands the rest of its batch back.
 
 Both commands and events use mandatory publishing and broker confirmations.
 Without a matching queue binding they retry instead of becoming `SENT`.
