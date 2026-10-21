@@ -129,33 +129,36 @@ type PendingEdit struct {
 // Pickups maps supplier version IDs to versions, as LoadPickups returns them.
 type Pickups map[string]errand.SupplierVersion
 
-// LoadPickups reads the supplier versions a view of e needs: e's own and its
-// pending edit's. Versions are immutable, so the gate may serve them from a
+// LoadPickups reads the supplier versions views of errands need: each
+// errand's own and its pending edit's, every version once, so a list page
+// shares them. Versions are immutable, so the gate may serve them from a
 // cache (F2.4.3, F2.5.1).
 //
 // A version supplier-service does not know is a plain error, not
 // SUPPLIER_UNAVAILABLE: versions are kept for deleted suppliers, so a stored
 // errand's version always exists, and a 422 would blame the client.
-func LoadPickups(ctx context.Context, suppliers errand.SupplierGate, e errand.Errand) (Pickups, error) {
-	ids := []string{e.Details.SupplierVersionID}
-	if e.PendingEdit != nil {
-		ids = append(ids, e.PendingEdit.Details.SupplierVersionID)
-	}
+func LoadPickups(ctx context.Context, suppliers errand.SupplierGate, errands ...errand.Errand) (Pickups, error) {
 	pickups := Pickups{}
-	for _, id := range ids {
-		if _, ok := pickups[id]; ok {
-			continue
+	for _, e := range errands {
+		ids := []string{e.Details.SupplierVersionID}
+		if e.PendingEdit != nil {
+			ids = append(ids, e.PendingEdit.Details.SupplierVersionID)
 		}
-		v, err := suppliers.GetVersion(ctx, id)
-		if err != nil {
-			var appErr *apperror.Error
-			if errors.As(err, &appErr) && appErr.Code == apperror.SupplierUnavailable {
-				// %v, not %w: the code must not reach the client.
-				return nil, fmt.Errorf("errandhttp: errand %s has an unknown supplier version %s: %v", e.ID, id, err)
+		for _, id := range ids {
+			if _, ok := pickups[id]; ok {
+				continue
 			}
-			return nil, err
+			v, err := suppliers.GetVersion(ctx, id)
+			if err != nil {
+				var appErr *apperror.Error
+				if errors.As(err, &appErr) && appErr.Code == apperror.SupplierUnavailable {
+					// %v, not %w: the code must not reach the client.
+					return nil, fmt.Errorf("errandhttp: errand %s has an unknown supplier version %s: %v", e.ID, id, err)
+				}
+				return nil, err
+			}
+			pickups[id] = v
 		}
-		pickups[id] = v
 	}
 	return pickups, nil
 }
