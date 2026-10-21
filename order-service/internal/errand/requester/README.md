@@ -91,6 +91,11 @@ a rejection:
 | confirm | `COMPLETED`, whatever `expectedVersion` says (F3.10.2), including after auto-complete or an admin's resolution |
 | dispute | `REVIEW_REQUIRED` with `REQUESTER_DISPUTE` at `expectedVersion + 1` |
 
+The check also runs when `Store.Apply` loses its compare-and-swap
+(`errandhttp.LostToDuplicate`). Several copies of one confirm sent at once,
+such as a double tap, all get `200`, and credits move once (F3.10.2).
+Before A8 the losing copies got `409 ERRAND_UNAVAILABLE`.
+
 ## Order of checks
 
 1. token and scope (`401`, `403`);
