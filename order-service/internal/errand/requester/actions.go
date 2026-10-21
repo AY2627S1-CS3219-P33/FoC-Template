@@ -131,6 +131,11 @@ func (h Handler) transition(response http.ResponseWriter, request *http.Request,
 	}
 	stored, err := h.store.Apply(ctx, t)
 	if err != nil {
+		done := func(current errand.Errand) bool { return a.done(current, expectedVersion) }
+		if current, lost := errandhttp.LostToDuplicate(ctx, h.store, id, err, done); lost {
+			h.respond(response, current, pickups, http.StatusOK)
+			return
+		}
 		h.refuse(response, request, a, id, caller, expectedVersion, now, err)
 		return
 	}

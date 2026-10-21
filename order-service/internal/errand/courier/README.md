@@ -63,6 +63,11 @@ events to the outbox.
 | deliver | `DELIVERED` at `expectedVersion + 1` with the caller as courier |
 | report issue | `REVIEW_REQUIRED` with `COURIER_ISSUE` at `expectedVersion + 1` with the caller as courier |
 
+The check also runs when `Store.Apply` loses its compare-and-swap
+(`errandhttp.LostToDuplicate`). Two copies of one request sent at once
+then both get `200`, and a double-tapped pickup is not announced as a
+rejection.
+
 ## Order of checks
 
 1. token and scope (`401`, `403`);
@@ -92,7 +97,8 @@ returned. `403` refusals are never announced.
 - **A withdrawal's retry is recognised by its shape.** A forced withdrawal by
   the pickup deadline leaves the same shape (`OPEN`/`EXPIRED` one version
   later). If one lands at the same moment as the courier's own withdraw, the
-  courier gets `200` for a withdrawal the system made. The outcome they asked
+  courier gets `200` for a withdrawal the system made, whether the job
+  commits just before the withdraw is read or wins the compare-and-swap. The outcome they asked
   for (off the errand, counted towards the restriction) holds either way.
   Telling the two apart would need a new `Store` read of the transition.
 - **Not wired into the service.** `courier.NewHandler` is registered in the
