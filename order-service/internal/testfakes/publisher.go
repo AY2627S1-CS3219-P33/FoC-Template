@@ -5,10 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
-	"strings"
 	"sync"
 
+	"github.com/CS3219-AY2627S1/FoC-Template/order-service/internal/database/msgrepo"
 	"github.com/CS3219-AY2627S1/FoC-Template/order-service/internal/errand"
+	"github.com/CS3219-AY2627S1/FoC-Template/order-service/internal/messaging"
 )
 
 // FakePublisher is an errand.Publisher that keeps every confirmed message.
@@ -71,35 +72,17 @@ func (p *FakePublisher) Attempts() []errand.Message {
 	return slices.Clone(p.attempts)
 }
 
-// MessageFromOutbox builds the message an outbox row is published as, per
-// docs/contracts.md: credit.* rows go to foc.commands with the kind as
-// routing key; event.* rows go to foc.events with the "event." prefix
-// removed. The dispatcher (M3) owns the production version of this mapping;
-// this one lets tests feed store rows to FakeCreditService.
+// MessageFromOutbox uses the production mapping so fake credit flows exercise
+// the same envelope and routing rules as the real dispatcher.
 func MessageFromOutbox(r OutboxRecord) (errand.Message, error) {
 	data, err := json.Marshal(r.Payload)
 	if err != nil {
-		return errand.Message{}, fmt.Errorf("testfakes: encode payload of %q: %w", r.IdempotencyKey, err)
+		return errand.Message{}, fmt.Errorf("testfakes: encode payload: %w", err)
 	}
-	m := errand.Message{
-		Envelope: errand.Envelope{
-			MessageID:     r.IdempotencyKey,
-			OccurredAt:    r.At,
-			ErrandID:      r.ErrandID,
-			ErrandVersion: r.ErrandVersion,
-			Data:          data,
-		},
-	}
-	switch {
-	case strings.HasPrefix(r.Kind, "credit."):
-		m.Exchange, m.RoutingKey = errand.ExchangeCommands, r.Kind
-	case strings.HasPrefix(r.Kind, "event."):
-		m.Exchange, m.RoutingKey = errand.ExchangeEvents, strings.TrimPrefix(r.Kind, "event.")
-	default:
-		return errand.Message{}, fmt.Errorf("testfakes: unknown outbox kind %q", r.Kind)
-	}
-	m.Envelope.Type = m.RoutingKey
-	return m, nil
+	return messaging.MessageFromOutbox(msgrepo.Row{
+		Kind: r.Kind, IdempotencyKey: r.IdempotencyKey, ErrandID: r.ErrandID,
+		Payload: data, CreatedAt: r.At,
+	})
 }
 
 func cloneMessage(m errand.Message) errand.Message {

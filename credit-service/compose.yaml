@@ -1,0 +1,9 @@
+# Runs the service container against Amazon RDS. There is no local database:
+# put the app_rw connection string in .env (see .env.example).
+# Schema changes are applied separately with infra/migrate.sh.
+services:
+  credit-service:
+    build: .
+    env_file: .env
+    ports:
+      - "${CREDIT_SERVICE_PORT:-3004}:3004"
