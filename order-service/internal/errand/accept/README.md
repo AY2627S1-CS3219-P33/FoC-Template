@@ -49,8 +49,13 @@ is.
 ```json
 {
   "errandId": "6f1c2a9e-0b7d-4c3e-9a51-2d8e4f7b1c90",
+<<<<<<< HEAD
   "version": 2, #version solves courier accepting an old errand changed by requester
   "status": "ASSIGNED", #status solves the 2 couriers accepting simultaneously
+=======
+  "version": 2,
+  "status": "ASSIGNED",
+>>>>>>> eecf0136af1d475ffece2cedd4de8b51e4d48837
   "supplierId": "3b9d4e21-7a6f-4c18-8e02-5f1a9c3d7b64",
   "supplierVersionId": "a7e2c5d8-1f4b-4a93-b6c0-9d3e8f2a5c17",
   "pickup": {

@@ -1,0 +1,10 @@
+**
+!supplier-service/
+!supplier-service/**
+!data/
+!data/csv/
+!data/csv/supplier-seed-data.csv
+**/.env
+**/.env.*
+**/.git
+**/.aws

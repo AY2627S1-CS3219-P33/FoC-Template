@@ -366,6 +366,10 @@ root `compose.yaml`):
 
 Publishing (M2):
 
+- Implemented by `internal/messaging.Publisher`, driven by the standalone
+  `cmd/outbox-worker` dispatcher. Publishing is mandatory: an unroutable command
+  or event is retried rather than marked `SENT`. Enable the optional tap locally
+  if notification-service has not declared an event queue yet.
 - Persistent messages (`delivery_mode` 2), published on a confirm-mode
   channel. `Publish` returns only after the broker confirms; a nack, timeout
   or closed channel is retried by the outbox.

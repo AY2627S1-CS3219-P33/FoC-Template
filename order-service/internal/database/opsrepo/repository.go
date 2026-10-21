@@ -1,7 +1,8 @@
 // Package opsrepo stores Person B's operational data in PostgreSQL: supplier
 // deletion fences, open reviews, the admin audit log, settings and reminder
-// outbox rows. It is a thin layer over opsgen that speaks in domain types and
-// sentinel errors. It reads errands but never writes them.
+// outbox rows, plus read-only errand counts for internal routes. It is a thin
+// layer over opsgen that speaks in domain types and sentinel errors. It reads
+// errands but never writes them.
 package opsrepo
 
 import (
