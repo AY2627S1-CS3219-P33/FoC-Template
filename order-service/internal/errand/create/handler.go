@@ -20,11 +20,6 @@ import (
 	"github.com/CS3219-AY2627S1/FoC-Template/order-service/internal/errand/errandhttp"
 )
 
-// maxBodyBytes bounds the body: 20 items of 200 characters, a 500-character
-// note and the short fields, at up to 4 bytes per character, with room for
-// JSON syntax.
-const maxBodyBytes = 64 << 10
-
 // Dependencies are the ports the handler uses; all are required.
 type Dependencies struct {
 	Store     errand.Store
@@ -99,7 +94,7 @@ func (h Handler) create(response http.ResponseWriter, request *http.Request) {
 		return
 	}
 
-	body, err := io.ReadAll(http.MaxBytesReader(response, request.Body, maxBodyBytes))
+	body, err := io.ReadAll(http.MaxBytesReader(response, request.Body, errandhttp.MaxErrandBodyBytes))
 	if err != nil {
 		var sizeErr *http.MaxBytesError
 		if errors.As(err, &sizeErr) {
@@ -115,7 +110,7 @@ func (h Handler) create(response http.ResponseWriter, request *http.Request) {
 		h.fail(response, request, id, err)
 		return
 	}
-	building, err := h.deliveryBuilding(request, in.DeliveryBuildingID)
+	building, err := errandhttp.DeliveryBuilding(ctx, h.suppliers, in.DeliveryBuildingID)
 	if err != nil {
 		h.fail(response, request, id, err)
 		return
@@ -186,33 +181,6 @@ func (h Handler) respond(response http.ResponseWriter, request *http.Request, e 
 	errandhttp.WriteJSON(response, status, errandhttp.RequesterView(e, pickups))
 }
 
-// deliveryBuilding finds the requested building in supplier-service's list.
-// It must exist and not be retired (ErrandCreate).
-func (h Handler) deliveryBuilding(request *http.Request, id string) (errand.Building, error) {
-	buildings, err := h.suppliers.ListBuildings(request.Context())
-	if err != nil {
-		return errand.Building{}, err
-	}
-	for _, b := range buildings {
-		if !strings.EqualFold(b.ID, id) {
-			continue
-		}
-		if b.Retired {
-			return errand.Building{}, buildingError("must not be a retired building")
-		}
-		return b, nil
-	}
-	return errand.Building{}, buildingError("must be an existing building")
-}
-
-func buildingError(message string) error {
-	return &apperror.Error{
-		Code:    apperror.ValidationFailed,
-		Message: "errand is invalid",
-		Fields:  []apperror.Field{{Field: "deliveryBuildingId", Message: message}},
-	}
-}
-
 // idempotencyKey reads the required Idempotency-Key header, a UUID.
 func idempotencyKey(response http.ResponseWriter, request *http.Request) (string, bool) {
 	key := request.Header.Get("Idempotency-Key")
@@ -220,7 +188,7 @@ func idempotencyKey(response http.ResponseWriter, request *http.Request) (string
 	case key == "":
 		errandhttp.WriteError(response, apperror.InvalidArgument, "Idempotency-Key header is required")
 		return "", false
-	case !uuidPattern.MatchString(key):
+	case !errandhttp.UUIDPattern.MatchString(key):
 		errandhttp.WriteError(response, apperror.InvalidArgument, "Idempotency-Key must be a UUID")
 		return "", false
 	}
