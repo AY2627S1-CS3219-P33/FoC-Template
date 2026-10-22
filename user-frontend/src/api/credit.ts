@@ -1,15 +1,11 @@
 // Credit Service client.
 //
-// PROVISIONAL. credit-service has no implementation yet; this mirrors the
-// proposed read-only contract in credit-service/openapi.yaml, which was
-// derived from the credit.* message contract in order-service/docs/contracts.md.
-// It is the only module that depends on that proposal: if the credit owner
-// settles on different shapes, this file and credit-service/openapi.yaml are
-// what change.
-//
-// There are no write calls on purpose. The credit economy is closed and credits
-// move only through order-service's credit.reserve / adjust / release /
-// transfer commands, never through a client request.
+// Mirrors the frozen read surface in credit-service/openapi.yaml (v1.0.0). The
+// only user-facing route is GET /v1/wallet/me: wallet creation and the internal
+// per-owner routes are service-to-service (machine tokens) and reserve / adjust
+// / release / transfer are RabbitMQ commands, never client HTTP calls. Credits
+// are whole numbers serialised as strings, so they are kept as strings here and
+// summed with BigInt to stay exact for large balances.
 
 const BASE = "/credit-service";
 
@@ -17,7 +13,8 @@ export type CreditErrorCode =
   | "INVALID_ARGUMENT"
   | "UNAUTHENTICATED"
   | "FORBIDDEN"
-  | "ACCOUNT_NOT_FOUND"
+  | "WALLET_NOT_FOUND"
+  | "WALLET_CONFLICT"
   | "DEPENDENCY_UNAVAILABLE"
   | "INTERNAL"
   | "NETWORK";
@@ -33,46 +30,24 @@ export class CreditError extends Error {
   }
 }
 
-export interface Balance {
-  userId: string;
-  // Committable to a new errand.
-  available: number;
-  // Held by errands awaiting an outcome.
-  reserved: number;
-  total: number;
-  updatedAt: string;
-}
-
-export type TransactionKind = "RESERVE" | "RELEASE" | "ADJUST" | "TRANSFER_OUT" | "TRANSFER_IN";
-
-export interface Transaction {
-  id: string;
-  kind: TransactionKind;
-  // Signed effect on the available balance.
-  amount: number;
-  balanceAfter: number;
-  errandId?: string;
-  description?: string;
+export interface Wallet {
+  ownerId: string;
+  // Whole-number credits as strings: available can be spent, reserved is held
+  // for open errands.
+  available: string;
+  reserved: string;
   createdAt: string;
 }
 
-export interface TransactionPage {
-  items: Transaction[];
-  nextCursor?: string;
+// walletTotal derives available + reserved exactly. The frozen contract does not
+// return a total, so it is computed for display.
+export function walletTotal(wallet: Wallet): string {
+  try {
+    return (BigInt(wallet.available) + BigInt(wallet.reserved)).toString();
+  } catch {
+    return "—";
+  }
 }
-
-export interface Reservation {
-  errandId: string;
-  amount: number;
-  createdAt: string;
-}
-
-export interface ReservationPage {
-  items: Reservation[];
-  nextCursor?: string;
-}
-
-// ---- HTTP implementation -----------------------------------------------------
 
 async function parse<T>(response: Response): Promise<T> {
   const text = await response.text();
@@ -91,50 +66,8 @@ function headers(token: string): Record<string, string> {
   return { Authorization: `Bearer ${token}` };
 }
 
-function query(params: Record<string, string | number | undefined>): string {
-  const search = new URLSearchParams();
-  for (const [key, value] of Object.entries(params)) {
-    if (value !== undefined && value !== "") search.set(key, String(value));
-  }
-  const qs = search.toString();
-  return qs ? `?${qs}` : "";
-}
-
-export interface PageParams {
-  limit?: number;
-  cursor?: string;
-}
-
-export async function getMyBalance(token: string): Promise<Balance> {
-  return parse<Balance>(await fetch(`${BASE}/credits/me`, { headers: headers(token) }));
-}
-
-export async function listMyTransactions(
-  token: string,
-  params: PageParams = {},
-): Promise<TransactionPage> {
-  return parse<TransactionPage>(
-    await fetch(`${BASE}/credits/me/transactions${query({ ...params })}`, {
-      headers: headers(token),
-    }),
-  );
-}
-
-export async function listMyReservations(
-  token: string,
-  params: PageParams = {},
-): Promise<ReservationPage> {
-  return parse<ReservationPage>(
-    await fetch(`${BASE}/credits/me/reservations${query({ ...params })}`, {
-      headers: headers(token),
-    }),
-  );
-}
-
-export async function getAccountBalance(token: string, userId: string): Promise<Balance> {
-  return parse<Balance>(
-    await fetch(`${BASE}/admin/credits/${encodeURIComponent(userId)}`, {
-      headers: headers(token),
-    }),
-  );
+// getMyWallet reads the caller's wallet, found by the Auth0 subject of the
+// token; there is no way to name another user's wallet.
+export async function getMyWallet(token: string): Promise<Wallet> {
+  return parse<Wallet>(await fetch(`${BASE}/v1/wallet/me`, { headers: headers(token) }));
 }

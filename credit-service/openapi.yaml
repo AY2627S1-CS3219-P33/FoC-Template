@@ -2,28 +2,15 @@ openapi: 3.1.0
 
 info:
   title: Friend on Campus Credit Service API
-  version: 0.1.0-draft
+  version: 1.0.0
   description: >-
-    PROPOSED, NOT FROZEN. credit-service currently has no implementation and
-    no agreed HTTP contract; it appears in the repository only as the
-    RabbitMQ command/result contract in order-service/docs/contracts.md
-    ("Credit message contract (proposed, gate C1)"), and as the unimplemented
-    service.CreditBalanceReader interface in user-service.
-
-    This file is the read-only HTTP surface the frontend needs so the credit
-    screens can be built before the service exists, derived from that message
-    contract. It is deliberately read-only: the closed credit economy moves
-    credits only through credit.reserve / credit.adjust / credit.release /
-    credit.transfer commands published by order-service, never through a
-    client-facing HTTP write, and credits cannot be bought, withdrawn or
-    exchanged for money. The owner of credit-service should amend or replace
-    this file; user-frontend/src/api/credit.ts is the only client of it.
-
-    Open question for the owner: user-service's CreditBalanceReader returns an
-    "exact decimal balance" as a string, while order-service's Reward is
-    integer int32. This draft uses integers to match the frozen order
-    contract. If credits are decimal, change amount and balance to strings
-    here and in the client.
+    Wallet creation and balance reads. Reserve, adjust, release and transfer
+    are not HTTP operations: order-service sends them as RabbitMQ commands
+    (docs/asyncapi.yaml, credit-service/docs/contracts.md). x-required-permissions
+    names the token permission an operation needs and x-caller names the kind
+    of token that may call it. A user token is refused on a service route and
+    the other way round. Identity comes from the verified token, never from the
+    request. Credits are whole numbers, serialised as strings.
   license:
     name: MIT
     identifier: MIT
@@ -33,131 +20,59 @@ servers:
     description: API gateway route
 
 tags:
-  - name: Balances
-    description: The caller's own balance and ledger.
-  - name: Administration
-    description: Administrator reads of another account's credit position.
+  - name: Wallet
+    description: The caller's own wallet.
+  - name: Internal
+    description: Service-to-service routes (machine tokens only).
   - name: Operations
     description: Service health.
 
 paths:
-  /credits/me:
+  /v1/wallet/me:
     get:
-      operationId: getMyBalance
-      tags: [Balances]
-      summary: Read the caller's credit position
+      operationId: getMyWallet
+      tags: [Wallet]
+      summary: Read the caller's wallet
       description: >-
-        available is what the caller can still commit to a new errand;
-        reserved is held by errands awaiting an outcome; total is their sum.
-        A reservation leaves total unchanged and moves credits from available
-        to reserved.
-      x-required-permissions: [credits:read]
+        The wallet is found by the Auth0 subject of the token. There is no way
+        to name another user's wallet.
       security:
         - bearerAuth: []
+      x-caller: user
+      x-required-permissions: [credits:read:own]
       responses:
         "200":
-          description: The caller's credit position.
+          description: The caller's wallet.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Balance"
+                $ref: "#/components/schemas/Wallet"
         "401":
           $ref: "#/components/responses/Unauthenticated"
         "403":
           $ref: "#/components/responses/Forbidden"
         "404":
-          $ref: "#/components/responses/AccountNotFound"
-        "500":
-          $ref: "#/components/responses/Internal"
+          $ref: "#/components/responses/WalletNotFound"
         "503":
           $ref: "#/components/responses/DependencyUnavailable"
-
-  /credits/me/transactions:
+  /internal/wallets/{ownerId}:
+    parameters:
+      - $ref: "#/components/parameters/OwnerID"
     get:
-      operationId: listMyTransactions
-      tags: [Balances]
-      summary: List the caller's credit movements
-      description: >-
-        The caller's ledger, newest first. One entry per applied credit
-        command, so an errand that was reserved then completed has a RESERVE
-        and a TRANSFER_OUT entry. Entries are immutable.
+      operationId: getWalletByOwner
+      tags: [Internal]
+      summary: Read a wallet by owner
+      security:
+        - bearerAuth: []
+      x-caller: service
       x-required-permissions: [credits:read]
-      security:
-        - bearerAuth: []
-      parameters:
-        - $ref: "#/components/parameters/Limit"
-        - $ref: "#/components/parameters/Cursor"
       responses:
         "200":
-          description: A page of ledger entries.
+          description: The wallet.
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/TransactionPage"
-        "400":
-          $ref: "#/components/responses/InvalidArgument"
-        "401":
-          $ref: "#/components/responses/Unauthenticated"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "500":
-          $ref: "#/components/responses/Internal"
-        "503":
-          $ref: "#/components/responses/DependencyUnavailable"
-
-  /credits/me/reservations:
-    get:
-      operationId: listMyReservations
-      tags: [Balances]
-      summary: List the caller's active holds
-      description: >-
-        Reservations still held, newest first, each naming the errand that
-        holds it. Their amounts sum to reserved in /credits/me.
-      x-required-permissions: [credits:read]
-      security:
-        - bearerAuth: []
-      parameters:
-        - $ref: "#/components/parameters/Limit"
-        - $ref: "#/components/parameters/Cursor"
-      responses:
-        "200":
-          description: A page of active reservations.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ReservationPage"
-        "400":
-          $ref: "#/components/responses/InvalidArgument"
-        "401":
-          $ref: "#/components/responses/Unauthenticated"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "500":
-          $ref: "#/components/responses/Internal"
-        "503":
-          $ref: "#/components/responses/DependencyUnavailable"
-
-  /admin/credits/{userId}:
-    get:
-      operationId: getAccountBalance
-      tags: [Administration]
-      summary: Read another account's credit position
-      description: >-
-        For resolving disputes (F6.1). Read-only: an administrator cannot
-        move credits here, because every movement belongs to an errand
-        outcome.
-      x-required-permissions: [credits:review]
-      security:
-        - bearerAuth: []
-      parameters:
-        - $ref: "#/components/parameters/UserID"
-      responses:
-        "200":
-          description: That account's credit position.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Balance"
+                $ref: "#/components/schemas/Wallet"
         "400":
           $ref: "#/components/responses/InvalidArgument"
         "401":
@@ -165,31 +80,84 @@ paths:
         "403":
           $ref: "#/components/responses/Forbidden"
         "404":
-          $ref: "#/components/responses/AccountNotFound"
-        "500":
-          $ref: "#/components/responses/Internal"
+          $ref: "#/components/responses/WalletNotFound"
         "503":
           $ref: "#/components/responses/DependencyUnavailable"
-
+    put:
+      operationId: createWallet
+      tags: [Internal]
+      summary: Create a wallet with the initial allocation
+      description: >-
+        Idempotent per owner. The first call creates the wallet and credits the
+        initial allocation (configuration, never a request field) and returns
+        201. A repeat with the same subject returns 200 and the unchanged
+        wallet, with no second allocation.
+      security:
+        - bearerAuth: []
+      x-caller: service
+      x-required-permissions: [credits:wallets:create]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateWalletRequest"
+      responses:
+        "200":
+          description: The wallet already existed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Wallet"
+        "201":
+          description: The wallet was created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Wallet"
+        "400":
+          $ref: "#/components/responses/InvalidArgument"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: >-
+            The owner already has a wallet with a different Auth0 subject, or
+            the subject belongs to another owner.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                code: WALLET_CONFLICT
+                message: wallet conflicts with an existing wallet
+        "503":
+          $ref: "#/components/responses/DependencyUnavailable"
   /readyz:
     get:
-      operationId: getReadiness
+      operationId: readiness
       tags: [Operations]
-      summary: Check whether credit operations can run
+      summary: Readiness probe
+      description: No token needed.
       security: []
       responses:
         "200":
-          description: Dependencies are reachable.
+          description: Ready.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Readiness"
+              example:
+                status: ready
         "503":
-          description: A required dependency is unreachable.
+          description: Not ready.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Readiness"
+              example:
+                status: not_ready
 
 components:
   securitySchemes:
@@ -198,156 +166,62 @@ components:
       scheme: bearer
       bearerFormat: JWT
       description: >-
-        Auth0 RS256 user access token for
-        https://api.foc.local/credit-service. Balance routes require
-        credits:read; administration routes require credits:review.
+        Auth0 RS256 access token for https://api.foc.local/credit-service,
+        validated locally using cached JWKS. Permissions are read from the
+        permissions claim only. User routes need a login token; internal routes
+        need a machine-to-machine token (gty=client-credentials).
 
   parameters:
-    UserID:
-      name: userId
+    OwnerID:
+      name: ownerId
       in: path
       required: true
-      description: Auth0 subject of the user.
+      description: The user-service account UUID.
       schema:
         type: string
-        minLength: 1
-        maxLength: 255
-    Limit:
-      name: limit
-      in: query
-      description: Maximum page size.
-      schema:
-        type: integer
-        minimum: 1
-        maximum: 100
-        default: 25
-    Cursor:
-      name: cursor
-      in: query
-      description: Opaque cursor returned as nextCursor by the preceding page.
-      schema:
-        type: string
-        maxLength: 512
+        format: uuid
 
   schemas:
-    Balance:
+    Wallet:
       type: object
-      description: >-
-        total is available + reserved. Credits only circulate within the
-        platform, so total changes only when an errand transfers credits
-        between two accounts.
-      required: [userId, available, reserved, total, updatedAt]
+      required: [ownerId, available, reserved, createdAt]
       properties:
-        userId:
+        ownerId:
           type: string
+          format: uuid
         available:
-          type: integer
-          minimum: 0
-          description: Committable to a new errand.
+          type: string
+          pattern: "^[0-9]+$"
+          description: Credits that can be spent, a whole number.
+          examples: ["100"]
         reserved:
-          type: integer
-          minimum: 0
-          description: Held by errands awaiting an outcome.
-        total:
-          type: integer
-          minimum: 0
-        updatedAt:
+          type: string
+          pattern: "^[0-9]+$"
+          description: Credits held for open errands, a whole number.
+          examples: ["0"]
+        createdAt:
           type: string
           format: date-time
-      additionalProperties: false
-
-    TransactionKind:
-      type: string
-      description: >-
-        One applied credit command. RESERVE holds a reward when an errand is
-        requested; RELEASE returns a hold on cancel, expiry, refund or a
-        failed reservation; ADJUST changes a held amount after a reward edit;
-        TRANSFER_OUT settles a completed errand from the requester and
-        TRANSFER_IN credits its courier.
-      enum: [RESERVE, RELEASE, ADJUST, TRANSFER_OUT, TRANSFER_IN]
-
-    Transaction:
+    CreateWalletRequest:
       type: object
-      required: [id, kind, amount, balanceAfter, createdAt]
+      additionalProperties: false
+      required: [auth0Subject]
       properties:
-        id:
+        auth0Subject:
           type: string
-          description: Opaque, stable ledger entry identifier.
-        kind:
-          $ref: "#/components/schemas/TransactionKind"
-        amount:
-          type: integer
+          minLength: 1
+          maxLength: 255
           description: >-
-            Signed effect on available: negative for RESERVE and positive for
-            RELEASE and TRANSFER_IN. ADJUST is signed either way.
-        balanceAfter:
-          type: integer
-          minimum: 0
-          description: available immediately after this entry was applied.
-        errandId:
-          type: string
-          format: uuid
-          description: The errand this movement belongs to. Every movement has one.
-        description:
-          type: string
-          maxLength: 200
-        createdAt:
-          type: string
-          format: date-time
-      additionalProperties: false
-
-    TransactionPage:
-      type: object
-      required: [items]
-      properties:
-        items:
-          type: array
-          maxItems: 100
-          items:
-            $ref: "#/components/schemas/Transaction"
-        nextCursor:
-          type: string
-          description: Omitted when there is no next page.
-      additionalProperties: false
-
-    Reservation:
-      type: object
-      required: [errandId, amount, createdAt]
-      properties:
-        errandId:
-          type: string
-          format: uuid
-        amount:
-          type: integer
-          minimum: 1
-        createdAt:
-          type: string
-          format: date-time
-      additionalProperties: false
-
-    ReservationPage:
-      type: object
-      required: [items]
-      properties:
-        items:
-          type: array
-          maxItems: 100
-          items:
-            $ref: "#/components/schemas/Reservation"
-        nextCursor:
-          type: string
-          description: Omitted when there is no next page.
-      additionalProperties: false
-
+            The owner's Auth0 subject. No surrounding whitespace or control
+            characters. It never changes after the wallet is created.
+          examples: ["auth0|abc123"]
     Readiness:
       type: object
       required: [status]
       properties:
         status:
           type: string
-          enum: [ready, degraded, not_ready]
-      additionalProperties: false
-
+          enum: [ready, not_ready]
     Error:
       type: object
       required: [code, message]
@@ -358,47 +232,56 @@ components:
             - INVALID_ARGUMENT
             - UNAUTHENTICATED
             - FORBIDDEN
-            - ACCOUNT_NOT_FOUND
+            - WALLET_NOT_FOUND
+            - WALLET_CONFLICT
             - DEPENDENCY_UNAVAILABLE
             - INTERNAL
         message:
           type: string
-      additionalProperties: false
 
   responses:
     InvalidArgument:
-      description: The path or a query parameter is malformed.
+      description: Bad owner ID, bad subject or a body that is not a single JSON object.
       content:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
+          example:
+            code: INVALID_ARGUMENT
+            message: owner id must be a UUID
     Unauthenticated:
-      description: A valid access token is required.
+      description: The token is missing or invalid.
       content:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
+          example:
+            code: UNAUTHENTICATED
+            message: invalid or expired credentials
     Forbidden:
-      description: The token lacks the required permission.
+      description: Wrong kind of token for this route, or a missing permission.
       content:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
-    AccountNotFound:
-      description: No credit account exists for this user.
+          example:
+            code: FORBIDDEN
+            message: insufficient permissions for this operation
+    WalletNotFound:
+      description: No wallet exists for this owner or token.
       content:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
+          example:
+            code: WALLET_NOT_FOUND
+            message: wallet not found
     DependencyUnavailable:
-      description: A required dependency is unavailable.
+      description: The token could not be verified because Auth0 is not reachable.
       content:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
-    Internal:
-      description: An unexpected internal error occurred.
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/Error"
+          example:
+            code: DEPENDENCY_UNAVAILABLE
+            message: authentication service unavailable

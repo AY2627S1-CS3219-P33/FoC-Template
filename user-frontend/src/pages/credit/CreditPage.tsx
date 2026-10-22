@@ -1,40 +1,17 @@
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "../../auth/AuthContext";
-import {
-  CreditError,
-  getMyBalance,
-  listMyReservations,
-  listMyTransactions,
-  type Balance,
-  type Reservation,
-  type Transaction,
-  type TransactionKind,
-} from "../../api/credit";
+import { CreditError, getMyWallet, walletTotal, type Wallet } from "../../api/credit";
 import type { Profile } from "../../api/types";
-import { usePagedList } from "../errands/usePagedList";
-import { creditText, formatDateTime } from "../errands/format";
 
 const CREDIT_AUDIENCE =
   import.meta.env.VITE_CREDIT_AUDIENCE || "https://api.foc.local/credit-service";
-
-const PAGE_SIZE = 25;
-
-type Tab = "ledger" | "holds";
-
-const KIND_LABELS: Record<TransactionKind, string> = {
-  RESERVE: "Reserved for an errand",
-  RELEASE: "Reservation returned",
-  ADJUST: "Reward adjusted",
-  TRANSFER_OUT: "Paid to a courier",
-  TRANSFER_IN: "Earned as courier",
-};
 
 function creditError(err: unknown): string {
   if (err instanceof CreditError) {
     if (err.code === "UNAUTHENTICATED") return "Please sign in again to see your credits.";
     if (err.code === "FORBIDDEN") return "You are not allowed to read this balance.";
-    if (err.code === "ACCOUNT_NOT_FOUND")
-      return "You do not have a credit account yet. One is created with your first errand.";
+    if (err.code === "WALLET_NOT_FOUND")
+      return "You do not have a wallet yet. One is created with your first errand.";
     if (err.code === "DEPENDENCY_UNAVAILABLE")
       return "The credit service is temporarily unavailable.";
     return err.message;
@@ -45,61 +22,41 @@ function creditError(err: unknown): string {
 export function CreditPage() {
   const { profile, getAccessToken } = useAuth();
   const account = profile as Profile;
-  const [tab, setTab] = useState<Tab>("ledger");
 
   const getToken = useCallback(
     () =>
       getAccessToken({
         audience: CREDIT_AUDIENCE,
-        scope: "openid profile email credits:read",
+        scope: "openid profile email credits:read:own",
       }),
     [getAccessToken],
   );
 
-  const [balance, setBalance] = useState<Balance | null>(null);
-  const [balanceError, setBalanceError] = useState<string | null>(null);
-  const [loadingBalance, setLoadingBalance] = useState(true);
+  const [wallet, setWallet] = useState<Wallet | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  const loadBalance = useCallback(async () => {
-    setLoadingBalance(true);
+  const load = useCallback(async () => {
+    setLoading(true);
     try {
       const token = await getToken();
-      setBalance(await getMyBalance(token));
-      setBalanceError(null);
+      setWallet(await getMyWallet(token));
+      setError(null);
     } catch (err) {
-      setBalanceError(creditError(err));
-      setBalance(null);
+      setError(creditError(err));
+      setWallet(null);
     } finally {
-      setLoadingBalance(false);
+      setLoading(false);
     }
   }, [getToken]);
 
   useEffect(() => {
-    void loadBalance();
-  }, [loadBalance]);
+    void load();
+  }, [load]);
 
-  const loadLedger = useCallback(
-    async (cursor?: string) => {
-      const token = await getToken();
-      return listMyTransactions(token, { limit: PAGE_SIZE, cursor });
-    },
-    [getToken],
-  );
-
-  const loadHolds = useCallback(
-    async (cursor?: string) => {
-      const token = await getToken();
-      return listMyReservations(token, { limit: PAGE_SIZE, cursor });
-    },
-    [getToken],
-  );
-
-  const ledger = usePagedList<Transaction>(loadLedger, creditError);
-  const holds = usePagedList<Reservation>(loadHolds, creditError);
-
-  // The profile carries a balance from user-service too. While credit-service
-  // is unreachable it is the only figure available, so it is shown as a
-  // fallback rather than leaving the page empty.
+  // The user-service profile also carries a balance. While the credit service is
+  // unreachable it is the only figure available, so it is shown as a fallback
+  // rather than leaving the page empty.
   const fallback = account.credit_balance;
 
   return (
@@ -112,43 +69,34 @@ export function CreditPage() {
             or transferred outside an errand.
           </p>
         </div>
-        <button
-          type="button"
-          className="btn outline slim"
-          onClick={() => {
-            void loadBalance();
-            ledger.reload();
-            holds.reload();
-          }}
-          disabled={loadingBalance}
-        >
+        <button type="button" className="btn outline slim" onClick={() => void load()} disabled={loading}>
           Refresh
         </button>
       </div>
 
-      {balanceError && (
+      {error && (
         <div className="banner banner-error" role="alert">
-          <span>{balanceError}</span>
+          <span>{error}</span>
         </div>
       )}
 
-      {balance ? (
+      {wallet ? (
         <div className="credit-cards">
           <CreditTile
             label="Available"
-            value={String(balance.available)}
+            value={wallet.available}
             hint="Ready to commit to a new errand."
             emphasis
           />
           <CreditTile
             label="Reserved"
-            value={String(balance.reserved)}
+            value={wallet.reserved}
             hint="Held by errands that have not finished."
           />
-          <CreditTile label="Total" value={String(balance.total)} hint="Available plus reserved." />
+          <CreditTile label="Total" value={walletTotal(wallet)} hint="Available plus reserved." />
         </div>
       ) : (
-        !loadingBalance && (
+        !loading && (
           <div className="credit-cards">
             <CreditTile
               label="Balance"
@@ -164,140 +112,22 @@ export function CreditPage() {
         )
       )}
 
-      {loadingBalance && !balance && <p className="muted center mt">Loading balance…</p>}
+      {loading && !wallet && <p className="muted center mt">Loading balance…</p>}
 
-      <div className="tabs" role="tablist">
-        <button
-          type="button"
-          role="tab"
-          className="tab"
-          aria-selected={tab === "ledger"}
-          onClick={() => setTab("ledger")}
-        >
-          History
-        </button>
-        <button
-          type="button"
-          role="tab"
-          className="tab"
-          aria-selected={tab === "holds"}
-          onClick={() => setTab("holds")}
-        >
-          Active holds
-        </button>
-      </div>
-
-      <div className="tab-body">
-        {tab === "ledger" ? (
-          <>
-            {ledger.error && (
-              <div className="banner banner-error" role="alert">
-                <span>{ledger.error}</span>
-              </div>
-            )}
-
-            {!ledger.error && !ledger.loading && ledger.items.length === 0 && (
-              <div className="placeholder">
-                <p>No credit movements yet.</p>
-                <p className="muted">
-                  Requesting an errand reserves credits; delivering one earns them.
-                </p>
-              </div>
-            )}
-
-            {ledger.items.length > 0 && (
-              <ul className="ledger">
-                {ledger.items.map((entry) => (
-                  <li key={entry.id}>
-                    <div className="ledger-main">
-                      <span className="ledger-label">
-                        {KIND_LABELS[entry.kind] ?? entry.kind}
-                      </span>
-                      {entry.description && (
-                        <span className="muted small">{entry.description}</span>
-                      )}
-                      <span className="muted small">{formatDateTime(entry.createdAt)}</span>
-                    </div>
-                    <div className="ledger-amounts">
-                      <span className={entry.amount < 0 ? "amount out" : "amount in"}>
-                        {entry.amount > 0 ? "+" : ""}
-                        {entry.amount}
-                      </span>
-                      <span className="muted small">balance {entry.balanceAfter}</span>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-
-            {ledger.loading && <p className="muted center mt">Loading…</p>}
-            {ledger.hasMore && !ledger.loading && (
-              <div className="center mt">
-                <button type="button" className="btn outline slim" onClick={ledger.loadMore}>
-                  Load more
-                </button>
-              </div>
-            )}
-          </>
-        ) : (
-          <>
-            {holds.error && (
-              <div className="banner banner-error" role="alert">
-                <span>{holds.error}</span>
-              </div>
-            )}
-
-            {!holds.error && !holds.loading && holds.items.length === 0 && (
-              <div className="placeholder">
-                <p>Nothing is being held.</p>
-                <p className="muted">
-                  An errand holds its reward from when you request it until it completes, is
-                  cancelled or expires.
-                </p>
-              </div>
-            )}
-
-            {holds.items.length > 0 && (
-              <ul className="ledger">
-                {holds.items.map((hold) => (
-                  <li key={hold.errandId}>
-                    <div className="ledger-main">
-                      <span className="ledger-label">{creditText(hold.amount)} held</span>
-                      <span className="admin-id">{hold.errandId}</span>
-                      <span className="muted small">since {formatDateTime(hold.createdAt)}</span>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-
-            {holds.loading && <p className="muted center mt">Loading…</p>}
-            {holds.hasMore && !holds.loading && (
-              <div className="center mt">
-                <button type="button" className="btn outline slim" onClick={holds.loadMore}>
-                  Load more
-                </button>
-              </div>
-            )}
-          </>
-        )}
-      </div>
-
-      <p className="muted small mt">
-        The credit service has no implementation yet. These screens follow the proposed contract in
-        <code className="mono"> credit-service/openapi.yaml</code>, so they will show an error until
-        that service is running.
-      </p>
+      <section className="panel mt">
+        <h2>How credits move</h2>
+        <p className="muted" style={{ marginTop: 0 }}>
+          Requesting an errand reserves its reward from your available balance; it stays reserved
+          until the errand completes, is cancelled or expires. Delivering an errand transfers its
+          reward to you. Every movement belongs to an errand outcome — there is no way to move
+          credits directly.
+        </p>
+      </section>
     </>
   );
 }
 
-function CreditTile(props: {
-  label: string;
-  value: string;
-  hint: string;
-  emphasis?: boolean;
-}) {
+function CreditTile(props: { label: string; value: string; hint: string; emphasis?: boolean }) {
   return (
     <div className={`credit-card${props.emphasis ? " emphasis" : ""}`}>
       <span className="credit-card-label">{props.label}</span>
