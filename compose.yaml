@@ -2,6 +2,63 @@ include:
   - order-service/compose.yaml
 
 services:
+  credit-db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: credit_service
+      POSTGRES_USER: credit_service
+      POSTGRES_PASSWORD: ${CREDIT_DB_PASSWORD:-credit-local-dev}
+    volumes:
+      - credit_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U credit_service -d credit_service"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  credit-migrate:
+    image: foc-credit-migrator:local
+    build:
+      context: ./supplier-service
+      dockerfile: migrate.Dockerfile
+    command: ["-dir", "/migrations", "up"]
+    environment:
+      GOOSE_DRIVER: postgres
+      GOOSE_DBSTRING: postgresql://credit_service:${CREDIT_DB_PASSWORD:-credit-local-dev}@credit-db:5432/credit_service?sslmode=disable
+    volumes:
+      - ./credit-service/migrations:/migrations:ro
+    depends_on:
+      credit-db:
+        condition: service_healthy
+    restart: "no"
+
+  credit-service:
+    build: ./credit-service
+    env_file:
+      - path: ./credit-service/.env
+        required: false
+    environment:
+      HTTP_HOST: 0.0.0.0
+      HTTP_PORT: "3004"
+      DATABASE_URL: postgresql://credit_service:${CREDIT_DB_PASSWORD:-credit-local-dev}@credit-db:5432/credit_service?sslmode=disable
+      AMQP_URL: amqp://${RABBITMQ_DEFAULT_USER:-foc}:${RABBITMQ_DEFAULT_PASS:-foc-local-dev}@queue-service:5672/
+    ports:
+      - "127.0.0.1:3004:3004"
+    depends_on:
+      credit-db:
+        condition: service_healthy
+      credit-migrate:
+        condition: service_completed_successfully
+      queue-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3004/readyz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
   user-db:
     image: postgres:16-alpine
     environment:
@@ -114,6 +171,8 @@ services:
     depends_on:
       - user-service
       - supplier-service
+      - order-service
+      - credit-service
 
   queue-service:
     build:
@@ -138,6 +197,7 @@ services:
     restart: unless-stopped
 
 volumes:
+  credit_postgres_data:
   user_postgres_data:
   supplier_postgres_data_pg17:
   rabbitmq_data:
