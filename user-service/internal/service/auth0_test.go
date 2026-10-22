@@ -158,3 +158,41 @@ func TestRequireActiveAccount(t *testing.T) {
 		})
 	}
 }
+
+type walletSpy struct {
+	owner, subject string
+	calls          int
+	err            error
+}
+
+func (w *walletSpy) EnsureWallet(_ context.Context, owner, subject string) error {
+	w.owner, w.subject = owner, subject
+	w.calls++
+	return w.err
+}
+
+func TestAuth0ProvisionEnsuresWalletForNewAccount(t *testing.T) {
+	repo := &auth0RepositorySpy{findErr: repository.ErrNotFound}
+	profiles := &userInfoStub{profile: auth.UserInfo{Subject: "auth0|student", Email: "s@u.nus.edu", EmailVerified: true}}
+	wallets := &walletSpy{}
+	result, _, err := NewAuth0Provisioner(repo, profiles).WithWalletCreator(wallets).Provision(context.Background(), "auth0|student", "token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if wallets.calls != 1 || wallets.owner != result.ID || wallets.subject != "auth0|student" {
+		t.Fatalf("wallet call = %+v, profile id %q", wallets, result.ID)
+	}
+}
+
+func TestAuth0ProvisionWalletFailureDoesNotFailSignIn(t *testing.T) {
+	repo := &auth0RepositorySpy{findErr: repository.ErrNotFound}
+	profiles := &userInfoStub{profile: auth.UserInfo{Subject: "auth0|student", Email: "s@u.nus.edu", EmailVerified: true}}
+	wallets := &walletSpy{err: errors.New("credit service down")}
+	result, created, err := NewAuth0Provisioner(repo, profiles).WithWalletCreator(wallets).Provision(context.Background(), "auth0|student", "token")
+	if err != nil || !created || result == nil {
+		t.Fatalf("sign-in failed: created=%v err=%v", created, err)
+	}
+	if wallets.calls != 1 {
+		t.Fatalf("wallet calls = %d", wallets.calls)
+	}
+}

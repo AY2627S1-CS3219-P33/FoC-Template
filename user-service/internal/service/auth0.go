@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"net/mail"
 	"strings"
 
@@ -22,6 +23,29 @@ var (
 type Auth0Provisioner struct {
 	users    repository.Auth0UserRepository
 	profiles auth.UserInfoReader
+	wallets  WalletCreator
+}
+
+// WalletCreator creates, or confirms, the credit wallet for an account. It
+// must be idempotent per owner.
+type WalletCreator interface {
+	EnsureWallet(ctx context.Context, ownerID, auth0Subject string) error
+}
+
+// WithWalletCreator makes Provision ensure a wallet for every active account.
+// Failures are logged and never fail sign-in; the next Provision retries.
+func (s *Auth0Provisioner) WithWalletCreator(wallets WalletCreator) *Auth0Provisioner {
+	s.wallets = wallets
+	return s
+}
+
+func (s *Auth0Provisioner) ensureWallet(ctx context.Context, u *repository.User, subject string) {
+	if s.wallets == nil {
+		return
+	}
+	if err := s.wallets.EnsureWallet(ctx, u.ID, subject); err != nil {
+		log.Printf("ensure wallet for account %s: %v", u.ID, err)
+	}
 }
 
 // NewAuth0Provisioner creates a provisioner backed by local accounts and Auth0 profiles.
@@ -61,6 +85,7 @@ func (s *Auth0Provisioner) Provision(ctx context.Context, subject, accessToken s
 		if !u.Active {
 			return nil, false, ErrInactive
 		}
+		s.ensureWallet(ctx, u, subject)
 		return profile(u), false, nil
 	}
 	if !errors.Is(err, repository.ErrNotFound) {
@@ -99,6 +124,7 @@ func (s *Auth0Provisioner) Provision(ctx context.Context, subject, accessToken s
 		}
 		return nil, false, fmt.Errorf("%w: %v", ErrUnavailable, err)
 	}
+	s.ensureWallet(ctx, u, subject)
 	return profile(u), created, nil
 }
 
