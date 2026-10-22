@@ -1,0 +1,108 @@
+# order-service's containers. The root compose.yaml includes this file, so run
+# `docker compose up` from the repository root; RabbitMQ (queue-service) and
+# supplier-service are defined there.
+#
+# Values are interpolated from order-service/.env (copy .env.example), with
+# local-development defaults like the other services. Secrets reach the
+# container only at run time and are never built into the image.
+services:
+  order-db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: order_service
+      POSTGRES_USER: order_service
+      POSTGRES_PASSWORD: ${ORDER_DB_PASSWORD:-order-local-dev}
+    volumes:
+      - order-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U order_service -d order_service"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - order-internal
+
+  # Read cache only. No persistence: losing it costs a few PostgreSQL reads.
+  order-redis:
+    image: redis:7.4-alpine
+    command:
+      - redis-server
+      - --save
+      - ""
+      - --appendonly
+      - "no"
+      - --maxmemory
+      - 128mb
+      - --maxmemory-policy
+      - allkeys-lru
+    networks:
+      - order-internal
+
+  # One-shot job: the service never runs DDL itself.
+  order-migrate:
+    # Its own tag: building the shared foc-goose-migrator tag from an
+    # included file races the root file's identical build.
+    image: foc-order-migrator:local
+    build:
+      context: ../supplier-service
+      dockerfile: migrate.Dockerfile
+    command: ["-dir", "/migrations", "up"]
+    environment:
+      GOOSE_DRIVER: postgres
+      GOOSE_DBSTRING: postgresql://order_service:${ORDER_DB_PASSWORD:-order-local-dev}@order-db:5432/order_service?sslmode=disable
+    volumes:
+      - ./migrations:/migrations:ro
+    depends_on:
+      order-db:
+        condition: service_healthy
+    networks:
+      - order-internal
+    restart: "no"
+
+  order-service:
+    build: .
+    image: foc-order-service:local
+    # Auth0 and the M2M credentials come from here. Without the file the
+    # rest of the stack still starts; order-service exits with a config error.
+    env_file:
+      - path: .env
+        required: false
+    # These override .env, whose values are for running on the host.
+    environment:
+      HTTP_HOST: 0.0.0.0
+      HTTP_PORT: "3003"
+      DATABASE_URL: postgresql://order_service:${ORDER_DB_PASSWORD:-order-local-dev}@order-db:5432/order_service?sslmode=disable
+      REDIS_URL: redis://order-redis:6379/0
+      AMQP_URL: amqp://${RABBITMQ_DEFAULT_USER:-foc}:${RABBITMQ_DEFAULT_PASS:-foc-local-dev}@queue-service:5672/
+      AMQP_DECLARE_TAP: ${AMQP_DECLARE_TAP:-true}
+      SUPPLIER_SERVICE_URL: http://supplier-service:3002
+    ports:
+      - "127.0.0.1:3003:3003"
+    depends_on:
+      order-db:
+        condition: service_healthy
+      order-migrate:
+        condition: service_completed_successfully
+      # Redis is optional, so starting is enough.
+      order-redis:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3003/readyz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      # default is the root project's network, shared with queue-service
+      # and supplier-service.
+      - default
+      - order-internal
+
+networks:
+  # Only order-service reaches its database and cache.
+  order-internal:
+    internal: true
+
+volumes:
+  order-db-data:

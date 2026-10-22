@@ -6,30 +6,46 @@ routes. The HTTP contract is [openapi.yaml](openapi.yaml), which composes the
 fragments under [openapi/](openapi/). Messaging, idempotency, locking and cache
 rules are in [docs/contracts.md](docs/contracts.md).
 
-The standalone outbox worker publishes existing database messages to RabbitMQ.
-The HTTP application entry point, errand persistence, credit-result consumer and
-Dockerfile are not implemented yet. Domain logic, supporting adapters and the
-outbox publisher are covered by tests.
+`cmd/order-service` is the service: one process serves every HTTP route and
+runs the background workers (outbox dispatcher, credit-result consumer, credit
+reconcilers, deadline and reminder scheduler). See
+[Running the service](#running-the-service).
 
 ## Project structure
 
 ```text
 order-service/
+├── cmd/order-service/       # Service entry point
 ├── cmd/outbox-worker/       # Standalone RabbitMQ outbox dispatcher
 ├── docs/contracts.md       # Shared contracts with other services
 ├── internal/
+│   ├── app/                # Composition root: adapters, routes, workers
 │   ├── apperror/           # Error codes returned by the API
 │   ├── auth/               # Auth0 JWT validation and middleware
+│   ├── cache/              # Redis and no-op read caches
+│   ├── config/             # Environment variables
+│   ├── creditmsg/          # Credit-result consumer
 │   ├── database/           # Repositories and generated sqlc packages
-│   ├── errand/             # Domain types, state machine, outbox, ports
+│   ├── errand/             # Domain, state machine, ports, errand routes
+│   ├── fence/              # Supplier deletion fence routes
 │   ├── httpapi/            # Router
+│   ├── internalapi/        # Service-to-service read routes
 │   ├── messaging/          # RabbitMQ publisher and outbox dispatcher
+│   ├── outboxadmin/        # Failed outbox rows and requeue
+│   ├── readiness/          # /readyz
+│   ├── reconciler/         # Stuck reservations and edits
 │   ├── resilience/         # Retry, backoff and circuit breaker
+│   ├── review/             # Admin reviews, settings, event log, flags
+│   ├── scheduler/          # Deadline and reminder jobs
+│   ├── serviceauth/        # Service tokens, in and out
+│   ├── supplierclient/     # supplier-service adapter
 │   └── testfakes/          # In-memory fakes for the ports
 ├── migrations/             # Goose SQL migrations
 ├── openapi/                # OpenAPI fragments
 ├── queries/                # SQL for sqlc
+├── compose.yaml            # order-service, order-db, order-redis
 ├── compose.test.yaml       # Test PostgreSQL, RabbitMQ and Redis
+├── Dockerfile
 ├── openapi.yaml
 └── sqlc.yaml
 ```
@@ -128,7 +144,70 @@ credit-service command binding. Tests create isolated PostgreSQL schemas and
 temporary consumer queues. The order-owned results queue and DLQ remain on the
 test broker.
 
+## Running the service
+
+The root `compose.yaml` includes [compose.yaml](compose.yaml), which defines:
+
+| Container | Image | Networks |
+| --- | --- | --- |
+| `order-service` | built from [Dockerfile](Dockerfile), port `127.0.0.1:3003` | `default`, `order-internal` |
+| `order-db` | `postgres:17-alpine`, volume `order-db-data` | `order-internal` |
+| `order-redis` | `redis:7.4-alpine`, no persistence, `maxmemory 128mb`, `allkeys-lru` | `order-internal` |
+| `order-migrate` | Goose, runs `up` once and exits | `order-internal` |
+
+`order-internal` is an internal network: only order-service reaches its
+database and cache, and neither publishes a port. `default` is the root
+project's network, shared with `queue-service` (RabbitMQ) and
+`supplier-service`. order-service starts after `order-db` is healthy and the
+migrations have run, but only waits for `order-redis` to start, because Redis
+is optional.
+
+1. Copy `.env.example` to `.env` and fill in the Auth0 issuer and the M2M
+   client ID and secret. Compose overrides the addresses with the container
+   ones.
+2. supplier-service must trust the same Auth0 tenant, or it rejects
+   order-service's token and errand creation fails with
+   `DEPENDENCY_UNAVAILABLE`. Set `SUPPLIER_AUTH0_ISSUER` in the root `.env`.
+3. From the repository root:
+
+   ```sh
+   docker compose up -d --build --wait order-service supplier-service queue-service
+   curl http://127.0.0.1:3003/readyz
+   ```
+
+`/readyz` returns `503` only when PostgreSQL is unreachable. Redis, RabbitMQ,
+the credit-result consumer and the supplier-service breaker are reported, and
+anything unhealthy makes the status `degraded`.
+
+On startup the service checks PostgreSQL and fails if it cannot connect. It
+connects to Redis and RabbitMQ lazily and keeps retrying in the background.
+On `SIGTERM` it stops accepting requests, lets in-flight requests finish, and
+waits for every worker to finish its current batch or delivery, all within
+`SHUTDOWN_TIMEOUT`.
+
+To run it on the host instead, start the test dependencies, apply the
+migrations (see below), and use host addresses in `.env`:
+
+```sh
+go run ./cmd/order-service
+```
+
+### RabbitMQ topology
+
+On its first connection order-service declares the `foc.events` (topic) and
+`foc.commands` (direct) exchanges, its `order-service.credit-results` queue
+(bound to `credit.#`, dead-lettering to `order-service.credit-results.dlq`
+after 5 deliveries), and, with `AMQP_DECLARE_TAP=true`, `order-events.tap`
+bound to `errand.#`. Credit-service owns `credit-service.commands`; until it
+declares that queue, credit commands are unroutable and stay in the outbox,
+retrying. Publication is mandatory, so leave `AMQP_DECLARE_TAP=true` until a
+notification consumer binds `errand.*`, or events are retried until `FAILED`.
+
 ## Outbox worker
+
+The service runs the dispatcher itself. This standalone worker publishes the
+same outbox rows without serving HTTP; running both is safe, because rows are
+claimed under a lease.
 
 Generate the sqlc packages and apply migrations first, using the setup and
 migration commands in this README. Then run, from `order-service/`:
@@ -169,11 +248,9 @@ Credit-service must declare its own command queue; the worker does not create
 it. Configure consumer queues before starting normal publication.
 
 This worker does not create errands or process credit replies. Credit commands
-remain `SENT` until a result consumer confirms them, and are re-sent after the
-confirmation timeout. Each resend consumes another attempt; exhausted rows become
-`FAILED`. The supplier-fence and other HTTP routes are not served by this command.
-No new database migration is needed. Failed-row admin replay and result handling
-remain separate work.
+remain `SENT` until the service's credit-result consumer confirms them, and are
+re-sent after the confirmation timeout. Each resend consumes another attempt;
+exhausted rows become `FAILED`.
 
 Stop the dependencies, removing the test database volume:
 
@@ -198,10 +275,29 @@ After adding a migration or changing a query, regenerate the sqlc code.
 
 ## Configuration
 
-`auth.Auth0Config` holds the Auth0 token validation settings. Its fields are
-named after the environment variables below, which the entry point will read
-once it exists. `DefaultAuth0Config()` supplies the defaults and `Validate()`
-enforces the limits.
+`internal/config` reads every variable at startup and reports all problems at
+once, without echoing values. [.env.example](.env.example) lists them.
+
+| Variable | Default | Allowed |
+| --- | --- | --- |
+| `APP_ENV` | `development` | `development`, `test` (reads `TEST_DATABASE_URL`), `production` |
+| `HTTP_HOST`, `HTTP_PORT` | `0.0.0.0`, `3003` | |
+| `LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` |
+| `STARTUP_TIMEOUT`, `SHUTDOWN_TIMEOUT` | `30s`, `10s` | Positive durations |
+| `DATABASE_URL` | none | PostgreSQL URL |
+| `DATABASE_POOL_MIN`, `DATABASE_POOL_MAX` | `1`, `10` | Min at most max |
+| `ORDER_M2M_CLIENT_ID`, `ORDER_M2M_CLIENT_SECRET` | none | Auth0 M2M application in the `AUTH0_ISSUER` tenant |
+| `SUPPLIER_AUDIENCE` | `https://api.foc.local/supplier-service` | |
+| `SUPPLIER_SERVICE_URL` | none | Absolute http(s) URL |
+| `SUPPLIER_SERVICE_TIMEOUT` | `2s` | Positive duration |
+| `REDIS_URL` | empty: no-op cache | `redis://` or `rediss://` URL |
+| `AMQP_URL` | none; startup fails without it | `amqp://` or `amqps://` URL |
+| `AMQP_DECLARE_TAP` | `false` | Boolean |
+| `CREDIT_RESULTS_PREFETCH` | `16` | `1` to `1000` |
+
+`auth.Auth0Config` holds the Auth0 token validation settings.
+`DefaultAuth0Config()` supplies the defaults and `Validate()` enforces the
+limits.
 
 | Variable | Default | Allowed |
 | --- | --- | --- |
