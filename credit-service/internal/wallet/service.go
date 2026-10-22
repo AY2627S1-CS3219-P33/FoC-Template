@@ -45,6 +45,7 @@ type Wallet struct {
 type Service struct {
 	pool          *pgxpool.Pool
 	initialCredit int64
+	recorder      ResultRecorder
 }
 
 // NewService creates the use cases. initialCredit is the number of credits
@@ -57,6 +58,14 @@ func NewService(pool *pgxpool.Pool, initialCredit int64) *Service {
 		panic("wallet: initial credit must not be negative")
 	}
 	return &Service{pool: pool, initialCredit: initialCredit}
+}
+
+// WithResultRecorder makes every order command store its result with the
+// recorder, in the command's transaction. It returns the service so it can be
+// chained after NewService.
+func (s *Service) WithResultRecorder(r ResultRecorder) *Service {
+	s.recorder = r
+	return s
 }
 
 // CreateWallet creates the owner's wallet and credits the initial allocation,

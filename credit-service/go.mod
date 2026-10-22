@@ -3,13 +3,16 @@ module github.com/CS3219-AY2627S1/FoC-Template/credit-service
 go 1.26.7
 
 require (
+	github.com/auth0/go-jwt-middleware/v3 v3.3.0
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/joho/godotenv v1.5.1
+	github.com/lestrrat-go/jwx/v3 v3.0.13
+	github.com/pressly/goose/v3 v3.29.0
+	github.com/rabbitmq/amqp091-go v1.15.0
 	github.com/stretchr/testify v1.12.1
 )
 
 require (
-	github.com/auth0/go-jwt-middleware/v3 v3.3.0 // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.0 // indirect
 	github.com/goccy/go-json v0.10.5 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
@@ -20,10 +23,8 @@ require (
 	github.com/lestrrat-go/dsig-secp256k1 v1.0.0 // indirect
 	github.com/lestrrat-go/httpcc v1.0.1 // indirect
 	github.com/lestrrat-go/httprc/v3 v3.0.3 // indirect
-	github.com/lestrrat-go/jwx/v3 v3.0.13 // indirect
 	github.com/lestrrat-go/option/v2 v2.0.0 // indirect
 	github.com/mfridman/interpolate v0.0.2 // indirect
-	github.com/pressly/goose/v3 v3.29.0 // indirect
 	github.com/segmentio/asm v1.2.1 // indirect
 	github.com/sethvargo/go-retry v0.5.0 // indirect
 	github.com/valyala/fastjson v1.6.7 // indirect

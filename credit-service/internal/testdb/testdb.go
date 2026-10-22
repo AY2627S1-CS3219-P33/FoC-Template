@@ -37,7 +37,7 @@ func Pool(t *testing.T) *pgxpool.Pool {
 	_, err = provider.Up(ctx)
 	require.NoError(t, err)
 
-	_, err = pool.Exec(ctx, `TRUNCATE ledger_entries, reservations, wallets RESTART IDENTITY CASCADE`)
+	_, err = pool.Exec(ctx, `TRUNCATE ledger_entries, reservations, wallets, processed_commands, released_orders, outbox RESTART IDENTITY CASCADE`)
 	require.NoError(t, err)
 	return pool
 }

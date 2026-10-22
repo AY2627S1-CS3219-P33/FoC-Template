@@ -203,7 +203,7 @@ func TestListLedgerEntriesPages(t *testing.T) {
 	require.Equal(t, "c", page2[0].IdempotencyKey)
 }
 
-func TestLockWalletsByOwner(t *testing.T) {
+func TestLockWalletsByAuth0Subject(t *testing.T) {
 	ctx := context.Background()
 	pool := testdb.Pool(t)
 	a, err := walletrepo.CreateWallet(ctx, pool, alice, "auth0|alice")
@@ -213,13 +213,13 @@ func TestLockWalletsByOwner(t *testing.T) {
 
 	err = pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
 		// Duplicates collapse, and the order asked for does not matter.
-		locked, err := walletrepo.LockWalletsByOwner(ctx, tx, bob, alice, alice)
+		locked, err := walletrepo.LockWalletsByAuth0Subject(ctx, tx, "auth0|bob", "auth0|alice", "auth0|alice")
 		require.NoError(t, err)
 		require.Len(t, locked, 2)
 		require.ElementsMatch(t, []string{a.ID, b.ID}, []string{locked[0].ID, locked[1].ID})
 		require.Less(t, locked[0].ID, locked[1].ID)
 
-		_, err = walletrepo.LockWalletsByOwner(ctx, tx, alice, "00000000-0000-0000-0000-00000000dead")
+		_, err = walletrepo.LockWalletsByAuth0Subject(ctx, tx, "auth0|alice", "auth0|nobody")
 		require.ErrorIs(t, err, walletrepo.ErrNotFound)
 		return nil
 	})
@@ -242,7 +242,7 @@ func TestReserveInOneTransactionKeepsLedgerConsistent(t *testing.T) {
 
 	reserve := func(amount int64, key string) error {
 		return pgx.BeginFunc(ctx, pool, func(tx pgx.Tx) error {
-			locked, err := walletrepo.LockWalletsByOwner(ctx, tx, alice)
+			locked, err := walletrepo.LockWalletsByAuth0Subject(ctx, tx, "auth0|alice")
 			if err != nil {
 				return err
 			}

@@ -7,7 +7,8 @@ info:
     The baseline is order-service/docs/contracts.md and internal/errand/{ports,outbox,state}.go.
     CS3219.drawio.xml supplies the business workflows; the order-service proposal
     supplies the more detailed expiry, pending-edit and settlement behavior.
-    Credit-service and notification-service still need to implement this contract.
+    Credit-service implements the credit commands and results (credit-service/docs/contracts.md);
+    notification-service still needs to implement this contract.
 
     Topology and ownership:
     - foc.commands: durable direct exchange for credit commands.
@@ -67,9 +68,13 @@ info:
       mechanism for credit-service to initiate release or transfer.
 
     Known limitation retained from the proposal: adjustment seq orders adjustments
-    only. A transfer overtaking a compensating adjustment can settle the wrong
-    reservation amount; settlement ordering/recovery still needs agreement with
-    credit-service. This contract does not introduce a new blocking edit state.
+    only, so a transfer can overtake a compensating adjustment. Credit-service
+    handles this by paying the transfer amount: the courier gets exactly amount,
+    taken from the reservation first. A surplus in the reservation returns to the
+    requester's available credits, and a shortfall is taken from them; if they
+    cannot cover it, credit.operation_failed with INSUFFICIENT_CREDITS is sent and
+    the command can be sent again. This contract does not introduce a new blocking
+    edit state.
 
     Privacy: user IDs are Auth0 subjects, not UUIDs. Omit optional values rather than
     sending null. Contact names and mobile numbers must never be published; pending
@@ -1482,6 +1487,7 @@ components:
             - RESERVATION_NOT_ACTIVE
             - RESERVATION_ALREADY_TRANSFERRED
             - RESERVATION_ALREADY_RELEASED
+            - RESERVATION_NOT_FOUND
           description: Stable credit failure code; no credentials or internal error details.
     EmptyResultData:
       type: object

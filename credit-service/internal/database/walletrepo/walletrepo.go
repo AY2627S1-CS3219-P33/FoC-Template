@@ -73,15 +73,16 @@ func GetWalletByOwner(ctx context.Context, db DBTX, ownerID string) (Wallet, err
 		`SELECT `+walletColumns+` FROM wallets WHERE owner_id = $1::uuid`, ownerID))
 }
 
-// LockWalletsByOwner locks the owners' wallets for the rest of the
-// transaction and returns them. Rows are locked in wallet-ID order whatever
-// order the owners are passed in, so two transfers between the same pair of
-// wallets cannot deadlock. It returns ErrNotFound if any wallet is missing.
-func LockWalletsByOwner(ctx context.Context, db DBTX, ownerIDs ...string) ([]Wallet, error) {
-	unique := slices.Compact(slices.Sorted(slices.Values(ownerIDs)))
+// LockWalletsByAuth0Subject locks the wallets of these Auth0 subjects for the
+// rest of the transaction and returns them. Rows are locked in wallet-ID order
+// whatever order the subjects are passed in, so two transactions that lock the
+// same wallets cannot deadlock. Duplicate subjects collapse. It returns
+// ErrNotFound if any wallet is missing.
+func LockWalletsByAuth0Subject(ctx context.Context, db DBTX, subjects ...string) ([]Wallet, error) {
+	unique := slices.Compact(slices.Sorted(slices.Values(subjects)))
 	rows, err := db.Query(ctx,
 		`SELECT `+walletColumns+` FROM wallets
-		 WHERE owner_id = ANY($1::uuid[]) ORDER BY id FOR UPDATE`, unique)
+		 WHERE auth0_subject = ANY($1::text[]) ORDER BY id FOR UPDATE`, unique)
 	if err != nil {
 		return nil, mapError(err)
 	}
@@ -117,20 +118,21 @@ const (
 )
 
 type Reservation struct {
-	ID        string
-	WalletID  string
-	OrderID   string
-	Amount    int64
-	Status    ReservationStatus
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID            string
+	WalletID      string
+	OrderID       string
+	Amount        int64
+	Status        ReservationStatus
+	LastAdjustSeq int64
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
-const reservationColumns = `id::text, wallet_id::text, order_id::text, amount, status, created_at, updated_at`
+const reservationColumns = `id::text, wallet_id::text, order_id::text, amount, status, last_adjust_seq, created_at, updated_at`
 
 func scanReservation(row pgx.Row) (Reservation, error) {
 	var r Reservation
-	err := row.Scan(&r.ID, &r.WalletID, &r.OrderID, &r.Amount, &r.Status, &r.CreatedAt, &r.UpdatedAt)
+	err := row.Scan(&r.ID, &r.WalletID, &r.OrderID, &r.Amount, &r.Status, &r.LastAdjustSeq, &r.CreatedAt, &r.UpdatedAt)
 	return r, mapError(err)
 }
 
@@ -159,6 +161,15 @@ func UpdateReservation(ctx context.Context, db DBTX, reservationID string, amoun
 		`UPDATE reservations SET amount = $2, status = $3, updated_at = now()
 		 WHERE id = $1::uuid RETURNING `+reservationColumns,
 		reservationID, amount, string(status)))
+}
+
+// AdjustReservation sets a reservation's amount and records the seq of the
+// adjust that did it.
+func AdjustReservation(ctx context.Context, db DBTX, reservationID string, amount, seq int64) (Reservation, error) {
+	return scanReservation(db.QueryRow(ctx,
+		`UPDATE reservations SET amount = $2, last_adjust_seq = $3, updated_at = now()
+		 WHERE id = $1::uuid RETURNING `+reservationColumns,
+		reservationID, amount, seq))
 }
 
 type EntryType string

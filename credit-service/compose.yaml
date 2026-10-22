@@ -1,6 +1,8 @@
 # Runs the service container against Amazon RDS. There is no local database:
 # put the app_rw connection string in .env (see .env.example).
 # Schema changes are applied separately with infra/migrate.sh.
+# AMQP_URL in .env must name a RabbitMQ this container can reach: localhost
+# is the container itself, so use the broker's host name instead.
 services:
   credit-service:
     build: .

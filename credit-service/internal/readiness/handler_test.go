@@ -35,3 +35,16 @@ func serveReadiness(checker Checker) *httptest.ResponseRecorder {
 	router.ServeHTTP(response, request)
 	return response
 }
+
+type checkerFunc = CheckerFunc
+
+func TestAllIsReadyOnlyWhenEveryCheckerIs(t *testing.T) {
+	ready := checkerFunc(func(context.Context) error { return nil })
+	broken := checkerFunc(func(context.Context) error { return errors.New("message consumer is not running") })
+
+	require.Equal(t, http.StatusOK, serveReadiness(All()).Code)
+	require.Equal(t, http.StatusOK, serveReadiness(All(ready, ready)).Code)
+	response := serveReadiness(All(ready, broken))
+	require.Equal(t, http.StatusServiceUnavailable, response.Code)
+	require.NotContains(t, response.Body.String(), "consumer", "the reason is not shown to callers")
+}

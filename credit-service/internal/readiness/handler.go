@@ -14,6 +14,23 @@ type Checker interface {
 	Check(context.Context) error
 }
 
+// CheckerFunc adapts a function to a Checker.
+type CheckerFunc func(context.Context) error
+
+func (f CheckerFunc) Check(ctx context.Context) error { return f(ctx) }
+
+// All is ready only while every checker is. It stops at the first failure.
+func All(checkers ...Checker) Checker {
+	return CheckerFunc(func(ctx context.Context) error {
+		for _, checker := range checkers {
+			if err := checker.Check(ctx); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
 type Handler struct {
 	checker Checker
 }

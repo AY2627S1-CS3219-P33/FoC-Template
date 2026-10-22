@@ -1,10 +1,10 @@
 # Credit service
 
-Owns user credit state: balances, reservations, refunds and transfers. Credits are a closed economy; they cannot be bought, withdrawn or exchanged for money. Currently implemented: wallet creation (with the configured initial allocation), balance reads, Auth0 token authentication, the wallet schema and its SQL data-access layer. Order-related operations (reserve, adjust, refund, transfer) will arrive as RabbitMQ events and are not built yet. See [docs/wallet-aggregate.md](docs/wallet-aggregate.md) for the data model and rules.
+Owns user credit state: balances, reservations, refunds and transfers. Credits are a closed economy; they cannot be bought, withdrawn or exchanged for money. Currently implemented: wallet creation (with the configured initial allocation), balance reads and Auth0 token authentication over HTTP, and the order operations (reserve, adjust, release, transfer) as RabbitMQ commands from order-service, answered with result messages through a transactional outbox. See [docs/wallet-aggregate.md](docs/wallet-aggregate.md) for the data model and rules, [docs/contracts.md](docs/contracts.md) for the messaging rules, [openapi.yaml](openapi.yaml) for the HTTP API and [../docs/asyncapi.yaml](../docs/asyncapi.yaml) for the messages.
 
 ## Technology
 
-Go, `net/http`, `pgx/v5`, `goose` (migrations applied out of band as `migrator`), `log/slog` JSON logs, Amazon RDS PostgreSQL in deployment.
+Go, `net/http`, `pgx/v5`, `amqp091-go` (RabbitMQ), `goose` (migrations applied out of band as `migrator`), `log/slog` JSON logs, Amazon RDS PostgreSQL in deployment.
 
 ## Project structure
 
@@ -12,13 +12,15 @@ Go, `net/http`, `pgx/v5`, `goose` (migrations applied out of band as `migrator`)
 cmd/credit-service/   entry point
 internal/app/         HTTP handler and server lifecycle
 internal/auth/        Auth0 JWT verification and permission middleware
-internal/wallet/      wallet use cases (create, read)
+internal/wallet/      wallet use cases (create, read) and the order commands
+internal/creditmsg/   RabbitMQ: command consumer, result publisher, outbox dispatcher
 internal/walletapi/   HTTP handlers for wallets
 internal/apperror/    JSON error body
 internal/testauth/    local signed-token fixtures for tests
 internal/config/      environment configuration
 internal/database/    pgx pool
-internal/database/walletrepo/  SQL for wallets, reservations, ledger
+internal/database/walletrepo/  SQL for wallets, reservations, ledger, processed commands
+internal/database/outboxrepo/  SQL for the result outbox
 internal/testdb/      migrated test database helper
 internal/readiness/   GET /readyz
 internal/logging/     slog setup
@@ -51,12 +53,26 @@ The RDS instance must be reachable from where you run the scripts and the servic
 ## Running the service
 
 ```sh
-cp .env.example .env              # set DATABASE_URL to the app_rw URL
+cp .env.example .env              # set DATABASE_URL to the app_rw URL and AMQP_URL
 go run ./cmd/credit-service       # loads .env if present; or: docker compose up --build
 curl localhost:3004/readyz        # {"status":"ready"}
 ```
 
-`/readyz` returns 503 if the database is unreachable or its schema is older than the migrations shipped in the build, so a forgotten `./infra/migrate.sh` is visible immediately.
+`/readyz` returns 503 if the database is unreachable, its schema is older than the migrations shipped in the build (so a forgotten `./infra/migrate.sh` is visible immediately), or the command consumer is not subscribed to RabbitMQ.
+
+## Messaging
+
+The service needs a RabbitMQ (`AMQP_URL`); locally, the `queue-service` container of the root `compose.yaml` (user `foc`, see `RABBITMQ_DEFAULT_USER` and `RABBITMQ_DEFAULT_PASS` there). It runs three things in one process:
+
+| Part | Does |
+|---|---|
+| HTTP server | wallets, `/readyz` |
+| command consumer | reads `credit-service.commands`, applies each command in one transaction, writes its result to the `outbox` table in the same transaction |
+| result dispatcher | publishes `outbox` rows to `foc.events`, retrying with backoff; order-service's `order-service.credit-results` queue is bound to `credit.#` and is declared by order-service |
+
+A command that can never succeed, or that fails 5 times, goes to `credit-service.commands.dlq`. Order-service sends a command again if it gets no result, and a repeat gets the stored result, so nothing is lost. Details are in [docs/contracts.md](docs/contracts.md).
+
+Tests that need services skip themselves unless `TEST_DATABASE_URL` (see `compose.test.yaml`) and `TEST_AMQP_URL` (a throwaway RabbitMQ) are set. Run them with `go test -p 1 ./...`; the tests share one database and empty it.
 
 ## API
 
