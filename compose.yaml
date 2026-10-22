@@ -1,3 +1,6 @@
+include:
+  - order-service/compose.yaml
+
 services:
   user-db:
     image: postgres:16-alpine
