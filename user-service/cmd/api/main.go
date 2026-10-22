@@ -14,6 +14,7 @@ import (
 
 	"user-service/internal/auth"
 	"user-service/internal/config"
+	"user-service/internal/credit"
 	"user-service/internal/handler"
 	authmiddleware "user-service/internal/middleware"
 	"user-service/internal/repository"
@@ -64,6 +65,20 @@ func run() error {
 
 	userService := service.NewUserService(users, nil)
 	provisioner := service.NewAuth0Provisioner(users, userInfo)
+	if cfg.CreditServiceURL != "" {
+		issuer, err := auth.IssuerURL(cfg.Auth0Domain)
+		if err != nil {
+			return err
+		}
+		creditClient, err := credit.NewClient(credit.Config{
+			BaseURL: cfg.CreditServiceURL, TokenURL: issuer.String() + "oauth/token",
+			ClientID: cfg.CreditM2MClientID, ClientSecret: cfg.CreditM2MClientSecret, Audience: cfg.CreditAudience,
+		}, &http.Client{Timeout: 5 * time.Second})
+		if err != nil {
+			return err
+		}
+		provisioner.WithWalletCreator(creditClient)
+	}
 	var administratorService *service.AdministratorService
 	var adminUsersService *service.AdminUsersService
 	if cfg.Auth0M2MClientID != "" {

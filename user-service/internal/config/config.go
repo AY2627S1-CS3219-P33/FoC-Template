@@ -18,6 +18,12 @@ type Config struct {
 	Auth0M2MClientSecret string `json:"-"`
 	Auth0UserRoleID      string `json:"-"`
 	Auth0AdminRoleID     string `json:"-"`
+
+	// Credit wallet creation is enabled when CreditServiceURL is set.
+	CreditServiceURL      string
+	CreditAudience        string
+	CreditM2MClientID     string `json:"-"`
+	CreditM2MClientSecret string `json:"-"`
 }
 
 // Load requires a database URL; repository.Open validates it and connectivity.
@@ -52,7 +58,16 @@ func Load() (Config, error) {
 	if (auth0UserRoleID == "") != (auth0AdminRoleID == "") {
 		return Config{}, errors.New("AUTH0_USER_ROLE_ID and AUTH0_ADMIN_ROLE_ID must be configured together")
 	}
+	creditURL := strings.TrimSpace(os.Getenv("CREDIT_SERVICE_URL"))
+	creditAudience := strings.TrimSpace(os.Getenv("CREDIT_AUDIENCE"))
+	creditClientID := strings.TrimSpace(os.Getenv("CREDIT_M2M_CLIENT_ID"))
+	creditClientSecret := strings.TrimSpace(os.Getenv("CREDIT_M2M_CLIENT_SECRET"))
+	if creditURL != "" && (creditAudience == "" || creditClientID == "" || creditClientSecret == "") {
+		return Config{}, errors.New("CREDIT_AUDIENCE, CREDIT_M2M_CLIENT_ID and CREDIT_M2M_CLIENT_SECRET are required with CREDIT_SERVICE_URL")
+	}
 	return Config{
+		CreditServiceURL: creditURL, CreditAudience: creditAudience,
+		CreditM2MClientID: creditClientID, CreditM2MClientSecret: creditClientSecret,
 		HTTPAddress: address, DatabaseURL: databaseURL,
 		Auth0Domain: auth0Domain, Auth0ClientID: auth0ClientID, Auth0Audience: auth0Audience,
 		Auth0M2MClientID: auth0M2MClientID, Auth0M2MClientSecret: auth0M2MClientSecret,
