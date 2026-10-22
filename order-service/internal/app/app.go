@@ -54,6 +54,7 @@ type Application struct {
 	database        *pgxpool.Pool
 	redis           *cache.Client // nil when REDIS_URL is empty
 	publisher       *messaging.Publisher
+	supplierTokens  serviceauth.TokenSource
 	server          *http.Server
 	workers         []worker
 	shutdownTimeout time.Duration
@@ -127,6 +128,7 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger, authOption
 		database:        pool,
 		redis:           redis,
 		publisher:       publisher,
+		supplierTokens:  tokens,
 		shutdownTimeout: cfg.ShutdownTimeout,
 		logger:          logger,
 	}
@@ -233,6 +235,15 @@ func (a *Application) Run(ctx context.Context) error {
 		names[i] = w.name
 	}
 	a.logger.Info("background workers started", "workers", names, "redis", a.redis != nil)
+
+	// Fetch the supplier-service token now. Otherwise the first errand
+	// request waits for Auth0 inside the supplier call's timeout, and a slow
+	// token endpoint turns it into DEPENDENCY_UNAVAILABLE.
+	go func() {
+		if _, err := a.supplierTokens.Token(workerCtx); err != nil && workerCtx.Err() == nil {
+			a.logger.Warn("could not fetch the supplier-service token; retrying on the first supplier call", "error", err.Error())
+		}
+	}()
 
 	serverResult := make(chan error, 1)
 	go func() {
