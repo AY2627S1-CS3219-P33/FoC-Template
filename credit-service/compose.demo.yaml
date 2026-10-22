@@ -1,0 +1,70 @@
+# Self-contained demo: local PostgreSQL, RabbitMQ, migrations and the service.
+#   docker compose -f compose.demo.yaml up --build
+# The service listens on http://localhost:3004. AUTH0_ISSUER (and optionally
+# AUTH0_AUDIENCE) are read from .env; the database and broker settings below
+# override whatever .env says. Reset with `down -v`.
+services:
+  credit-db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: credit_service
+      POSTGRES_USER: credit_service
+      POSTGRES_PASSWORD: credit-demo
+    volumes:
+      - credit-demo-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U credit_service -d credit_service"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+  credit-mq:
+    image: rabbitmq:4-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: foc
+      RABBITMQ_DEFAULT_PASS: foc-local-dev
+    ports:
+      - "127.0.0.1:15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+
+  # One-shot job: the service never runs DDL itself.
+  credit-migrate:
+    image: foc-credit-migrator:local
+    build:
+      context: ../supplier-service
+      dockerfile: migrate.Dockerfile
+    command: ["-dir", "/migrations", "up"]
+    environment:
+      GOOSE_DRIVER: postgres
+      GOOSE_DBSTRING: postgres://credit_service:credit-demo@credit-db:5432/credit_service?sslmode=disable
+    volumes:
+      - ./migrations:/migrations:ro
+    depends_on:
+      credit-db:
+        condition: service_healthy
+
+  credit-service:
+    build: .
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      APP_ENV: development
+      DATABASE_URL: postgres://credit_service:credit-demo@credit-db:5432/credit_service?sslmode=disable
+      AMQP_URL: amqp://foc:foc-local-dev@credit-mq:5672/
+      INITIAL_CREDIT_AMOUNT: ${INITIAL_CREDIT_AMOUNT:-100}
+    ports:
+      - "${CREDIT_SERVICE_PORT:-3004}:3004"
+    depends_on:
+      credit-migrate:
+        condition: service_completed_successfully
+      credit-mq:
+        condition: service_healthy
+
+volumes:
+  credit-demo-db:
