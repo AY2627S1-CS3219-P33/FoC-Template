@@ -1,6 +1,6 @@
 # Wallet aggregate
 
-Status: implemented so far are the schema (`migrations/00002`, `00003`), the data-access layer (`internal/database/walletrepo`), wallet creation with the initial allocation, and balance reads (`internal/wallet`, `internal/walletapi`). The order commands (reserve, adjust, release, transfer) are implemented in `internal/wallet/commands.go` as plain functions; the message layer (`internal/creditmsg`) and the `outbox` table that holds result messages are built; the RabbitMQ consumer (`creditmsg.Consumer`) is built but not started by `main`, and the outbox worker is not built.
+Status: implemented so far are the schema (`migrations/00002`, `00003`), the data-access layer (`internal/database/walletrepo`), wallet creation with the initial allocation, and balance reads (`internal/wallet`, `internal/walletapi`). The order commands (reserve, adjust, release, transfer) are implemented in `internal/wallet/commands.go` as plain functions; the message layer (`internal/creditmsg`) and the `outbox` table that holds result messages are built; the RabbitMQ consumer (`creditmsg.Consumer`) and the result dispatcher (`creditmsg.Dispatcher`) are built and started by `main`.
 
 ## Source flows
 

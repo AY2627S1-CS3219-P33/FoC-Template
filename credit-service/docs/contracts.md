@@ -19,11 +19,12 @@ Status of each part:
 | HTTP API | built |
 | Command rules (`internal/wallet/commands.go`) | built, tested |
 | Message layer (`internal/creditmsg`), `outbox` table, results written in the command transaction | built, tested |
-| RabbitMQ consumer and topology (`creditmsg.Consumer`, `DeclareTopology`) | built, tested against a real broker; not started by `main` yet |
-| Outbox worker (publishes the results) | **proposed**, not built |
+| RabbitMQ consumer and topology (`creditmsg.Consumer`, `DeclareTopology`) | built, tested against a real broker, started by `main` |
+| Result dispatcher (`creditmsg.Dispatcher`, `creditmsg.Publisher`) | built, tested against a real broker, started by `main` |
 
-Proposed parts need the agreement of the order-service owner (gate C1 in
-order-service's contracts) before they are final.
+The message rules are credit-service's side of gate C1 in order-service's
+contracts. They are not final until the order-service owner has agreed them;
+the points still to agree are marked below.
 
 ## Contents
 
@@ -296,19 +297,30 @@ Samples, for errand `E`:
 
 Credit-service must not lose a result after it changes a balance. So a
 command does not publish its result directly. In the same transaction as the
-balance change it inserts a row in the `outbox` table (built:
-`creditmsg.OutboxRecorder`). A separate worker publishes the rows (proposed,
-not built). If a command is delivered again, its stored result is queued again
-unless the row is still `PENDING`; this is how a lost result is recovered.
+balance change it inserts a row in the `outbox` table
+(`creditmsg.OutboxRecorder`). A dispatcher in the same process publishes the
+rows (`creditmsg.Dispatcher`).
 
 - Row key = the result `messageId`; the payload is the full envelope. The key
   is unique, so a repeated command cannot create a second row.
+- If a command is delivered again, its stored result is queued again: a row
+  that is `SENT` or `FAILED` goes back to `PENDING`, and a row that is still
+  `PENDING` is left alone. This is how a lost result is recovered, because
+  order-service sends a command again when it gets no result.
 - Row lifecycle: `PENDING` → leased by a worker → `SENT` after the broker
-  confirms. A failed publish is retried with growing delay; after the maximum
-  attempts the row becomes `FAILED`.
-- Several workers can run. A row is claimed with `FOR UPDATE SKIP LOCKED` and
-  a lease, so two workers never publish the same row at the same time.
-- If a worker crashes after publishing, the row is published again with the
+  confirms. A publish is `mandatory`, so a result that no queue accepts (for
+  example, order-service has not declared its results queue yet) counts as a
+  failed publish.
+- A failed publish is retried with exponential backoff and full jitter (2 s
+  up to 5 min). After 10 attempts, or at once if the message breaks the
+  contract, the row becomes `FAILED` with a `last_failure_code`
+  (`UNROUTABLE`, `BROKER_UNAVAILABLE`, `TIMEOUT`, `PUBLISH_FAILED` or
+  `UNPUBLISHABLE`). The code never holds error text.
+- Several dispatchers can run. A row is claimed with `FOR UPDATE SKIP LOCKED`
+  and a 30 s lease, and an outcome is recorded only by the lease owner, so two
+  dispatchers never publish the same row at the same time.
+- If a dispatcher dies after the broker confirmed a message and before the row
+  is marked `SENT`, the lease runs out and the row is published again with the
   same `messageId`. This is safe because order-service drops duplicates.
 - Rows are not deleted for now. A cleanup of old `SENT` rows can come later.
 
