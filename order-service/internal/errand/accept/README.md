@@ -195,6 +195,13 @@ from `OPEN` to `ASSIGNED`, and it adds exactly one to the version, so
 `ASSIGNED` to the caller at `expectedVersion + 1` can only be the result of
 this accept.
 
+The same check runs once more when `Store.Apply` loses its compare-and-swap
+(`errandhttp.LostToDuplicate`). Two copies of one accept sent at once (a
+double tap, or a retry sent before the first answer) both pass the first
+check. The one that loses then finds the errand accepted by the caller and
+answers `200`, rather than `409` and a rejection event for the courier's own
+accept. Found by A8's race tests.
+
 ### The rejection notification is best effort
 
 If `RecordRejection` fails, the error is logged and the courier still gets

@@ -94,7 +94,10 @@ func (h Handler) accept(response http.ResponseWriter, request *http.Request) {
 	// A retry of an accept that committed (its response was lost): the
 	// errand is ASSIGNED to the caller one version later, which only this
 	// accept can have produced. Answer as the first response did.
-	if e.Status == errand.StatusAssigned && e.CourierID == courier && e.Version == expectedVersion+1 {
+	acceptedByCaller := func(e errand.Errand) bool {
+		return e.Status == errand.StatusAssigned && e.CourierID == courier && e.Version == expectedVersion+1
+	}
+	if acceptedByCaller(e) {
 		h.respond(response, request, e)
 		return
 	}
@@ -120,6 +123,12 @@ func (h Handler) accept(response http.ResponseWriter, request *http.Request) {
 	}
 	stored, err := h.store.Apply(ctx, t)
 	if err != nil {
+		// The same accept sent twice at once: the copy that lost the
+		// compare-and-swap is answered as the one that won.
+		if current, lost := errandhttp.LostToDuplicate(ctx, h.store, id, err, acceptedByCaller); lost {
+			h.respond(response, request, current)
+			return
+		}
 		h.refuse(response, request, id, courier, expectedVersion, now, err)
 		return
 	}
