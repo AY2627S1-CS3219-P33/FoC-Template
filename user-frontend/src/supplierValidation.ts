@@ -34,7 +34,8 @@ function coordinate(value: string, label: string, min: number, max: number): str
 }
 
 // Validates the string-based form draft. Coordinates and times arrive as strings
-// from the inputs; this returns one message per invalid field.
+// from the inputs; this returns one message per invalid field. Type and
+// building hold a lookup name picked from a dropdown.
 export function validateSupplierForm(draft: {
   name: string;
   type: string;
@@ -51,10 +52,11 @@ export function validateSupplierForm(draft: {
 
   const name = requiredText(draft.name, "Name", LIMITS.name);
   if (name) errors.name = name;
-  const type = requiredText(draft.type, "Type", LIMITS.type);
-  if (type) errors.type = type;
-  const building = requiredText(draft.building, "Building", LIMITS.building);
-  if (building) errors.building = building;
+  // Type and building are chosen from the managed lookup lists, so the only
+  // thing to check is that a choice was made; the service rejects a name that
+  // is not a live lookup row.
+  if (draft.type === "") errors.type = "Choose a type.";
+  if (draft.building === "") errors.building = "Choose a building.";
   const floor = requiredText(draft.floor, "Floor", LIMITS.floor);
   if (floor) errors.floor = floor;
   const location = requiredText(

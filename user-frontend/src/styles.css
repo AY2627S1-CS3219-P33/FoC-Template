@@ -909,3 +909,297 @@ textarea.input {
     grid-template-columns: 1fr;
   }
 }
+
+/* ── Errands, credits and lookup screens ─────────────────────────────── */
+
+/* The tab strip is two columns by default; these keep four and five tabs
+   legible and let them wrap to two rows on a narrow screen. */
+.tabs-4,
+.tabs-5 {
+  grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
+}
+.tabs-4 .tab,
+.tabs-5 .tab {
+  font-size: 0.95rem;
+  padding: 0.85rem 0.5rem;
+}
+
+.errand-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(19rem, 1fr));
+  gap: 1rem;
+}
+.errand-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  text-align: left;
+  padding: 1.1rem;
+  border: 1px solid var(--line-soft);
+  border-radius: 0.9rem;
+  background: var(--surface);
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+.errand-card:hover {
+  border-color: var(--line);
+}
+.errand-card:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+.errand-card-head {
+  display: flex;
+  gap: 0.6rem;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+.errand-card-head h3 {
+  margin: 0;
+  font-size: 1.02rem;
+  line-height: 1.3;
+}
+.errand-route {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--ink-2);
+}
+.errand-arrow {
+  color: var(--ink-3);
+}
+.errand-items {
+  margin: 0;
+  font-size: 0.88rem;
+  /* Long item lists are summarised rather than stretching the card. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.errand-detail {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--ink-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.errand-card-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.3rem;
+  padding-top: 0.6rem;
+  border-top: 1px solid var(--line-soft);
+}
+
+.status-chip {
+  flex: none;
+  border-radius: 999px;
+  padding: 0.18rem 0.62rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  white-space: nowrap;
+  background: var(--chip);
+  color: var(--chip-ink);
+}
+.status-chip.tone-progress {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+}
+.status-chip.tone-good {
+  background: var(--ok-bg);
+  color: var(--ok);
+}
+.status-chip.tone-bad {
+  background: var(--err-bg);
+  color: var(--err);
+}
+.status-chip.tone-waiting {
+  background: color-mix(in srgb, var(--focus) 20%, transparent);
+  color: color-mix(in srgb, var(--focus) 70%, var(--ink));
+}
+
+.reward-chip {
+  flex: none;
+  border-radius: 999px;
+  padding: 0.18rem 0.62rem;
+  font-size: 0.74rem;
+  font-weight: 700;
+  white-space: nowrap;
+  border: 1px solid var(--line-soft);
+  background: var(--surface-2);
+  color: var(--ink);
+}
+.distance-chip {
+  margin-left: auto;
+  font-size: 0.74rem;
+  font-weight: 650;
+  color: var(--ink-3);
+}
+
+.banner-wait {
+  background: color-mix(in srgb, var(--focus) 16%, transparent);
+  color: color-mix(in srgb, var(--focus) 72%, var(--ink));
+  border: 1px solid color-mix(in srgb, var(--focus) 45%, transparent);
+}
+
+.action-panel {
+  padding: 1.1rem 1.4rem;
+}
+
+.item-list {
+  list-style: none;
+  margin: 0 0 0.8rem;
+  padding: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+.item-list li {
+  display: flex;
+  gap: 0.7rem;
+  align-items: baseline;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--line-soft);
+}
+.item-list li:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+.item-list .qty {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
+  min-width: 2.2rem;
+}
+
+.item-rows {
+  list-style: none;
+  margin: 0 0 0.8rem;
+  padding: 0;
+  display: grid;
+  gap: 0.7rem;
+}
+.item-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+.item-row .qty-input {
+  flex: 0 0 5rem;
+  text-align: center;
+}
+
+.input-affix .suffix {
+  flex: none;
+  font-size: 0.8rem;
+  font-weight: 650;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+
+.small {
+  font-size: 0.82rem;
+}
+
+.credit-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.4rem;
+}
+.credit-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  padding: 1.2rem;
+  border: 1px solid var(--line-soft);
+  border-radius: 1rem;
+  background: var(--surface);
+}
+.credit-card.emphasis {
+  border-color: var(--line);
+  background: var(--surface-2);
+}
+.credit-card-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.credit-card-value {
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+.credit-card-hint {
+  font-size: 0.8rem;
+  color: var(--ink-2);
+}
+
+.ledger {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.5rem;
+}
+.ledger li {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.9rem 1.1rem;
+  border: 1px solid var(--line-soft);
+  border-radius: 0.8rem;
+  background: var(--surface);
+}
+.ledger-main {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+}
+.ledger-label {
+  font-weight: 650;
+}
+.ledger-amounts {
+  display: grid;
+  gap: 0.15rem;
+  text-align: right;
+  flex: none;
+}
+.ledger-amounts .amount {
+  font-size: 1.05rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.ledger-amounts .amount.in {
+  color: var(--ok);
+}
+.ledger-amounts .amount.out {
+  color: var(--ink-2);
+}
+
+/* The credit chip in the top bar is a button now that it opens the Credits
+   screen, so it needs the button reset the span did not. */
+button.credit-chip {
+  appearance: none;
+  background: var(--surface);
+  color: inherit;
+  font: inherit;
+  font-weight: 650;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+button.credit-chip:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}

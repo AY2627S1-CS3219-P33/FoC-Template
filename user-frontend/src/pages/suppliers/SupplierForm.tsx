@@ -1,5 +1,10 @@
 import { useMemo, useState, type FormEvent, type ReactNode } from "react";
-import { SupplierError, type Supplier, type SupplierWrite } from "../../api/supplier";
+import {
+  SupplierError,
+  type Lookup,
+  type Supplier,
+  type SupplierWrite,
+} from "../../api/supplier";
 import {
   LIMITS,
   hasErrors,
@@ -10,6 +15,10 @@ import {
 interface Props {
   mode: "create" | "edit";
   initial?: Supplier;
+  // Managed lists, retired rows included so an existing supplier's current
+  // building or type still renders.
+  types: Lookup[];
+  buildings: Lookup[];
   onSubmit: (body: SupplierWrite) => Promise<void>;
   onCancel: () => void;
 }
@@ -45,8 +54,9 @@ function draftFrom(initial?: Supplier): Draft {
 function toBody(draft: Draft): SupplierWrite {
   return {
     name: draft.name.trim(),
-    type: draft.type.trim(),
-    building: draft.building.trim(),
+    // These are lookup names chosen from a list, so they are already canonical.
+    type: draft.type,
+    building: draft.building,
     floor: draft.floor.trim(),
     locationDescription: draft.locationDescription.trim(),
     latitude: Number(draft.latitude),
@@ -57,7 +67,7 @@ function toBody(draft: Draft): SupplierWrite {
   };
 }
 
-export function SupplierForm({ mode, initial, onSubmit, onCancel }: Props) {
+export function SupplierForm({ mode, initial, types, buildings, onSubmit, onCancel }: Props) {
   const original = useMemo(() => draftFrom(initial), [initial]);
   const [draft, setDraft] = useState<Draft>(original);
   const [submitted, setSubmitted] = useState(false);
@@ -94,6 +104,14 @@ export function SupplierForm({ mode, initial, onSubmit, onCancel }: Props) {
       if (err instanceof SupplierError) {
         if (err.code === "SUPPLIER_NAME_CONFLICT") {
           setServerFieldErrors({ name: "Another supplier already uses this name." });
+        } else if (err.code === "BUILDING_NOT_FOUND") {
+          setServerFieldErrors({
+            building: "This building no longer exists or has been retired. Pick another.",
+          });
+        } else if (err.code === "SUPPLIER_TYPE_NOT_FOUND") {
+          setServerFieldErrors({
+            type: "This type no longer exists or has been retired. Pick another.",
+          });
         } else if (err.fields.length > 0) {
           const mapped: SupplierFormErrors = {};
           for (const f of err.fields) mapped[f.field as keyof SupplierFormErrors] = f.message;
@@ -115,6 +133,21 @@ export function SupplierForm({ mode, initial, onSubmit, onCancel }: Props) {
   const show = (field: keyof SupplierFormErrors) =>
     (submitted || serverFieldErrors[field]) && errors[field] ? errors[field] : "";
 
+  // Only a live row can be assigned; the one this supplier already uses stays
+  // selectable so an unrelated edit does not force a change.
+  function options(lookups: Lookup[], current: string) {
+    const live = lookups.filter((item) => !item.retired);
+    if (current !== "" && !live.some((item) => item.name === current)) {
+      const retired = lookups.find((item) => item.name === current);
+      if (retired) return [retired, ...live];
+    }
+    return live;
+  }
+
+  const typeOptions = options(types, original.type);
+  const buildingOptions = options(buildings, original.building);
+  const missingLookups = typeOptions.length === 0 || buildingOptions.length === 0;
+
   return (
     <>
       <div className="page-head">
@@ -134,32 +167,64 @@ export function SupplierForm({ mode, initial, onSubmit, onCancel }: Props) {
         </div>
       )}
 
+      {missingLookups && (
+        <div className="banner banner-error" role="alert">
+          <span>
+            {buildingOptions.length === 0 && typeOptions.length === 0
+              ? "No buildings or supplier types exist yet."
+              : buildingOptions.length === 0
+                ? "No buildings exist yet."
+                : "No supplier types exist yet."}{" "}
+            Add them under Buildings &amp; types before creating a supplier.
+          </span>
+        </div>
+      )}
+
       <form className="panel" onSubmit={onFormSubmit} noValidate>
         <Field label="Name" error={show("name")}>
-          <input className="input" value={draft.name} maxLength={LIMITS.name + 20}
+          <input className="input" value={draft.name} maxLength={LIMITS.name}
             onChange={(e) => set("name", e.target.value)} aria-invalid={!!show("name")} />
         </Field>
 
         <Field label="Type" error={show("type")}>
-          <input className="input" value={draft.type} maxLength={LIMITS.type + 20}
-            placeholder="e.g. Food, Shopping, Printing"
-            onChange={(e) => set("type", e.target.value)} aria-invalid={!!show("type")} />
+          <select className="input select" value={draft.type}
+            onChange={(e) => set("type", e.target.value)} aria-invalid={!!show("type")}>
+            <option value="">Choose a type…</option>
+            {typeOptions.map((item) => (
+              <option key={item.id} value={item.name}>
+                {item.name}
+                {item.retired ? " (retired)" : ""}
+              </option>
+            ))}
+          </select>
         </Field>
 
         <div className="form-grid">
           <Field label="Building" error={show("building")}>
-            <input className="input" value={draft.building} maxLength={LIMITS.building + 20}
-              onChange={(e) => set("building", e.target.value)} aria-invalid={!!show("building")} />
+            <select className="input select" value={draft.building}
+              onChange={(e) => set("building", e.target.value)} aria-invalid={!!show("building")}>
+              <option value="">Choose a building…</option>
+              {buildingOptions.map((item) => (
+                <option key={item.id} value={item.name}>
+                  {item.name}
+                  {item.retired ? " (retired)" : ""}
+                </option>
+              ))}
+            </select>
           </Field>
           <Field label="Floor" error={show("floor")}>
-            <input className="input" value={draft.floor} maxLength={LIMITS.floor + 20}
+            <input className="input" value={draft.floor} maxLength={LIMITS.floor}
               onChange={(e) => set("floor", e.target.value)} aria-invalid={!!show("floor")} />
           </Field>
         </div>
+        <p className="hint muted">
+          Buildings and types are managed lists, not free text. Add a missing one under Buildings
+          &amp; types.
+        </p>
 
         <Field label="Location description" error={show("locationDescription")}>
           <textarea className="input" rows={2} value={draft.locationDescription}
-            maxLength={LIMITS.locationDescription + 40}
+            maxLength={LIMITS.locationDescription}
             onChange={(e) => set("locationDescription", e.target.value)}
             aria-invalid={!!show("locationDescription")} />
         </Field>
@@ -189,13 +254,14 @@ export function SupplierForm({ mode, initial, onSubmit, onCancel }: Props) {
         </div>
 
         <Field label="Image URL (optional)" error={show("imageUrl")}>
-          <input className="input" value={draft.imageUrl} maxLength={LIMITS.imageUrl + 20}
+          <input className="input" value={draft.imageUrl} maxLength={LIMITS.imageUrl}
             placeholder="https://…" onChange={(e) => set("imageUrl", e.target.value)}
             aria-invalid={!!show("imageUrl")} />
         </Field>
 
         <div className="actions">
-          <button type="submit" className="btn slim" disabled={saving || (mode === "edit" && !dirty)}>
+          <button type="submit" className="btn slim"
+            disabled={saving || missingLookups || (mode === "edit" && !dirty)}>
             {saving ? "Saving…" : mode === "create" ? "Create supplier" : "Save changes"}
           </button>
           <button type="button" className="btn outline slim" onClick={requestCancel} disabled={saving}>
