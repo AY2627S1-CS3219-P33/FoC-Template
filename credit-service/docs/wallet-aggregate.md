@@ -1,6 +1,6 @@
 # Wallet aggregate
 
-Status: implemented so far are the schema (`migrations/00002`, `00003`), the data-access layer (`internal/database/walletrepo`), wallet creation with the initial allocation, and balance reads (`internal/wallet`, `internal/walletapi`). Order operations are not built yet.
+Status: implemented so far are the schema (`migrations/00002`, `00003`), the data-access layer (`internal/database/walletrepo`), wallet creation with the initial allocation, and balance reads (`internal/wallet`, `internal/walletapi`). The order commands (reserve, adjust, release, transfer) are implemented in `internal/wallet/commands.go` as plain functions; the RabbitMQ consumer and the result outbox are not built yet.
 
 ## Source flows
 
@@ -24,6 +24,17 @@ From the event storming board (`docs/CS3219.drawio.xml` at the repo root):
 - **The initial allocation amount is configuration** (`INITIAL_CREDIT_AMOUNT`) and is recorded once as a ledger entry with the fixed key `initial-allocation`. Callers cannot choose it.
 - **Each wallet stores the owner's Auth0 subject** (supplied at creation, unique, never changed), so a user reads their own wallet by token subject with no call to user-service.
 - **A transfer is one database transaction** that locks both wallets, in wallet-ID order via `LockWalletsByOwner`, to avoid deadlocks. There is no eventual consistency between the two wallets.
+
+## Order commands
+
+`Reserve`, `Adjust`, `Release` and `Transfer` take the message ID of the command and the Auth0 subjects of the users (order-service does not know owner UUIDs). Each runs in one transaction and returns a `Result` whose `Type` is the routing key of the result message.
+
+- **Idempotent by message ID.** The result of every command is stored in `processed_commands` in the same transaction as the balance change. A repeat returns the stored result, including a stored refusal.
+- **Refusal vs error.** A business refusal (not enough credits, reservation not active) is a `Result`. An error (`ErrInvalid`, `ErrConflict`, database failure) means the command could not be judged; the consumer should reject it or retry.
+- **Release tombstone.** A release for an order with no reservation writes `released_orders`. A later reserve for that order is refused with `RESERVATION_RELEASED`.
+- **Adjust ordering.** `reservations.last_adjust_seq` holds the newest applied seq. An adjust with an older or equal seq returns the current amount and changes nothing. A refused adjust does not use its seq.
+- **Transfer amount.** The command amount must equal the reservation amount, otherwise the result is `credit.operation_failed` with `AMOUNT_MISMATCH`.
+- `RESERVATION_NOT_FOUND` and `AMOUNT_MISMATCH` appear only in `credit.operation_failed`; they are not in the `OperationFailedData` list of `docs/asyncapi.yaml`.
 
 ## Model
 
@@ -55,3 +66,4 @@ One transaction (`pgx.BeginFunc`): lock the wallet or wallets, check the rule, i
 - What happens to an `ACTIVE` reservation when an order expires: refund is assumed.
 - Whether `order_id` is a UUID in order-service.
 - RabbitMQ topology, per-service permissions, and the transactional outbox for result events.
+- Whether order-service accepts the two extra `credit.operation_failed` codes.

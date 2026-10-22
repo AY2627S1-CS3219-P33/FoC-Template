@@ -1,0 +1,287 @@
+openapi: 3.1.0
+
+info:
+  title: Friend on Campus Credit Service API
+  version: 1.0.0
+  description: >-
+    Wallet creation and balance reads. Reserve, adjust, release and transfer
+    are not HTTP operations: order-service sends them as RabbitMQ commands
+    (docs/asyncapi.yaml, credit-service/docs/contracts.md). x-required-permissions
+    names the token permission an operation needs and x-caller names the kind
+    of token that may call it. A user token is refused on a service route and
+    the other way round. Identity comes from the verified token, never from the
+    request. Credits are whole numbers, serialised as strings.
+  license:
+    name: MIT
+    identifier: MIT
+
+servers:
+  - url: /credit-service
+    description: API gateway route
+
+tags:
+  - name: Wallet
+    description: The caller's own wallet.
+  - name: Internal
+    description: Service-to-service routes (machine tokens only).
+  - name: Operations
+    description: Service health.
+
+paths:
+  /v1/wallet/me:
+    get:
+      operationId: getMyWallet
+      tags: [Wallet]
+      summary: Read the caller's wallet
+      description: >-
+        The wallet is found by the Auth0 subject of the token. There is no way
+        to name another user's wallet.
+      security:
+        - bearerAuth: []
+      x-caller: user
+      x-required-permissions: [credits:read:own]
+      responses:
+        "200":
+          description: The caller's wallet.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Wallet"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/WalletNotFound"
+        "503":
+          $ref: "#/components/responses/DependencyUnavailable"
+  /internal/wallets/{ownerId}:
+    parameters:
+      - $ref: "#/components/parameters/OwnerID"
+    get:
+      operationId: getWalletByOwner
+      tags: [Internal]
+      summary: Read a wallet by owner
+      security:
+        - bearerAuth: []
+      x-caller: service
+      x-required-permissions: [credits:read]
+      responses:
+        "200":
+          description: The wallet.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Wallet"
+        "400":
+          $ref: "#/components/responses/InvalidArgument"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/WalletNotFound"
+        "503":
+          $ref: "#/components/responses/DependencyUnavailable"
+    put:
+      operationId: createWallet
+      tags: [Internal]
+      summary: Create a wallet with the initial allocation
+      description: >-
+        Idempotent per owner. The first call creates the wallet and credits the
+        initial allocation (configuration, never a request field) and returns
+        201. A repeat with the same subject returns 200 and the unchanged
+        wallet, with no second allocation.
+      security:
+        - bearerAuth: []
+      x-caller: service
+      x-required-permissions: [credits:wallets:create]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateWalletRequest"
+      responses:
+        "200":
+          description: The wallet already existed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Wallet"
+        "201":
+          description: The wallet was created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Wallet"
+        "400":
+          $ref: "#/components/responses/InvalidArgument"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: >-
+            The owner already has a wallet with a different Auth0 subject, or
+            the subject belongs to another owner.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                code: WALLET_CONFLICT
+                message: wallet conflicts with an existing wallet
+        "503":
+          $ref: "#/components/responses/DependencyUnavailable"
+  /readyz:
+    get:
+      operationId: readiness
+      tags: [Operations]
+      summary: Readiness probe
+      description: No token needed.
+      security: []
+      responses:
+        "200":
+          description: Ready.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Readiness"
+              example:
+                status: ready
+        "503":
+          description: Not ready.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Readiness"
+              example:
+                status: not_ready
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >-
+        Auth0 RS256 access token for https://api.foc.local/credit-service,
+        validated locally using cached JWKS. Permissions are read from the
+        permissions claim only. User routes need a login token; internal routes
+        need a machine-to-machine token (gty=client-credentials).
+
+  parameters:
+    OwnerID:
+      name: ownerId
+      in: path
+      required: true
+      description: The user-service account UUID.
+      schema:
+        type: string
+        format: uuid
+
+  schemas:
+    Wallet:
+      type: object
+      required: [ownerId, available, reserved, createdAt]
+      properties:
+        ownerId:
+          type: string
+          format: uuid
+        available:
+          type: string
+          pattern: "^[0-9]+$"
+          description: Credits that can be spent, a whole number.
+          examples: ["100"]
+        reserved:
+          type: string
+          pattern: "^[0-9]+$"
+          description: Credits held for open errands, a whole number.
+          examples: ["0"]
+        createdAt:
+          type: string
+          format: date-time
+    CreateWalletRequest:
+      type: object
+      additionalProperties: false
+      required: [auth0Subject]
+      properties:
+        auth0Subject:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: >-
+            The owner's Auth0 subject. No surrounding whitespace or control
+            characters. It never changes after the wallet is created.
+          examples: ["auth0|abc123"]
+    Readiness:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ready, not_ready]
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          enum:
+            - INVALID_ARGUMENT
+            - UNAUTHENTICATED
+            - FORBIDDEN
+            - WALLET_NOT_FOUND
+            - WALLET_CONFLICT
+            - DEPENDENCY_UNAVAILABLE
+            - INTERNAL
+        message:
+          type: string
+
+  responses:
+    InvalidArgument:
+      description: Bad owner ID, bad subject or a body that is not a single JSON object.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            code: INVALID_ARGUMENT
+            message: owner id must be a UUID
+    Unauthenticated:
+      description: The token is missing or invalid.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            code: UNAUTHENTICATED
+            message: invalid or expired credentials
+    Forbidden:
+      description: Wrong kind of token for this route, or a missing permission.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            code: FORBIDDEN
+            message: insufficient permissions for this operation
+    WalletNotFound:
+      description: No wallet exists for this owner or token.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            code: WALLET_NOT_FOUND
+            message: wallet not found
+    DependencyUnavailable:
+      description: The token could not be verified because Auth0 is not reachable.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            code: DEPENDENCY_UNAVAILABLE
+            message: authentication service unavailable
