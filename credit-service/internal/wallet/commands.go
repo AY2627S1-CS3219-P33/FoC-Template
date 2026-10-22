@@ -408,8 +408,8 @@ func (s *Service) Transfer(ctx context.Context, messageID string, c TransferComm
 // execute runs one command in a transaction. If the message was applied
 // before, it uses the stored result and runs nothing. Otherwise it runs op and
 // stores op's result (except a failure) in the same transaction as op's
-// balance changes. Either
-// way, the result goes to the recorder, if there is one, in that transaction.
+// balance changes. Either way, the result goes to the recorder, if there is
+// one, in that transaction.
 func (s *Service) execute(ctx context.Context, messageID string, reply Reply, op func(tx pgx.Tx) (Result, error)) (Result, error) {
 	if messageID == "" || len(messageID) > maxMessageIDLength {
 		return Result{}, invalid("message id must be 1 to 512 characters")

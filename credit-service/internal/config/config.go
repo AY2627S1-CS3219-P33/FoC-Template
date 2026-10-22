@@ -40,6 +40,21 @@ type DatabaseConfig struct {
 	MaxConnections int32
 }
 
+// MessagingConfig holds the RabbitMQ settings: the consumer of order-service's
+// commands and the dispatcher that publishes the results.
+type MessagingConfig struct {
+	// URL is the AMQP URL, including credentials. It is never logged.
+	URL string
+	// ConsumerPrefetch bounds the unacknowledged commands the broker sends ahead.
+	ConsumerPrefetch int
+	// OutboxPollInterval is how long the dispatcher waits when no result is due.
+	OutboxPollInterval time.Duration
+	// OutboxBatchSize is the most results the dispatcher claims at once.
+	OutboxBatchSize int
+	// OutboxMaxAttempts is how often a result is published before it is given up.
+	OutboxMaxAttempts int
+}
+
 type Config struct {
 	Auth auth.Auth0Config
 	// InitialCredit is the whole number of credits every new wallet receives.
@@ -49,6 +64,7 @@ type Config struct {
 	Environment     Environment
 	HTTP            HTTPConfig
 	Database        DatabaseConfig
+	Messaging       MessagingConfig
 	StartupTimeout  time.Duration
 	LogLevel        string
 	ShutdownTimeout time.Duration
@@ -101,6 +117,18 @@ func LoadFrom(lookup LookupEnv) (Config, error) {
 		problems = append(problems, "DATABASE_POOL_MIN must not exceed DATABASE_POOL_MAX")
 	}
 
+	amqpURL := required(lookup, "AMQP_URL", &problems)
+	if amqpURL != "" && !validAMQPURL(amqpURL) {
+		problems = append(problems, "AMQP_URL must be an amqp or amqps URL")
+	}
+	messaging := MessagingConfig{
+		URL:                amqpURL,
+		ConsumerPrefetch:   readInt(lookup, "AMQP_PREFETCH", 16, 1, 1_000, &problems),
+		OutboxPollInterval: readDuration(lookup, "OUTBOX_POLL_INTERVAL", time.Second, &problems),
+		OutboxBatchSize:    readInt(lookup, "OUTBOX_BATCH_SIZE", 20, 1, 1_000, &problems),
+		OutboxMaxAttempts:  readInt(lookup, "OUTBOX_MAX_ATTEMPTS", 10, 1, 1_000, &problems),
+	}
+
 	initialCredit := int64(readInt(lookup, "INITIAL_CREDIT_AMOUNT", 0, 0, MaxInitialCredit, &problems))
 	if _, found := lookup("INITIAL_CREDIT_AMOUNT"); !found {
 		problems = append(problems, "INITIAL_CREDIT_AMOUNT is required (use 0 for empty wallets)")
@@ -139,6 +167,7 @@ func LoadFrom(lookup LookupEnv) (Config, error) {
 			MinConnections: int32(poolMin),
 			MaxConnections: int32(poolMax),
 		},
+		Messaging:       messaging,
 		StartupTimeout:  startupTimeout,
 		LogLevel:        logLevel,
 		ShutdownTimeout: shutdownTimeout,
@@ -200,4 +229,12 @@ func validPostgreSQLURL(value string) bool {
 		return false
 	}
 	return (parsed.Scheme == "postgres" || parsed.Scheme == "postgresql") && parsed.Host != ""
+}
+
+func validAMQPURL(value string) bool {
+	parsed, err := url.Parse(value)
+	if err != nil {
+		return false
+	}
+	return (parsed.Scheme == "amqp" || parsed.Scheme == "amqps") && parsed.Host != ""
 }

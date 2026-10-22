@@ -2,6 +2,7 @@ package config
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -17,6 +18,7 @@ func validEnv(extra map[string]string) map[string]string {
 	env := map[string]string{
 		"DATABASE_URL":          "postgres://u:p@localhost:5432/credit",
 		"INITIAL_CREDIT_AMOUNT": "100",
+		"AMQP_URL":              "amqp://foc:secret-pass@localhost:5672/",
 		"AUTH0_ISSUER":          "https://example.auth0.com/",
 	}
 	for key, value := range extra {
@@ -33,6 +35,42 @@ func TestLoadAppliesDefaults(t *testing.T) {
 	require.Equal(t, "0.0.0.0:3004", cfg.HTTP.Address())
 	require.Equal(t, Development, cfg.Environment)
 	require.Equal(t, int32(10), cfg.Database.MaxConnections)
+	require.Equal(t, MessagingConfig{
+		URL:                "amqp://foc:secret-pass@localhost:5672/",
+		ConsumerPrefetch:   16,
+		OutboxPollInterval: time.Second,
+		OutboxBatchSize:    20,
+		OutboxMaxAttempts:  10,
+	}, cfg.Messaging)
+}
+
+func TestLoadRequiresAMQPURL(t *testing.T) {
+	_, err := LoadFrom(lookupFrom(validEnv(map[string]string{"AMQP_URL": ""})))
+	require.ErrorContains(t, err, "AMQP_URL is required")
+}
+
+func TestLoadRejectsABadMessagingSettingWithoutLeakingTheURL(t *testing.T) {
+	_, err := LoadFrom(lookupFrom(validEnv(map[string]string{
+		"AMQP_URL":             "http://foc:secret-pass@localhost:5672/",
+		"AMQP_PREFETCH":        "0",
+		"OUTBOX_POLL_INTERVAL": "soon",
+		"OUTBOX_BATCH_SIZE":    "5000",
+		"OUTBOX_MAX_ATTEMPTS":  "0",
+	})))
+	require.Error(t, err)
+	for _, want := range []string{"AMQP_URL must be", "AMQP_PREFETCH", "OUTBOX_POLL_INTERVAL", "OUTBOX_BATCH_SIZE", "OUTBOX_MAX_ATTEMPTS"} {
+		require.ErrorContains(t, err, want)
+	}
+	require.NotContains(t, err.Error(), "secret-pass")
+}
+
+func TestLoadAcceptsAMQPS(t *testing.T) {
+	cfg, err := LoadFrom(lookupFrom(validEnv(map[string]string{
+		"AMQP_URL":      "amqps://u:p@broker.example.com:5671/",
+		"AMQP_PREFETCH": "4",
+	})))
+	require.NoError(t, err)
+	require.Equal(t, 4, cfg.Messaging.ConsumerPrefetch)
 }
 
 func TestLoadRequiresDatabaseURL(t *testing.T) {
