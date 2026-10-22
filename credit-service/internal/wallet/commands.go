@@ -40,10 +40,9 @@ const (
 	CodeReservationNotActive          = "RESERVATION_NOT_ACTIVE"
 	CodeReservationAlreadyTransferred = "RESERVATION_ALREADY_TRANSFERRED"
 	CodeReservationAlreadyReleased    = "RESERVATION_ALREADY_RELEASED"
-	// The next two only appear in credit.operation_failed, for states the
-	// contract calls impossible.
+	// CodeReservationNotFound only appears in credit.operation_failed, for a
+	// state the contract calls impossible.
 	CodeReservationNotFound = "RESERVATION_NOT_FOUND"
-	CodeAmountMismatch      = "AMOUNT_MISMATCH"
 )
 
 const maxMessageIDLength = 512
@@ -59,14 +58,36 @@ type Result struct {
 	Code string `json:"code,omitempty"`
 }
 
+// Every command has an ErrandVersion. It does not affect the rules; it is
+// copied into the result message, which order-service matches to the errand.
+// It is zero for a command that did not come from a message.
+
+// Reply says which command a result answers. The ResultRecorder uses it to
+// build the result message.
+type Reply struct {
+	CommandMessageID string
+	OrderID          string
+	ErrandVersion    int64
+}
+
+// ResultRecorder stores a command's result for delivery, inside the
+// transaction that applied the command, so a balance change and its result
+// message commit together or not at all. It is called for a repeated command
+// too, with the stored result.
+type ResultRecorder interface {
+	RecordResult(ctx context.Context, tx pgx.Tx, reply Reply, result Result) error
+}
+
 type ReserveCommand struct {
 	OrderID          string
+	ErrandVersion    int64
 	RequesterSubject string
 	Amount           int64
 }
 
 type AdjustCommand struct {
 	OrderID          string
+	ErrandVersion    int64
 	RequesterSubject string
 	// NewAmount is the absolute amount the reservation should hold.
 	NewAmount int64
@@ -77,11 +98,13 @@ type AdjustCommand struct {
 
 type ReleaseCommand struct {
 	OrderID          string
+	ErrandVersion    int64
 	RequesterSubject string
 }
 
 type TransferCommand struct {
 	OrderID          string
+	ErrandVersion    int64
 	RequesterSubject string
 	CourierSubject   string
 	Amount           int64
@@ -99,7 +122,7 @@ func (s *Service) Reserve(ctx context.Context, messageID string, c ReserveComman
 	if c.Amount <= 0 {
 		return Result{}, invalid("amount must be positive")
 	}
-	return s.execute(ctx, messageID, func(tx pgx.Tx) (Result, error) {
+	return s.execute(ctx, messageID, Reply{OrderID: orderID, ErrandVersion: c.ErrandVersion}, func(tx pgx.Tx) (Result, error) {
 		released, err := walletrepo.IsOrderReleased(ctx, tx, orderID)
 		if err != nil {
 			return Result{}, err
@@ -164,7 +187,7 @@ func (s *Service) Adjust(ctx context.Context, messageID string, c AdjustCommand)
 	refused := func(code string) Result {
 		return Result{Type: ResultAdjustRefused, Code: code, Seq: c.Seq}
 	}
-	return s.execute(ctx, messageID, func(tx pgx.Tx) (Result, error) {
+	return s.execute(ctx, messageID, Reply{OrderID: orderID, ErrandVersion: c.ErrandVersion}, func(tx pgx.Tx) (Result, error) {
 		res, w, err := lockReservation(ctx, tx, orderID, c.RequesterSubject)
 		if errors.Is(err, walletrepo.ErrNotFound) {
 			return refused(CodeReservationNotActive), nil
@@ -215,7 +238,7 @@ func (s *Service) Release(ctx context.Context, messageID string, c ReleaseComman
 	if err := validateSubject(c.RequesterSubject); err != nil {
 		return Result{}, err
 	}
-	return s.execute(ctx, messageID, func(tx pgx.Tx) (Result, error) {
+	return s.execute(ctx, messageID, Reply{OrderID: orderID, ErrandVersion: c.ErrandVersion}, func(tx pgx.Tx) (Result, error) {
 		res, w, err := lockReservation(ctx, tx, orderID, c.RequesterSubject)
 		if errors.Is(err, walletrepo.ErrNotFound) {
 			if err := walletrepo.InsertReleasedOrder(ctx, tx, orderID); err != nil {
@@ -252,8 +275,19 @@ func (s *Service) Release(ctx context.Context, messageID string, c ReleaseComman
 	})
 }
 
-// Transfer moves the reserved credits to the courier. Both wallets change in
-// one transaction.
+// Transfer pays the courier c.Amount. The amount in the command is the
+// errand's reward in order-service, so it is the amount to pay. It comes from
+// the reservation:
+//   - If the reservation holds more (an adjust that order-service dropped has
+//     not been reverted yet), the surplus goes back to the requester's
+//     available balance.
+//   - If it holds less (a revert was refused because the requester had spent
+//     the credits an earlier, lower adjust freed), the shortfall is taken from
+//     the requester's available balance. If that cannot cover it, nothing
+//     moves and the result is credit.operation_failed with
+//     INSUFFICIENT_CREDITS.
+//
+// Both wallets change in one transaction.
 func (s *Service) Transfer(ctx context.Context, messageID string, c TransferCommand) (Result, error) {
 	orderID, err := validateOrderID(c.OrderID)
 	if err != nil {
@@ -272,7 +306,7 @@ func (s *Service) Transfer(ctx context.Context, messageID string, c TransferComm
 		return Result{}, invalid("amount must be positive")
 	}
 	failed := func(code string) Result { return Result{Type: ResultOperationFailed, Code: code} }
-	return s.execute(ctx, messageID, func(tx pgx.Tx) (Result, error) {
+	return s.execute(ctx, messageID, Reply{OrderID: orderID, ErrandVersion: c.ErrandVersion}, func(tx pgx.Tx) (Result, error) {
 		res, err := walletrepo.GetReservationByOrder(ctx, tx, orderID, false)
 		if errors.Is(err, walletrepo.ErrNotFound) {
 			released, err := walletrepo.IsOrderReleased(ctx, tx, orderID)
@@ -316,14 +350,20 @@ func (s *Service) Transfer(ctx context.Context, messageID string, c TransferComm
 		case walletrepo.ReservationReleased:
 			return failed(CodeReservationAlreadyReleased), nil
 		}
-		if res.Amount != c.Amount {
-			return failed(CodeAmountMismatch), nil
+		// The courier is paid from the reservation first. Any shortfall comes
+		// from available credits; any surplus returns to them.
+		fromReservation := min(res.Amount, c.Amount)
+		shortfall := c.Amount - fromReservation
+		surplus := res.Amount - fromReservation
+		if shortfall > requester.Available {
+			return failed(CodeInsufficientCredits), nil
 		}
 
 		if _, err := walletrepo.InsertLedgerEntry(ctx, tx, walletrepo.LedgerEntry{
 			WalletID:             requester.ID,
 			Type:                 walletrepo.EntryTransferOut,
-			ReservedDelta:        -res.Amount,
+			AvailableDelta:       -shortfall,
+			ReservedDelta:        -fromReservation,
 			OrderID:              &orderID,
 			CounterpartyWalletID: &courier.ID,
 			IdempotencyKey:       "transfer:" + orderID,
@@ -333,17 +373,29 @@ func (s *Service) Transfer(ctx context.Context, messageID string, c TransferComm
 		if _, err := walletrepo.InsertLedgerEntry(ctx, tx, walletrepo.LedgerEntry{
 			WalletID:             courier.ID,
 			Type:                 walletrepo.EntryTransferIn,
-			AvailableDelta:       res.Amount,
+			AvailableDelta:       c.Amount,
 			OrderID:              &orderID,
 			CounterpartyWalletID: &requester.ID,
 			IdempotencyKey:       "transfer:" + orderID,
 		}); err != nil {
 			return Result{}, err
 		}
-		if _, err := walletrepo.ApplyDeltas(ctx, tx, requester.ID, 0, -res.Amount); err != nil {
+		if surplus > 0 {
+			if _, err := walletrepo.InsertLedgerEntry(ctx, tx, walletrepo.LedgerEntry{
+				WalletID:       requester.ID,
+				Type:           walletrepo.EntryRelease,
+				AvailableDelta: surplus,
+				ReservedDelta:  -surplus,
+				OrderID:        &orderID,
+				IdempotencyKey: "transfer-surplus:" + orderID,
+			}); err != nil {
+				return Result{}, err
+			}
+		}
+		if _, err := walletrepo.ApplyDeltas(ctx, tx, requester.ID, surplus-shortfall, -res.Amount); err != nil {
 			return Result{}, err
 		}
-		if _, err := walletrepo.ApplyDeltas(ctx, tx, courier.ID, res.Amount, 0); err != nil {
+		if _, err := walletrepo.ApplyDeltas(ctx, tx, courier.ID, c.Amount, 0); err != nil {
 			return Result{}, err
 		}
 		if _, err := walletrepo.UpdateReservation(ctx, tx, res.ID, res.Amount, walletrepo.ReservationTransferred); err != nil {
@@ -354,34 +406,52 @@ func (s *Service) Transfer(ctx context.Context, messageID string, c TransferComm
 }
 
 // execute runs one command in a transaction. If the message was applied
-// before, it returns the stored result and runs nothing. Otherwise it runs op
-// and stores op's result in the same transaction as op's balance changes.
-func (s *Service) execute(ctx context.Context, messageID string, op func(tx pgx.Tx) (Result, error)) (Result, error) {
+// before, it uses the stored result and runs nothing. Otherwise it runs op and
+// stores op's result (except a failure) in the same transaction as op's
+// balance changes. Either
+// way, the result goes to the recorder, if there is one, in that transaction.
+func (s *Service) execute(ctx context.Context, messageID string, reply Reply, op func(tx pgx.Tx) (Result, error)) (Result, error) {
 	if messageID == "" || len(messageID) > maxMessageIDLength {
 		return Result{}, invalid("message id must be 1 to 512 characters")
 	}
+	reply.CommandMessageID = messageID
 	var result Result
 	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
 		if err := walletrepo.LockCommand(ctx, tx, messageID); err != nil {
 			return err
 		}
 		stored, err := walletrepo.GetProcessedCommand(ctx, tx, messageID)
-		if err == nil {
-			return json.Unmarshal(stored.Result, &result)
-		}
-		if !errors.Is(err, walletrepo.ErrNotFound) {
+		switch {
+		case err == nil:
+			if err := json.Unmarshal(stored.Result, &result); err != nil {
+				return err
+			}
+		case errors.Is(err, walletrepo.ErrNotFound):
+			if result, err = op(tx); err != nil {
+				return err
+			}
+			// A failure is not remembered: it means a state that should be
+			// impossible, and an administrator may fix the cause and send the
+			// same command again, which must be judged anew. No operation
+			// writes anything before it returns one.
+			if result.Type != ResultOperationFailed {
+				raw, err := json.Marshal(result)
+				if err != nil {
+					return err
+				}
+				if err := walletrepo.InsertProcessedCommand(ctx, tx, walletrepo.ProcessedCommand{
+					MessageID: messageID, ResultType: result.Type, Result: raw,
+				}); err != nil {
+					return err
+				}
+			}
+		default:
 			return err
 		}
-		if result, err = op(tx); err != nil {
-			return err
+		if s.recorder == nil {
+			return nil
 		}
-		raw, err := json.Marshal(result)
-		if err != nil {
-			return err
-		}
-		return walletrepo.InsertProcessedCommand(ctx, tx, walletrepo.ProcessedCommand{
-			MessageID: messageID, ResultType: result.Type, Result: raw,
-		})
+		return s.recorder.RecordResult(ctx, tx, reply, result)
 	})
 	if err != nil {
 		return Result{}, err

@@ -265,15 +265,43 @@ func TestTransferUsesTheAdjustedAmount(t *testing.T) {
 	require.Equal(t, int64(150), available)
 }
 
+// An edit that order-service dropped has raised the reservation to 50, and
+// the revert to 30 has not arrived when the transfer for 30 does.
+func TestTransferPaysTheCommandAmountAndReleasesTheSurplus(t *testing.T) {
+	svc, ctx := newCommandService(t)
+	reserve(t, svc, ctx, "E1:reserve", order1, 30)
+	adjust(t, svc, ctx, "E1:adjust:2", order1, 50, 4)
+
+	require.Equal(t, wallet.Result{Type: wallet.ResultTransferred}, transfer(t, svc, ctx, "E1:transfer", order1, 30))
+	available, reserved := balances(t, svc, ctx, alice)
+	require.Equal(t, int64(70), available, "100 - 30 paid; the other 20 came back")
+	require.Zero(t, reserved)
+	available, _ = balances(t, svc, ctx, bob)
+	require.Equal(t, int64(130), available)
+
+	// The late revert finds the reservation transferred and changes nothing.
+	res := adjust(t, svc, ctx, "E1:adjust-revert:3", order1, 30, 5)
+	require.Equal(t, wallet.Result{Type: wallet.ResultAdjustRefused, Code: wallet.CodeReservationNotActive, Seq: 5}, res)
+	available, reserved = balances(t, svc, ctx, alice)
+	require.Equal(t, int64(70), available)
+	require.Zero(t, reserved)
+
+	// A repeat of the transfer moves nothing more.
+	require.Equal(t, wallet.ResultTransferred, transfer(t, svc, ctx, "E1:transfer", order1, 30).Type)
+	available, _ = balances(t, svc, ctx, bob)
+	require.Equal(t, int64(130), available)
+}
+
 func TestTransferFailures(t *testing.T) {
 	svc, ctx := newCommandService(t)
 
 	res := transfer(t, svc, ctx, "a", order1, 30)
 	require.Equal(t, wallet.Result{Type: wallet.ResultOperationFailed, Code: wallet.CodeReservationNotFound}, res)
 
-	reserve(t, svc, ctx, "E1:reserve", order1, 30)
-	res = transfer(t, svc, ctx, "b", order1, 31)
-	require.Equal(t, wallet.Result{Type: wallet.ResultOperationFailed, Code: wallet.CodeAmountMismatch}, res)
+	reserve(t, svc, ctx, "E1:reserve", order1, 100)
+	res = transfer(t, svc, ctx, "b", order1, 101)
+	require.Equal(t, wallet.Result{Type: wallet.ResultOperationFailed, Code: wallet.CodeInsufficientCredits}, res,
+		"1 credit short and nothing available")
 
 	res, err := svc.Transfer(ctx, "c", wallet.TransferCommand{
 		OrderID: order1, RequesterSubject: aliceSub, CourierSubject: "auth0|nobody", Amount: 30})
@@ -281,8 +309,82 @@ func TestTransferFailures(t *testing.T) {
 	require.Equal(t, wallet.Result{Type: wallet.ResultOperationFailed, Code: wallet.CodeAccountNotFound}, res)
 
 	available, reserved := balances(t, svc, ctx, alice)
+	require.Zero(t, available)
+	require.Equal(t, int64(100), reserved, "failed transfers leave the reservation alone")
+	available, _ = balances(t, svc, ctx, bob)
+	require.Equal(t, int64(100), available)
+}
+
+// The errand is worth 30. An edit lowered the reservation to 20, the requester
+// spent the freed credits, and the revert back to 30 was refused. The transfer
+// for 30 then finds a reservation of 20.
+func TestTransferTakesAShortfallFromAvailableCredits(t *testing.T) {
+	svc, ctx := newCommandService(t)
+	reserve(t, svc, ctx, "E1:reserve", order1, 30)
+	adjust(t, svc, ctx, "E1:adjust:2", order1, 20, 4)
+	available, _ := balances(t, svc, ctx, alice)
+	require.Equal(t, int64(80), available)
+
+	require.Equal(t, wallet.Result{Type: wallet.ResultTransferred}, transfer(t, svc, ctx, "E1:transfer", order1, 30))
+
+	available, reserved := balances(t, svc, ctx, alice)
+	require.Equal(t, int64(70), available, "30 paid: 20 from the reservation and 10 from available")
+	require.Zero(t, reserved)
+	available, _ = balances(t, svc, ctx, bob)
+	require.Equal(t, int64(130), available)
+}
+
+func TestTransferShortfallThatCannotBeCoveredFailsAndCanBeRetried(t *testing.T) {
+	svc, ctx := newCommandService(t)
+	reserve(t, svc, ctx, "E1:reserve", order1, 30)
+	adjust(t, svc, ctx, "E1:adjust:2", order1, 20, 4)
+	// The requester spends the 80 credits that are now available.
+	require.Equal(t, wallet.ResultReserved, reserve(t, svc, ctx, "E2:reserve", order2, 80).Type)
+	res := adjust(t, svc, ctx, "E1:adjust-revert:3", order1, 30, 5)
+	require.Equal(t, wallet.Result{Type: wallet.ResultAdjustRefused, Code: wallet.CodeInsufficientCredits, Seq: 5}, res)
+
+	res = transfer(t, svc, ctx, "E1:transfer", order1, 30)
+	require.Equal(t, wallet.Result{Type: wallet.ResultOperationFailed, Code: wallet.CodeInsufficientCredits}, res)
+	available, reserved := balances(t, svc, ctx, alice)
+	require.Zero(t, available)
+	require.Equal(t, int64(100), reserved, "nothing moved")
+
+	// The cause is fixed: the other errand is released. An administrator sends
+	// the same command again, and it is judged anew, not answered from memory.
+	release(t, svc, ctx, "E2:release", order2)
+	require.Equal(t, wallet.Result{Type: wallet.ResultTransferred}, transfer(t, svc, ctx, "E1:transfer", order1, 30))
+	available, reserved = balances(t, svc, ctx, alice)
 	require.Equal(t, int64(70), available)
-	require.Equal(t, int64(30), reserved, "failed transfers leave the reservation alone")
+	require.Zero(t, reserved)
+	available, _ = balances(t, svc, ctx, bob)
+	require.Equal(t, int64(130), available)
+}
+
+func TestFailedResultIsNotRemembered(t *testing.T) {
+	ctx := context.Background()
+	pool := testdb.Pool(t)
+	svc := wallet.NewService(pool, 100)
+	_, _, err := svc.CreateWallet(ctx, alice, aliceSub)
+	require.NoError(t, err)
+
+	require.Equal(t, wallet.ResultOperationFailed, transfer2(t, svc, ctx, "x").Type)
+	reserve(t, svc, ctx, "E1:reserve", order1, 10)
+	var stored int
+	require.NoError(t, pool.QueryRow(ctx,
+		`SELECT count(*) FROM processed_commands WHERE message_id = 'x'`).Scan(&stored))
+	require.Zero(t, stored)
+	require.NoError(t, pool.QueryRow(ctx,
+		`SELECT count(*) FROM processed_commands WHERE message_id = 'E1:reserve'`).Scan(&stored))
+	require.Equal(t, 1, stored, "other results are remembered")
+}
+
+// transfer2 sends a transfer to a courier who has no wallet.
+func transfer2(t *testing.T, svc *wallet.Service, ctx context.Context, msg string) wallet.Result {
+	t.Helper()
+	res, err := svc.Transfer(ctx, msg, wallet.TransferCommand{
+		OrderID: order1, RequesterSubject: aliceSub, CourierSubject: "auth0|nobody", Amount: 5})
+	require.NoError(t, err)
+	return res
 }
 
 func TestReleaseAndTransferExcludeEachOther(t *testing.T) {
@@ -354,6 +456,11 @@ func TestLedgerMatchesBalances(t *testing.T) {
 	reserve(t, svc, ctx, "E2:reserve", order2, 20)
 	release(t, svc, ctx, "E2:release", order2)
 	reserve(t, svc, ctx, "E3:reserve", "6f1c2b0e-8d4a-4e1b-9c3f-2a7d5e8b9c12", 10)
+	reserve(t, svc, ctx, "E4:reserve", "6f1c2b0e-8d4a-4e1b-9c3f-2a7d5e8b9c13", 20)
+	adjust(t, svc, ctx, "E4:adjust:2", "6f1c2b0e-8d4a-4e1b-9c3f-2a7d5e8b9c13", 25, 4)
+	transfer(t, svc, ctx, "E4:transfer", "6f1c2b0e-8d4a-4e1b-9c3f-2a7d5e8b9c13", 20) // surplus of 5
+	reserve(t, svc, ctx, "E5:reserve", "6f1c2b0e-8d4a-4e1b-9c3f-2a7d5e8b9c14", 10)
+	transfer(t, svc, ctx, "E5:transfer", "6f1c2b0e-8d4a-4e1b-9c3f-2a7d5e8b9c14", 14) // shortfall of 4
 
 	var mismatched int
 	require.NoError(t, pool.QueryRow(ctx, `
@@ -367,4 +474,22 @@ func TestLedgerMatchesBalances(t *testing.T) {
 	var total int64
 	require.NoError(t, pool.QueryRow(ctx, `SELECT SUM(available + reserved) FROM wallets`).Scan(&total))
 	require.Equal(t, int64(200), total, "credits are conserved")
+
+	// Every entry that is not an allocation moves credits between buckets or
+	// wallets and creates none: all deltas together equal what was allocated.
+	var created, allocated int64
+	require.NoError(t, pool.QueryRow(ctx, `
+		SELECT COALESCE(SUM(available_delta + reserved_delta), 0),
+		       COALESCE(SUM(available_delta + reserved_delta) FILTER (WHERE entry_type = 'ALLOCATE'), 0)
+		FROM ledger_entries`).Scan(&created, &allocated))
+	require.Equal(t, allocated, created, "only the allocation creates credits")
+
+	// Each order's transfer entries cancel out across the two wallets.
+	var unbalanced int
+	require.NoError(t, pool.QueryRow(ctx, `
+		SELECT count(*) FROM (
+		  SELECT order_id FROM ledger_entries
+		  WHERE entry_type IN ('TRANSFER_OUT', 'TRANSFER_IN')
+		  GROUP BY order_id HAVING SUM(available_delta + reserved_delta) <> 0) bad`).Scan(&unbalanced))
+	require.Zero(t, unbalanced)
 }

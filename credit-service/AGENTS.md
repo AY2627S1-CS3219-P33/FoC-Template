@@ -10,7 +10,7 @@ Idempotency for allocations, reservations, releases and transfers (NFR7.3); reco
 Follow `supplier-service`: env-only config in `internal/config`, handler assembled in `internal/app`, goose migrations in `migrations/` applied only by `infra/migrate.sh` as `migrator` (the service runs as `app_rw` and must never migrate), no secrets or connection URLs in errors or logs.
 
 ## Data model rules
-See `docs/wallet-aggregate.md`. In short: change balances only through `internal/database/walletrepo` inside one transaction, locking wallets first with `LockWalletsByOwner`; write a `ledger_entries` row for every balance change with an idempotency key; `ledger_entries` is append-only; never write business rules into the repository layer.
+See `docs/wallet-aggregate.md`. In short: change balances only through `internal/database/walletrepo` inside one transaction, locking wallets first with `LockWalletsByAuth0Subject`; write a `ledger_entries` row for every balance change with an idempotency key; `ledger_entries` is append-only; never write business rules into the repository layer.
 
 ## Verify
 ```sh

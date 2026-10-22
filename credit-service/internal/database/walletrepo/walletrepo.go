@@ -73,33 +73,11 @@ func GetWalletByOwner(ctx context.Context, db DBTX, ownerID string) (Wallet, err
 		`SELECT `+walletColumns+` FROM wallets WHERE owner_id = $1::uuid`, ownerID))
 }
 
-// LockWalletsByOwner locks the owners' wallets for the rest of the
-// transaction and returns them. Rows are locked in wallet-ID order whatever
-// order the owners are passed in, so two transfers between the same pair of
-// wallets cannot deadlock. It returns ErrNotFound if any wallet is missing.
-func LockWalletsByOwner(ctx context.Context, db DBTX, ownerIDs ...string) ([]Wallet, error) {
-	unique := slices.Compact(slices.Sorted(slices.Values(ownerIDs)))
-	rows, err := db.Query(ctx,
-		`SELECT `+walletColumns+` FROM wallets
-		 WHERE owner_id = ANY($1::uuid[]) ORDER BY id FOR UPDATE`, unique)
-	if err != nil {
-		return nil, mapError(err)
-	}
-	wallets, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (Wallet, error) {
-		return scanWallet(row)
-	})
-	if err != nil {
-		return nil, mapError(err)
-	}
-	if len(wallets) != len(unique) {
-		return nil, ErrNotFound
-	}
-	return wallets, nil
-}
-
-// LockWalletsByAuth0Subject is LockWalletsByOwner for callers that know users
-// by Auth0 subject, as order-service does. Wallets are locked in wallet-ID
-// order and returned in that order. It returns ErrNotFound if any is missing.
+// LockWalletsByAuth0Subject locks the wallets of these Auth0 subjects for the
+// rest of the transaction and returns them. Rows are locked in wallet-ID order
+// whatever order the subjects are passed in, so two transactions that lock the
+// same wallets cannot deadlock. Duplicate subjects collapse. It returns
+// ErrNotFound if any wallet is missing.
 func LockWalletsByAuth0Subject(ctx context.Context, db DBTX, subjects ...string) ([]Wallet, error) {
 	unique := slices.Compact(slices.Sorted(slices.Values(subjects)))
 	rows, err := db.Query(ctx,
