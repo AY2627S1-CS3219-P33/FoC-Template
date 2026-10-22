@@ -97,6 +97,29 @@ func LockWalletsByOwner(ctx context.Context, db DBTX, ownerIDs ...string) ([]Wal
 	return wallets, nil
 }
 
+// LockWalletsByAuth0Subject is LockWalletsByOwner for callers that know users
+// by Auth0 subject, as order-service does. Wallets are locked in wallet-ID
+// order and returned in that order. It returns ErrNotFound if any is missing.
+func LockWalletsByAuth0Subject(ctx context.Context, db DBTX, subjects ...string) ([]Wallet, error) {
+	unique := slices.Compact(slices.Sorted(slices.Values(subjects)))
+	rows, err := db.Query(ctx,
+		`SELECT `+walletColumns+` FROM wallets
+		 WHERE auth0_subject = ANY($1::text[]) ORDER BY id FOR UPDATE`, unique)
+	if err != nil {
+		return nil, mapError(err)
+	}
+	wallets, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (Wallet, error) {
+		return scanWallet(row)
+	})
+	if err != nil {
+		return nil, mapError(err)
+	}
+	if len(wallets) != len(unique) {
+		return nil, ErrNotFound
+	}
+	return wallets, nil
+}
+
 // ApplyDeltas adds the signed deltas to a wallet and bumps its version. The
 // database CHECK constraints reject a negative result with ErrNegativeBalance.
 func ApplyDeltas(ctx context.Context, db DBTX, walletID string, availableDelta, reservedDelta int64) (Wallet, error) {
@@ -117,20 +140,21 @@ const (
 )
 
 type Reservation struct {
-	ID        string
-	WalletID  string
-	OrderID   string
-	Amount    int64
-	Status    ReservationStatus
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID            string
+	WalletID      string
+	OrderID       string
+	Amount        int64
+	Status        ReservationStatus
+	LastAdjustSeq int64
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
-const reservationColumns = `id::text, wallet_id::text, order_id::text, amount, status, created_at, updated_at`
+const reservationColumns = `id::text, wallet_id::text, order_id::text, amount, status, last_adjust_seq, created_at, updated_at`
 
 func scanReservation(row pgx.Row) (Reservation, error) {
 	var r Reservation
-	err := row.Scan(&r.ID, &r.WalletID, &r.OrderID, &r.Amount, &r.Status, &r.CreatedAt, &r.UpdatedAt)
+	err := row.Scan(&r.ID, &r.WalletID, &r.OrderID, &r.Amount, &r.Status, &r.LastAdjustSeq, &r.CreatedAt, &r.UpdatedAt)
 	return r, mapError(err)
 }
 
@@ -159,6 +183,15 @@ func UpdateReservation(ctx context.Context, db DBTX, reservationID string, amoun
 		`UPDATE reservations SET amount = $2, status = $3, updated_at = now()
 		 WHERE id = $1::uuid RETURNING `+reservationColumns,
 		reservationID, amount, string(status)))
+}
+
+// AdjustReservation sets a reservation's amount and records the seq of the
+// adjust that did it.
+func AdjustReservation(ctx context.Context, db DBTX, reservationID string, amount, seq int64) (Reservation, error) {
+	return scanReservation(db.QueryRow(ctx,
+		`UPDATE reservations SET amount = $2, last_adjust_seq = $3, updated_at = now()
+		 WHERE id = $1::uuid RETURNING `+reservationColumns,
+		reservationID, amount, seq))
 }
 
 type EntryType string
