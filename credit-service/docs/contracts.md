@@ -18,7 +18,9 @@ Status of each part:
 | --- | --- |
 | HTTP API | built |
 | Command rules (`internal/wallet/commands.go`) | built, tested |
-| RabbitMQ consumer, result outbox, topology | **proposed**, not built |
+| Message layer (`internal/creditmsg`), `outbox` table, results written in the command transaction | built, tested |
+| RabbitMQ consumer and topology (`creditmsg.Consumer`, `DeclareTopology`) | built, tested against a real broker; not started by `main` yet |
+| Outbox worker (publishes the results) | **proposed**, not built |
 
 Proposed parts need the agreement of the order-service owner (gate C1 in
 order-service's contracts) before they are final.
@@ -114,7 +116,9 @@ Rules:
    the balance change.
 2. A repeated command gets the stored result. No balance changes. This is also
    true for refusals: a refused reserve stays refused even if the balance
-   grows later.
+   grows later. A `credit.operation_failed` result is the exception: it is not
+   stored, so a repeated command is judged anew. An administrator can then fix
+   the cause and send the same command again.
 3. The balance changes are also protected by the ledger: each ledger entry has
    a key that is unique per wallet (`reserve:{orderId}`,
    `release:{orderId}`, `transfer:{orderId}`, `adjust:{orderId}:{seq}`).
@@ -133,8 +137,8 @@ root `compose.yaml`.
 
 | Queue | Owner | Binding | Notes |
 | --- | --- | --- | --- |
-| `credit-service.commands` | credit-service | `foc.commands`: `credit.reserve`, `credit.adjust`, `credit.release`, `credit.transfer` | durable; dead-letters to `credit-service.commands.dlq` |
-| `credit-service.commands.dlq` | credit-service | the default exchange | holds commands that cannot be processed |
+| `credit-service.commands` | credit-service | `foc.commands`: `credit.reserve`, `credit.adjust`, `credit.release`, `credit.transfer` | quorum, durable; dead-letters to `credit-service.commands.dlq` |
+| `credit-service.commands.dlq` | credit-service | the default exchange | quorum; holds commands that cannot be processed |
 
 Credit-service declares both exchanges (declaring is safe to repeat), its own
 queue, its binding and its dead-letter queue when it starts. It never
@@ -220,14 +224,25 @@ creates the reservation of the errand.
 - Fails with `credit.operation_failed` (`RESERVATION_ALREADY_TRANSFERRED`) if
   the credits were already paid to the courier.
 
-**`credit.transfer`.** Moves the reservation from the requester to the
-courier. Both wallets change in one transaction.
-- `amount` must equal the reservation's amount.
+**`credit.transfer`.** Pays the courier `amount`. Both wallets change in one
+transaction.
+- `amount` is the errand's reward in order-service, so it decides what the
+  courier gets. It is paid from the requester's reservation first.
+- If the reservation holds more, the surplus returns to the requester's
+  `available` balance. This happens when an adjust that order-service dropped
+  (the courier accepted while an edit was pending) has not been reverted yet.
+  The late revert is then refused with `RESERVATION_NOT_ACTIVE`, which
+  order-service ignores.
+- If the reservation holds less, the shortfall is taken from the requester's
+  `available` balance. This happens when a lowered edit was dropped and its
+  revert was refused because the requester had spent the freed credits. If
+  `available` cannot cover the shortfall, nothing moves and the result is
+  `credit.operation_failed` (`INSUFFICIENT_CREDITS`).
 - Answer is `credit.transferred` also when it was already transferred.
 - Fails with `credit.operation_failed` if the reservation was released
   (`RESERVATION_ALREADY_RELEASED`, also for a tombstone), does not exist
-  (`RESERVATION_NOT_FOUND`), the amount differs (`AMOUNT_MISMATCH`), or the
-  requester or courier has no wallet (`ACCOUNT_NOT_FOUND`).
+  (`RESERVATION_NOT_FOUND`), or the requester or courier has no wallet
+  (`ACCOUNT_NOT_FOUND`).
 
 ## Results
 
@@ -239,14 +254,14 @@ the fields below. Absent fields are omitted, never `null`.
 | `credit.reserve` | `credit.reserved` `{amount}` | `credit.reservation_refused` `{code}`: `INSUFFICIENT_CREDITS`, `ACCOUNT_NOT_FOUND`, `RESERVATION_RELEASED` |
 | `credit.adjust` | `credit.adjusted` `{amount, seq}` | `credit.adjust_refused` `{code, seq}`: `INSUFFICIENT_CREDITS`, `RESERVATION_NOT_ACTIVE` |
 | `credit.release` | `credit.released` `{}` | `credit.operation_failed` `{code}`: `RESERVATION_ALREADY_TRANSFERRED` |
-| `credit.transfer` | `credit.transferred` `{}` | `credit.operation_failed` `{code}`: `RESERVATION_ALREADY_RELEASED`, `RESERVATION_NOT_FOUND`, `AMOUNT_MISMATCH`, `ACCOUNT_NOT_FOUND` |
+| `credit.transfer` | `credit.transferred` `{}` | `credit.operation_failed` `{code}`: `INSUFFICIENT_CREDITS`, `RESERVATION_ALREADY_RELEASED`, `RESERVATION_NOT_FOUND`, `ACCOUNT_NOT_FOUND` |
 
 `credit.operation_failed` means a state that should be impossible, or a
 contract bug. Order-service marks its outbox row `FAILED` for an admin and
-does not retry it. `RESERVATION_NOT_FOUND` and `AMOUNT_MISMATCH` are **not** in the
-`OperationFailedData` code list of `docs/asyncapi.yaml` yet (`ACCOUNT_NOT_FOUND`
-is). Order-service only stores the code, so adding them should not change its
-behaviour. Agree this with its owner and add them to the list.
+does not retry it. `RESERVATION_NOT_FOUND` is **not** in the
+`OperationFailedData` code list of `docs/asyncapi.yaml` yet (the other codes
+are). Order-service only stores the code, so adding it should not change its
+behaviour. Agree this with its owner and add it to the list.
 
 Samples, for errand `E`:
 
@@ -279,13 +294,15 @@ Samples, for errand `E`:
 
 ## Result outbox
 
-**Proposed.** Credit-service must not lose a result after it changes a
-balance. So the consumer does not publish a result directly. In the same
-transaction as the balance change it inserts a row in an `outbox` table. A
-separate worker publishes the rows.
+Credit-service must not lose a result after it changes a balance. So a
+command does not publish its result directly. In the same transaction as the
+balance change it inserts a row in the `outbox` table (built:
+`creditmsg.OutboxRecorder`). A separate worker publishes the rows (proposed,
+not built). If a command is delivered again, its stored result is queued again
+unless the row is still `PENDING`; this is how a lost result is recovered.
 
-- Row key = the result `messageId`. It is unique, so a repeated command cannot
-  create a second row.
+- Row key = the result `messageId`; the payload is the full envelope. The key
+  is unique, so a repeated command cannot create a second row.
 - Row lifecycle: `PENDING` → leased by a worker → `SENT` after the broker
   confirms. A failed publish is retried with growing delay; after the maximum
   attempts the row becomes `FAILED`.
@@ -300,14 +317,26 @@ confirm results.
 
 ## Consumer behaviour
 
-**Proposed.** For each message from `credit-service.commands`:
+For each message from `credit-service.commands`, `creditmsg.Consumer` calls
+`Handler.Handle` and settles the message by `DispositionOf(err)`:
 
 | Case | Action |
 | --- | --- |
 | Command applied, or a stored result replayed; result row is in the outbox | `ack` |
-| Unknown routing key or `type`, body that is not valid JSON, `ErrInvalid`, or `ErrConflict` | `reject` without requeue, so it goes to the dead-letter queue |
-| Database or other temporary error | `nack` with requeue; the queue's delivery limit stops an endless loop |
+| Unknown routing key or `type`, body that is not valid JSON, `ErrInvalid`, or `ErrConflict` | `nack` without requeue, so it goes to the dead-letter queue |
+| Database or other temporary error | wait with backoff, then `nack` with requeue |
+| Temporary error on the 5th attempt | `nack` without requeue (dead-letter) |
 
-The consumer acks only after the transaction has committed. Credit-service
-does not rely on the order of messages: the tombstone and `seq` rules make late
-and repeated messages safe.
+The consumer acks only after the transaction has committed. It handles one
+message at a time (prefetch 16 only buffers). A panic in the handler counts as
+a temporary error. Credit-service does not rely on the order of messages: the
+tombstone and `seq` rules make late and repeated messages safe.
+
+**Attempt limit.** RabbitMQ 4.4 does not count a message that is requeued with
+`basic.nack` against the queue's `x-delivery-limit`; such a message is
+delivered again for ever. So the consumer counts attempts itself, from the
+`x-acquired-count` header that the broker sets on a redelivery, and
+dead-letters on the 5th. The header is kept by the broker, so the count
+survives a restart and is shared by replicas. A dead-lettered command is not
+lost: order-service sends a command again if it gets no result in 10 minutes,
+and a repeat gets the stored result.
