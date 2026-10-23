@@ -33,6 +33,10 @@ type fakeDeletionStore struct {
 	deleteCurrentErr      error
 	completeErr           error
 	retryErr              error
+	listErr               error
+	// stealClaimOnDelete simulates another worker taking over the
+	// operation before the supplier write.
+	stealClaimOnDelete bool
 
 	createOrGetCalls int
 	claimCalls       int
@@ -84,7 +88,19 @@ func (f *fakeDeletionStore) GetDeletion(_ context.Context, opID supplier.Deletio
 }
 
 func (f *fakeDeletionStore) ListClaimableDeletions(_ context.Context, _ time.Time, _ int) ([]supplier.DeletionRecord, error) {
-	return nil, nil
+	if f.listErr != nil {
+		return nil, f.listErr
+	}
+	var due []supplier.DeletionRecord
+	for _, rec := range f.records {
+		switch rec.State {
+		case supplier.DeletionRequested, supplier.DeletionReleasePending, supplier.DeletionCommitPending:
+			if rec.NextAttemptAt != nil {
+				due = append(due, rec)
+			}
+		}
+	}
+	return due, nil
 }
 
 func (f *fakeDeletionStore) ClaimDeletion(_ context.Context, opID supplier.DeletionOperationID, claimID supplier.DeletionClaimID, now, leaseExpiresAt time.Time) (supplier.DeletionRecord, bool, error) {
@@ -134,6 +150,11 @@ func (f *fakeDeletionStore) MarkDeletionRejectedActiveErrands(_ context.Context,
 
 func (f *fakeDeletionStore) DeleteCurrentAndMarkCommitPending(_ context.Context, _ supplier.SupplierID, opID supplier.DeletionOperationID, _ supplier.DeletionClaimID, now time.Time) error {
 	f.deleteCalls++
+	if f.stealClaimOnDelete {
+		rec := f.records[opID]
+		rec.ClaimID = "11111111-1111-4111-8111-111111111111"
+		f.records[opID] = rec
+	}
 	if f.deleteCurrentErr != nil {
 		return f.deleteCurrentErr
 	}
@@ -356,6 +377,7 @@ func TestDeleteSupplierSuccessfulGuardedDeletion(t *testing.T) {
 	fence := &fakeOrderDeletionFence{
 		acquireFence: Fence{
 			OperationID:      testOperationID,
+			SupplierID:       testSupplierID,
 			State:            FenceOpen,
 			HasActiveErrands: false,
 		},
@@ -381,6 +403,7 @@ func TestDeleteSupplierActiveErrandsRejection(t *testing.T) {
 	fence := &fakeOrderDeletionFence{
 		acquireFence: Fence{
 			OperationID:      testOperationID,
+			SupplierID:       testSupplierID,
 			State:            FenceOpen,
 			HasActiveErrands: true,
 		},
@@ -405,6 +428,7 @@ func TestDeleteSupplierActiveErrandsReleaseFailure(t *testing.T) {
 	fence := &fakeOrderDeletionFence{
 		acquireFence: Fence{
 			OperationID:      testOperationID,
+			SupplierID:       testSupplierID,
 			State:            FenceOpen,
 			HasActiveErrands: true,
 		},
@@ -426,6 +450,7 @@ func TestDeleteSupplierAcquireFailureDisambiguatedByInspectNoActiveErrands(t *te
 		acquireErr: errors.New("timeout calling acquire"),
 		inspectFence: Fence{
 			OperationID:      testOperationID,
+			SupplierID:       testSupplierID,
 			State:            FenceOpen,
 			HasActiveErrands: false,
 		},
@@ -445,6 +470,7 @@ func TestDeleteSupplierAcquireFailureDisambiguatedByInspectHasActiveErrands(t *t
 		acquireErr: errors.New("timeout calling acquire"),
 		inspectFence: Fence{
 			OperationID:      testOperationID,
+			SupplierID:       testSupplierID,
 			State:            FenceOpen,
 			HasActiveErrands: true,
 		},
@@ -480,6 +506,7 @@ func TestDeleteSupplierSoftDeleteFailsReleasesFence(t *testing.T) {
 	fence := &fakeOrderDeletionFence{
 		acquireFence: Fence{
 			OperationID:      testOperationID,
+			SupplierID:       testSupplierID,
 			State:            FenceOpen,
 			HasActiveErrands: false,
 		},
@@ -497,6 +524,7 @@ func TestDeleteSupplierCommitFailsReturnsAccepted202(t *testing.T) {
 	fence := &fakeOrderDeletionFence{
 		acquireFence: Fence{
 			OperationID:      testOperationID,
+			SupplierID:       testSupplierID,
 			State:            FenceOpen,
 			HasActiveErrands: false,
 		},
@@ -519,12 +547,14 @@ func TestDeleteSupplierCommitFailsDisambiguatedByInspectCommitted(t *testing.T) 
 	fence := &fakeOrderDeletionFence{
 		acquireFence: Fence{
 			OperationID:      testOperationID,
+			SupplierID:       testSupplierID,
 			State:            FenceOpen,
 			HasActiveErrands: false,
 		},
 		commitErr: errors.New("connection reset"),
 		inspectFence: Fence{
 			OperationID:      testOperationID,
+			SupplierID:       testSupplierID,
 			State:            FenceCommitted,
 			HasActiveErrands: false,
 		},

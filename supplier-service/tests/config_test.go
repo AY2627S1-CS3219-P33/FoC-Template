@@ -1,7 +1,9 @@
 package tests
 
 import (
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -94,5 +96,65 @@ func TestAuth0Configuration_NFR3_4(t *testing.T) {
 	}
 	base["AUTH0_CLOCK_SKEW"] = "0s"
 	_, err = config.LoadFrom(mapLookup(base))
+	require.NoError(t, err)
+}
+
+func TestOrderServiceConfigurationIsOptional(t *testing.T) {
+	base := map[string]string{"APP_ENV": "test", "TEST_DATABASE_URL": "postgresql://test@localhost/test", "AUTH0_ISSUER": "https://tenant.example.com/", "SUPPLIER_SEED_CSV_PATH": "/deployment/suppliers.csv"}
+	cfg, err := config.LoadFrom(mapLookup(base))
+	require.NoError(t, err)
+	require.False(t, cfg.OrderService.Enabled())
+
+	base["ORDER_SERVICE_URL"] = "http://order-service:3003"
+	base["SUPPLIER_M2M_CLIENT_ID"] = "supplier-client"
+	base["SUPPLIER_M2M_CLIENT_SECRET"] = "secret-password"
+	cfg, err = config.LoadFrom(mapLookup(base))
+	require.NoError(t, err)
+	require.True(t, cfg.OrderService.Enabled())
+	require.Equal(t, "https://api.foc.local/order-service", cfg.OrderService.Audience)
+	require.Equal(t, 2*time.Second, cfg.OrderService.Timeout)
+	require.Equal(t, 2, cfg.OrderService.MaxAttempts)
+	require.Equal(t, 15*time.Second, cfg.OrderService.ReconcileInterval)
+	require.NotContains(t, fmt.Sprintf("%v %+v %#v", cfg, cfg, cfg), "secret-password")
+}
+
+func TestOrderServiceConfigurationRejectsInvalidValuesWithoutLeaking(t *testing.T) {
+	base := map[string]string{
+		"APP_ENV": "test", "TEST_DATABASE_URL": "postgresql://test@localhost/test", "AUTH0_ISSUER": "https://tenant.example.com/",
+		"SUPPLIER_SEED_CSV_PATH": "/deployment/suppliers.csv", "ORDER_SERVICE_URL": "http://order-service:3003",
+		"SUPPLIER_M2M_CLIENT_ID": "supplier-client", "SUPPLIER_M2M_CLIENT_SECRET": "secret-password",
+	}
+	for _, tt := range []struct{ key, value string }{
+		{"ORDER_SERVICE_URL", "http://order-service:3003/"}, {"ORDER_SERVICE_URL", "order-service:3003"},
+		{"ORDER_SERVICE_URL", "http://user:secret-password@order-service"}, {"ORDER_SERVICE_URL", "http://order-service?secret-password"},
+		{"SUPPLIER_M2M_CLIENT_ID", ""}, {"SUPPLIER_M2M_CLIENT_SECRET", ""},
+		{"ORDER_AUDIENCE", "https://a, https://b"},
+		{"ORDER_SERVICE_TIMEOUT", "0s"}, {"ORDER_SERVICE_TIMEOUT", "1m"},
+		{"ORDER_SERVICE_MAX_ATTEMPTS", "0"}, {"ORDER_SERVICE_MAX_ATTEMPTS", "6"},
+		{"DELETION_RECONCILE_INTERVAL", "-1s"},
+	} {
+		t.Run(tt.key+" "+tt.value, func(t *testing.T) {
+			values := map[string]string{}
+			for k, v := range base {
+				values[k] = v
+			}
+			values[tt.key] = tt.value
+			_, err := config.LoadFrom(mapLookup(values))
+			require.Error(t, err)
+			require.Contains(t, err.Error(), tt.key)
+			require.NotContains(t, err.Error(), "secret-password")
+		})
+	}
+
+	production := map[string]string{}
+	for k, v := range base {
+		production[k] = v
+	}
+	production["APP_ENV"] = "production"
+	production["DATABASE_URL"] = "postgresql://test@localhost/test"
+	_, err := config.LoadFrom(mapLookup(production))
+	require.ErrorContains(t, err, "ORDER_SERVICE_URL")
+	production["ORDER_SERVICE_URL"] = "https://order-service.example.com"
+	_, err = config.LoadFrom(mapLookup(production))
 	require.NoError(t, err)
 }

@@ -8,8 +8,10 @@ import (
 
 // Fence is the observable state of an order-service reservation plus the
 // active-errand result recorded when creation of new errands was blocked.
+// SupplierID is the supplier the operation ID is bound to in order-service.
 type Fence struct {
 	OperationID      supplier.DeletionOperationID
+	SupplierID       supplier.SupplierID
 	State            FenceState
 	HasActiveErrands bool
 }
