@@ -160,130 +160,29 @@ func (h Handler) delete(response http.ResponseWriter, request *http.Request) {
 		}
 	}
 
-	// 3. Process claimed operation based on state.
-	switch claimedRecord.State {
-	case supplier.DeletionReleasePending:
-		if err := h.fence.Release(ctx, opID); err != nil {
-			nextAttempt := h.retryTime(claimedRecord.AttemptCount, claimedRecord.MaxAttempts, now)
-			_ = h.store.ScheduleDeletionRetry(ctx, opID, claimID, supplier.DeletionFailureReleaseUnavailable, nextAttempt, now)
-			writeError(response, http.StatusServiceUnavailable, apperror.DeletionFenceUnavailable, "deletion fence could not be released safely")
-			return
-		}
-		if err := h.store.MarkDeletionRejectedActiveErrands(ctx, opID, claimID, now); err != nil {
-			writeError(response, http.StatusInternalServerError, apperror.Internal, "an unexpected internal error occurred")
-			return
-		}
+	// 3. Advance the claimed operation and report where it stopped.
+	switch h.workflow().advance(ctx, claimedRecord, claimID, now) {
+	case OutcomeCompleted:
+		response.WriteHeader(http.StatusNoContent)
+	case OutcomeRejectedActiveErrands:
 		writeError(response, http.StatusConflict, apperror.SupplierHasActiveErrands, "supplier has active errands")
-		return
-
-	case supplier.DeletionCommitPending:
-		commitErr := h.fence.Commit(ctx, opID)
-		if commitErr != nil {
-			if inspFence, inspErr := h.fence.Inspect(ctx, opID); inspErr == nil && inspFence.State == FenceCommitted {
-				commitErr = nil
-			}
-		}
-		if commitErr != nil {
-			nextAttempt := h.retryTime(claimedRecord.AttemptCount, claimedRecord.MaxAttempts, now)
-			_ = h.store.ScheduleDeletionRetry(ctx, opID, claimID, supplier.DeletionFailureCommitUnavailable, nextAttempt, now)
-			writeDeletionPending(response, opID)
-			return
-		}
-		if err := h.store.CompleteDeletion(ctx, opID, claimID, now); err != nil {
-			writeError(response, http.StatusInternalServerError, apperror.Internal, "an unexpected internal error occurred")
-			return
-		}
-		response.WriteHeader(http.StatusNoContent)
-		return
-
-	case supplier.DeletionRequested:
-		fence, err := h.fence.Acquire(ctx, opID, supplierID)
-		if err != nil {
-			var inspErr error
-			fence, inspErr = h.fence.Inspect(ctx, opID)
-			if inspErr != nil {
-				nextAttempt := h.retryTime(claimedRecord.AttemptCount, claimedRecord.MaxAttempts, now)
-				_ = h.store.ScheduleDeletionRetry(ctx, opID, claimID, supplier.DeletionFailureAcquireUnavailable, nextAttempt, now)
-				writeError(response, http.StatusServiceUnavailable, apperror.DeletionFenceUnavailable, "deletion fence is unavailable")
-				return
-			}
-		}
-
-		if fence.State == FenceCommitted {
-			_ = h.store.DeleteCurrentAndMarkCommitPending(ctx, supplierID, opID, claimID, now)
-			if err := h.store.CompleteDeletion(ctx, opID, claimID, now); err != nil {
-				writeError(response, http.StatusInternalServerError, apperror.Internal, "an unexpected internal error occurred")
-				return
-			}
-			response.WriteHeader(http.StatusNoContent)
-			return
-		}
-
-		if fence.HasActiveErrands {
-			if err := h.store.MarkDeletionReleasePending(ctx, opID, claimID, now); err != nil {
-				writeError(response, http.StatusInternalServerError, apperror.Internal, "an unexpected internal error occurred")
-				return
-			}
-			if err := h.fence.Release(ctx, opID); err != nil {
-				nextAttempt := h.retryTime(claimedRecord.AttemptCount, claimedRecord.MaxAttempts, now)
-				_ = h.store.ScheduleDeletionRetry(ctx, opID, claimID, supplier.DeletionFailureReleaseUnavailable, nextAttempt, now)
-				writeError(response, http.StatusServiceUnavailable, apperror.DeletionFenceUnavailable, "deletion fence could not be released safely")
-				return
-			}
-			if err := h.store.MarkDeletionRejectedActiveErrands(ctx, opID, claimID, now); err != nil {
-				writeError(response, http.StatusInternalServerError, apperror.Internal, "an unexpected internal error occurred")
-				return
-			}
-			writeError(response, http.StatusConflict, apperror.SupplierHasActiveErrands, "supplier has active errands")
-			return
-		}
-
-		// No active errands: atomically soft-delete current supplier and mark commit_pending.
-		if err := h.store.DeleteCurrentAndMarkCommitPending(ctx, supplierID, opID, claimID, now); err != nil {
-			// Supplier write failed (e.g. concurrent deletion already deleted it or DB error).
-			// Release the order fence fail-closed so order creation is not permanently blocked.
-			_ = h.fence.Release(ctx, opID)
-			if isSupplierNotFound(err) {
-				writeError(response, http.StatusNotFound, apperror.SupplierNotFound, "supplier not found")
-				return
-			}
-			writeError(response, http.StatusInternalServerError, apperror.Internal, "an unexpected internal error occurred")
-			return
-		}
-
-		// Supplier is soft-deleted; state is commit_pending. Commit the fence in order-service.
-		commitErr := h.fence.Commit(ctx, opID)
-		if commitErr != nil {
-			if inspFence, inspErr := h.fence.Inspect(ctx, opID); inspErr == nil && inspFence.State == FenceCommitted {
-				commitErr = nil
-			}
-		}
-		if commitErr != nil {
-			nextAttempt := h.retryTime(claimedRecord.AttemptCount, claimedRecord.MaxAttempts, now)
-			_ = h.store.ScheduleDeletionRetry(ctx, opID, claimID, supplier.DeletionFailureCommitUnavailable, nextAttempt, now)
-			writeDeletionPending(response, opID)
-			return
-		}
-
-		if err := h.store.CompleteDeletion(ctx, opID, claimID, now); err != nil {
-			writeError(response, http.StatusInternalServerError, apperror.Internal, "an unexpected internal error occurred")
-			return
-		}
-		response.WriteHeader(http.StatusNoContent)
-		return
-
+	case OutcomeCommitPending:
+		writeDeletionPending(response, opID)
+	case OutcomeFenceUnavailable:
+		writeError(response, http.StatusServiceUnavailable, apperror.DeletionFenceUnavailable, "deletion fence is unavailable")
+	case OutcomeReleaseUnavailable:
+		writeError(response, http.StatusServiceUnavailable, apperror.DeletionFenceUnavailable, "deletion fence could not be released safely")
+	case OutcomeFenceReleased:
+		writeError(response, http.StatusServiceUnavailable, apperror.DeletionFenceUnavailable, "deletion fence was released; retry with a new Idempotency-Key")
+	case OutcomeSupplierNotFound:
+		writeError(response, http.StatusNotFound, apperror.SupplierNotFound, "supplier not found")
 	default:
 		writeError(response, http.StatusInternalServerError, apperror.Internal, "an unexpected internal error occurred")
-		return
 	}
 }
 
-func (h Handler) retryTime(attemptCount, maxAttempts int, now time.Time) *time.Time {
-	if attemptCount >= maxAttempts {
-		return nil
-	}
-	t := now.Add(h.retryBackoff)
-	return &t
+func (h Handler) workflow() workflow {
+	return workflow{store: h.store, fence: h.fence, retryBackoff: h.retryBackoff}
 }
 
 func isSupplierNotFound(err error) bool {

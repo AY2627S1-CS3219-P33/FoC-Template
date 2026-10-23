@@ -5,10 +5,14 @@ seed data, and immutable record versions. Planned scope and requirement IDs are
 defined in [docs/product-backlog.md](docs/product-backlog.md).
 
 The runtime registers catalogue, immutable-version, create, update, and delete
-routes using local Auth0 JWT validation. DELETE is wired to the durable B5
-workflow but returns `503 DELETION_FENCE_UNAVAILABLE` while the B4 order-service
-fence is absent; suppliers remain available. The B6 background reconciler is
-not yet implemented. See [Auth0 setup and acceptance](docs/auth0.md) for C1.
+routes using local Auth0 JWT validation. DELETE runs the durable B5 workflow
+against order-service's supplier fence through the B4 client
+([`internal/orderclient`](internal/orderclient/client.go)), authenticated with
+supplier-service's own Auth0 M2M token (`orders:internal`). The B6 reconciler
+resumes unfinished deletions in the background. Deletion is enabled only when
+`ORDER_SERVICE_URL` and the `SUPPLIER_M2M_*` credentials are set; otherwise
+DELETE fails closed with `503 DELETION_FENCE_UNAVAILABLE` and suppliers remain
+available. See [Auth0 setup and acceptance](docs/auth0.md) for C1.
 The frozen domain and HTTP decisions are documented in
 [docs/contracts.md](docs/contracts.md). [openapi.yaml](openapi.yaml) composes
 separate catalogue, administration, and common contract fragments.
@@ -159,7 +163,8 @@ atomic, so any provenance row for that namespace represents a completed import,
 not a partial dataset.
 
 Readiness currently covers database/seed state and Auth0 keys. It does not
-claim deletion availability while B4/B6 are outstanding.
+depend on order-service: catalogue reads stay available while it is down, and
+only deletion fails closed.
 
 In CI environments with CGO and a C compiler available, also run the race
 detector:
