@@ -155,6 +155,12 @@ services:
       DATABASE_URL: postgresql://supplier_service:${SUPPLIER_DB_PASSWORD:-supplier-local-dev}@supplier-db:5432/supplier_service?sslmode=disable
       AUTH0_ISSUER: ${SUPPLIER_AUTH0_ISSUER:-https://your-tenant.auth0.com/}
       AUTH0_AUDIENCE: ${SUPPLIER_AUTH0_AUDIENCE:-https://api.foc.local/supplier-service}
+      # Supplier deletion needs the order-service fence. Empty disables it
+      # (DELETE fails closed with 503); set all three in the root .env.
+      ORDER_SERVICE_URL: ${SUPPLIER_ORDER_SERVICE_URL:-}
+      SUPPLIER_M2M_CLIENT_ID: ${SUPPLIER_M2M_CLIENT_ID:-}
+      SUPPLIER_M2M_CLIENT_SECRET: ${SUPPLIER_M2M_CLIENT_SECRET:-}
+      ORDER_AUDIENCE: ${ORDER_AUDIENCE:-https://api.foc.local/order-service}
     depends_on:
       supplier-db:
         condition: service_healthy

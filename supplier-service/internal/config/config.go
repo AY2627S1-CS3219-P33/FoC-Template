@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"log/slog"
 	"net"
 	"net/url"
 	"os"
@@ -36,8 +37,52 @@ type DatabaseConfig struct {
 	MaxConnections int32
 }
 
+// OrderServiceConfig configures the order-service deletion fence client
+// and the deletion reconciler. An empty URL disables deletion: requests then
+// fail closed with DELETION_FENCE_UNAVAILABLE.
+type OrderServiceConfig struct {
+	URL string
+	// ClientID and ClientSecret are supplier-service's Auth0 M2M
+	// application, authorised for Audience with orders:internal only.
+	ClientID          string
+	ClientSecret      string
+	Audience          string
+	Timeout           time.Duration
+	MaxAttempts       int
+	ReconcileInterval time.Duration
+}
+
+func (c OrderServiceConfig) Enabled() bool { return c.URL != "" }
+
+// String redacts the client secret so formatting a Config cannot leak it.
+func (c OrderServiceConfig) String() string {
+	return fmt.Sprintf("config.OrderServiceConfig{URL:%s ClientID:%s ClientSecret:%s Audience:%s Timeout:%s MaxAttempts:%d ReconcileInterval:%s}",
+		c.URL, c.ClientID, redacted(c.ClientSecret), c.Audience, c.Timeout, c.MaxAttempts, c.ReconcileInterval)
+}
+
+// GoString redacts the client secret for %#v.
+func (c OrderServiceConfig) GoString() string { return c.String() }
+
+// LogValue redacts the client secret when the config is passed to slog.
+func (c OrderServiceConfig) LogValue() slog.Value {
+	return slog.GroupValue(
+		slog.String("url", c.URL),
+		slog.String("client_id", c.ClientID),
+		slog.String("client_secret", redacted(c.ClientSecret)),
+		slog.String("audience", c.Audience),
+	)
+}
+
+func redacted(secret string) string {
+	if secret == "" {
+		return ""
+	}
+	return "[REDACTED]"
+}
+
 type Config struct {
 	Auth            auth.Auth0Config
+	OrderService    OrderServiceConfig
 	Environment     Environment
 	HTTP            HTTPConfig
 	Database        DatabaseConfig
@@ -124,14 +169,16 @@ func LoadFrom(lookup LookupEnv) (Config, error) {
 	if err := authConfig.Validate(); err != nil {
 		problems = append(problems, err.Error())
 	}
+	orderService := readOrderService(lookup, environment, &problems)
 
 	if len(problems) > 0 {
 		return Config{}, &Error{problems: problems}
 	}
 
 	return Config{
-		Auth:        authConfig,
-		Environment: environment,
+		Auth:         authConfig,
+		OrderService: orderService,
+		Environment:  environment,
 		HTTP: HTTPConfig{
 			Host: host,
 			Port: port,
@@ -147,6 +194,49 @@ func LoadFrom(lookup LookupEnv) (Config, error) {
 		LogLevel:        logLevel,
 		ShutdownTimeout: shutdownTimeout,
 	}, nil
+}
+
+// readOrderService reports problems by variable name only; URLs and
+// credentials are never echoed.
+func readOrderService(lookup LookupEnv, environment Environment, problems *[]string) OrderServiceConfig {
+	cfg := OrderServiceConfig{
+		URL:               strings.TrimSpace(read(lookup, "ORDER_SERVICE_URL", "")),
+		Audience:          strings.TrimSpace(read(lookup, "ORDER_AUDIENCE", "https://api.foc.local/order-service")),
+		Timeout:           readDuration(lookup, "ORDER_SERVICE_TIMEOUT", 2*time.Second, problems),
+		MaxAttempts:       readInt(lookup, "ORDER_SERVICE_MAX_ATTEMPTS", 2, 1, 5, problems),
+		ReconcileInterval: readDuration(lookup, "DELETION_RECONCILE_INTERVAL", 15*time.Second, problems),
+	}
+	if cfg.Timeout > 30*time.Second {
+		*problems = append(*problems, "ORDER_SERVICE_TIMEOUT must not exceed 30s")
+	}
+	if !cfg.Enabled() {
+		return cfg
+	}
+	if !validOrderServiceURL(cfg.URL, environment) {
+		*problems = append(*problems, "ORDER_SERVICE_URL must be an http(s) URL without a trailing slash, query, or credentials, and https when APP_ENV=production")
+	}
+	cfg.ClientID = strings.TrimSpace(required(lookup, "SUPPLIER_M2M_CLIENT_ID", problems))
+	cfg.ClientSecret = required(lookup, "SUPPLIER_M2M_CLIENT_SECRET", problems)
+	if !validAudience(cfg.Audience) {
+		*problems = append(*problems, "ORDER_AUDIENCE must be a nonempty API identifier")
+	}
+	return cfg
+}
+
+func validAudience(audience string) bool {
+	return audience != "" && !strings.ContainsAny(audience, " \t\r\n,")
+}
+
+func validOrderServiceURL(value string, environment Environment) bool {
+	parsed, err := url.Parse(value)
+	if err != nil || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" ||
+		parsed.ForceQuery || parsed.Fragment != "" || strings.HasSuffix(value, "/") {
+		return false
+	}
+	if environment == Production {
+		return parsed.Scheme == "https"
+	}
+	return parsed.Scheme == "https" || parsed.Scheme == "http"
 }
 
 func read(lookup LookupEnv, key, fallback string) string {

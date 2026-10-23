@@ -15,12 +15,14 @@ import (
 	"github.com/CS3219-AY2627S1/FoC-Template/supplier-service/internal/database"
 	"github.com/CS3219-AY2627S1/FoC-Template/supplier-service/internal/database/supplierrepo"
 	"github.com/CS3219-AY2627S1/FoC-Template/supplier-service/internal/readiness"
+	deletefeature "github.com/CS3219-AY2627S1/FoC-Template/supplier-service/internal/supplier/delete"
 	"github.com/CS3219-AY2627S1/FoC-Template/supplier-service/internal/supplier/seed"
 )
 
 type Application struct {
 	database        *pgxpool.Pool
 	server          *http.Server
+	reconciler      *deletefeature.Reconciler
 	shutdownTimeout time.Duration
 }
 
@@ -53,11 +55,22 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger, authOption
 	}
 
 	repository := supplierrepo.New(pool, logger)
-	// PLACEHOLDER: Using AllowAllDeletionFence instead of UnavailableDeletionFence
-	// to allow supplier deletion while the order-service fence is not yet implemented.
+	fence, err := newDeletionFence(cfg, logger)
+	if err != nil {
+		pool.Close()
+		return nil, err
+	}
 	handler := NewHandler(logger, verifier, allReady{
 		readiness.NewPostgresChecker(pool, cfg.SeedNamespace), verifier,
-	}, repository, repository, repository, repository, AllowAllDeletionFence{})
+	}, repository, repository, repository, repository, fence)
+
+	// Without order-service every retry would fail, so pending operations
+	// wait for a configured restart instead of exhausting their attempts.
+	var reconciler *deletefeature.Reconciler
+	if cfg.OrderService.Enabled() {
+		r := deletefeature.NewReconciler(repository, fence, cfg.OrderService.ReconcileInterval, logger)
+		reconciler = &r
+	}
 
 	return &Application{
 		database: pool,
@@ -69,6 +82,7 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger, authOption
 			WriteTimeout:      15 * time.Second,
 			IdleTimeout:       60 * time.Second,
 		},
+		reconciler:      reconciler,
 		shutdownTimeout: cfg.ShutdownTimeout,
 	}, nil
 }
@@ -78,6 +92,21 @@ func (a *Application) Handler() http.Handler {
 }
 
 func (a *Application) Run(ctx context.Context) error {
+	if a.reconciler != nil {
+		// Stop the reconciler and wait for its current operation before
+		// returning, so Close never shuts the pool under it.
+		reconcileCtx, stopReconciler := context.WithCancel(ctx)
+		reconcilerDone := make(chan struct{})
+		go func() {
+			defer close(reconcilerDone)
+			a.reconciler.Run(reconcileCtx)
+		}()
+		defer func() {
+			stopReconciler()
+			<-reconcilerDone
+		}()
+	}
+
 	serverResult := make(chan error, 1)
 	go func() {
 		err := a.server.ListenAndServe()
