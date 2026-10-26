@@ -75,6 +75,16 @@ export const ACTIVE_STATUSES: readonly ErrandStatus[] = [
   "REVIEW_REQUIRED",
 ];
 
+// Terminal states. Used only to offer "Order again", which creates a new errand
+// through the normal create path; the old errand is never touched.
+export const TERMINAL_STATUSES: readonly ErrandStatus[] = [
+  "COMPLETED",
+  "CANCELLED",
+  "EXPIRED",
+  "REJECTED",
+  "REFUNDED",
+];
+
 export type ReviewReason = "COURIER_ISSUE" | "REQUESTER_DISPUTE" | "DELIVERY_OVERDUE";
 export type ActorType = "REQUESTER" | "COURIER" | "ADMIN" | "SYSTEM";
 export type ViewerRole = "REQUESTER" | "COURIER" | "PUBLIC" | "ADMIN";

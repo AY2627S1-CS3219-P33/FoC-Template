@@ -25,9 +25,26 @@ interface Props {
   // waiting to be accepted.
   footnote?: string;
   onOpen: () => void;
+  // A second action under the card (e.g. "Order again"). It is a sibling of
+  // the card, not inside it, so pressing it never opens the detail.
+  secondaryAction?: { label: string; onClick: () => void };
 }
 
 export function ErrandCard(props: Props) {
+  const card = <CardBody {...props} />;
+  if (!props.secondaryAction) return card;
+  const { label, onClick } = props.secondaryAction;
+  return (
+    <div className="errand-card-stack">
+      {card}
+      <button type="button" className="btn outline slim" onClick={onClick}>
+        {label}
+      </button>
+    </div>
+  );
+}
+
+function CardBody(props: Props) {
   const { pickup, deliveryBuilding, items, reward, status, distanceMeters } = props;
   const count = itemCount(items);
 

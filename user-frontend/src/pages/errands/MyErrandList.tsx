@@ -3,8 +3,10 @@ import {
   listDeliveringErrands,
   listErrandHistory,
   listRequestedErrands,
+  TERMINAL_STATUSES,
   type HistoryRole,
   type ParticipantErrandView,
+  type RequesterErrandView,
 } from "../../api/order";
 import { ErrandCard } from "./ErrandCard";
 import { usePagedList } from "./usePagedList";
@@ -18,6 +20,7 @@ interface Props {
   getToken: () => Promise<string>;
   onOpen: (errandId: string) => void;
   onCreate: () => void;
+  onOrderAgain: (errand: RequesterErrandView) => void;
 }
 
 const PAGE_SIZE = 12;
@@ -85,7 +88,17 @@ function footnote(errand: ParticipantErrandView): string {
   }
 }
 
-export function MyErrandList({ kind, getToken, onOpen, onCreate }: Props) {
+// Only the requester of a finished errand can order it again; a courier's
+// history rows never offer it.
+function orderAgainSource(
+  kind: MyListKind,
+  errand: ParticipantErrandView,
+): RequesterErrandView | null {
+  if (kind !== "history" || errand.viewerRole !== "REQUESTER") return null;
+  return TERMINAL_STATUSES.includes(errand.status) ? errand : null;
+}
+
+export function MyErrandList({ kind, getToken, onOpen, onCreate, onOrderAgain }: Props) {
   const [filter, setFilter] = useState<HistoryFilter>("all");
   const role = kind === "history" && filter !== "all" ? filter : undefined;
 
@@ -147,20 +160,26 @@ export function MyErrandList({ kind, getToken, onOpen, onCreate }: Props) {
       )}
 
       <div className="errand-grid">
-        {list.items.map((errand) => (
-          <ErrandCard
-            key={errand.errandId}
-            pickup={errand.pickup}
-            deliveryBuilding={errand.deliveryBuilding}
-            deliveryDetail={errand.deliveryDetail}
-            items={errand.items}
-            reward={errand.reward}
-            acceptanceDeadline={errand.acceptanceDeadline}
-            status={errand.status}
-            footnote={footnote(errand)}
-            onOpen={() => onOpen(errand.errandId)}
-          />
-        ))}
+        {list.items.map((errand) => {
+          const source = orderAgainSource(kind, errand);
+          return (
+            <ErrandCard
+              key={errand.errandId}
+              pickup={errand.pickup}
+              deliveryBuilding={errand.deliveryBuilding}
+              deliveryDetail={errand.deliveryDetail}
+              items={errand.items}
+              reward={errand.reward}
+              acceptanceDeadline={errand.acceptanceDeadline}
+              status={errand.status}
+              footnote={footnote(errand)}
+              onOpen={() => onOpen(errand.errandId)}
+              secondaryAction={
+                source ? { label: "Order again", onClick: () => onOrderAgain(source) } : undefined
+              }
+            />
+          );
+        })}
       </div>
 
       {list.loading && <p className="muted center mt">Loading…</p>}
