@@ -370,8 +370,13 @@ func (s *FakeStore) ListDelivering(_ context.Context, q errand.UserListQuery) (e
 }
 
 func (s *FakeStore) ListHistory(_ context.Context, q errand.UserListQuery) (errand.Page[errand.UserListCursor], error) {
+	requested := q.Role == errand.HistoryAny || q.Role == errand.HistoryRequester
+	delivered := q.Role == errand.HistoryAny || q.Role == errand.HistoryCourier
+	if !requested && !delivered {
+		return errand.Page[errand.UserListCursor]{}, appErr(apperror.InvalidArgument, "unknown history role")
+	}
 	return s.listUser("ListHistory", q, func(e errand.Errand) bool {
-		return (e.RequesterID == q.UserID || e.CourierID == q.UserID) && e.Status.Terminal()
+		return ((requested && e.RequesterID == q.UserID) || (delivered && e.CourierID == q.UserID)) && e.Status.Terminal()
 	}, func(e errand.Errand) time.Time { return e.UpdatedAt })
 }
 

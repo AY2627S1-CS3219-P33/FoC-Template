@@ -134,9 +134,12 @@ type Store interface {
 
 	// ListHistory lists the terminal errands in which q.UserID is the
 	// requester or the courier, most recently updated first by (updated_at,
-	// id) (F3.13). A courier who withdrew is no longer the errand's courier,
-	// so that errand is not in their history.
-	// Errors: INVALID_ARGUMENT for a limit outside 1..MaxListLimit.
+	// id) (F3.13). q.Role narrows it to the errands q.UserID requested
+	// (HistoryRequester) or delivered (HistoryCourier); HistoryAny keeps
+	// both. A courier who withdrew is no longer the errand's courier, so
+	// that errand is not in their history under any role.
+	// Errors: INVALID_ARGUMENT for a limit outside 1..MaxListLimit or an
+	// unknown role.
 	ListHistory(ctx context.Context, q UserListQuery) (Page[UserListCursor], error)
 
 	// CourierHistory reads the withdrawal history Accept needs for
@@ -209,9 +212,23 @@ type OpenCursor struct {
 // UserListQuery selects one user's errands (A7).
 type UserListQuery struct {
 	UserID string
-	After  *UserListCursor
-	Limit  int
+	// Role filters ListHistory by the user's role in each errand;
+	// ListRequested and ListDelivering ignore it.
+	Role  HistoryRole
+	After *UserListCursor
+	Limit int
 }
+
+// HistoryRole is the user's role ListHistory keeps (requester enhancements,
+// R1).
+type HistoryRole string
+
+const (
+	// HistoryAny keeps errands the user requested or delivered.
+	HistoryAny       HistoryRole = ""
+	HistoryRequester HistoryRole = "REQUESTER"
+	HistoryCourier   HistoryRole = "COURIER"
+)
 
 // UserListCursor is the position after the last errand of a per-user page.
 // At is created_at for ListRequested and updated_at for ListDelivering and

@@ -46,7 +46,7 @@ requires that isolation level.
 | `ListOpen` | none | `OPEN` and deadline after `q.Now`, ordered by `(acceptance_deadline, id)`. |
 | `ListRequested` | none | Active errands of the requester, newest `created_at` first. |
 | `ListDelivering` | none | Active errands of the courier, newest `updated_at` first. |
-| `ListHistory` | none | Terminal errands where the user is requester or courier, newest `updated_at` first. |
+| `ListHistory` | none | Terminal errands where the user is requester or courier (or only one, by `Role`), newest `updated_at` first. |
 | `CourierHistory` | none | Counts `withdraw` and `pickup_deadline_passed` rows by `errand_transitions.courier_id`, so forced withdrawals are attributed to the courier. |
 
 ### Rows written with a transition
