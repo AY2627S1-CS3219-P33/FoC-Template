@@ -406,6 +406,57 @@ func TestFakeStoreLists(t *testing.T) {
 	requireCode(t, apperror.InvalidArgument, err)
 }
 
+func TestFakeStoreHistoryRoles(t *testing.T) {
+	ctx := context.Background()
+	s := testfakes.NewFakeStore()
+
+	// courier-a withdrew from e-1 before the requester cancelled it.
+	openErrand(t, s, "e-1", t0)
+	_, _, err := s.Fire(ctx, "e-1", errand.EventAccept, courier("courier-a"), acceptInput(), t0)
+	require.NoError(t, err)
+	_, _, err = s.Fire(ctx, "e-1", errand.EventWithdraw, courier("courier-a"), errand.EventInput{}, t0.Add(time.Minute))
+	require.NoError(t, err)
+	_, _, err = s.Fire(ctx, "e-1", errand.EventCancel, requester(), errand.EventInput{}, t0.Add(2*time.Minute))
+	require.NoError(t, err)
+
+	// courier-a delivered e-2; the requester delivered someone else's e-3.
+	delivered := newErrand("e-2", t0)
+	delivered.Status, delivered.CourierID = errand.StatusCompleted, "courier-a"
+	delivered.UpdatedAt = t0.Add(3 * time.Minute)
+	s.Put(delivered)
+	other := newErrand("e-3", t0)
+	other.RequesterID, other.Status, other.CourierID = "requester-2", errand.StatusCompleted, requesterID
+	other.UpdatedAt = t0.Add(4 * time.Minute)
+	s.Put(other)
+
+	for _, tc := range []struct {
+		name   string
+		userID string
+		role   errand.HistoryRole
+		want   []string
+	}{
+		{"any role", requesterID, errand.HistoryAny, []string{"e-3", "e-2", "e-1"}},
+		{"as requester", requesterID, errand.HistoryRequester, []string{"e-2", "e-1"}},
+		{"as courier", requesterID, errand.HistoryCourier, []string{"e-3"}},
+		{"a courier who withdrew is excluded", "courier-a", errand.HistoryCourier, []string{"e-2"}},
+		{"a courier who withdrew is excluded under any role", "courier-a", errand.HistoryAny, []string{"e-2"}},
+		{"a courier who requested nothing", "courier-a", errand.HistoryRequester, []string{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p, err := s.ListHistory(ctx, errand.UserListQuery{UserID: tc.userID, Role: tc.role, Limit: 10})
+			require.NoError(t, err)
+			got := []string{}
+			for _, e := range p.Items {
+				got = append(got, e.ID)
+			}
+			assert.Equal(t, tc.want, got)
+		})
+	}
+
+	_, err = s.ListHistory(ctx, errand.UserListQuery{UserID: requesterID, Role: "requester", Limit: 10})
+	requireCode(t, apperror.InvalidArgument, err)
+}
+
 func TestFakeStoreCourierHistory(t *testing.T) {
 	ctx := context.Background()
 	s := testfakes.NewFakeStore()

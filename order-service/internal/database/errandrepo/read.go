@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
+	"github.com/CS3219-AY2627S1/FoC-Template/order-service/internal/apperror"
 	"github.com/CS3219-AY2627S1/FoC-Template/order-service/internal/database/errandgen"
 	"github.com/CS3219-AY2627S1/FoC-Template/order-service/internal/errand"
 )
@@ -77,10 +78,18 @@ func (s *Store) ListDelivering(ctx context.Context, q errand.UserListQuery) (err
 }
 
 func (s *Store) ListHistory(ctx context.Context, q errand.UserListQuery) (errand.Page[errand.UserListCursor], error) {
+	var role pgtype.Text
+	switch q.Role {
+	case errand.HistoryAny:
+	case errand.HistoryRequester, errand.HistoryCourier:
+		role = pgtype.Text{String: string(q.Role), Valid: true}
+	default:
+		return errand.Page[errand.UserListCursor]{}, appErr(apperror.InvalidArgument, "unknown history role")
+	}
 	return listUser(q, func(e errand.Errand) time.Time { return e.UpdatedAt },
 		func(at pgtype.Timestamptz, id pgtype.UUID) ([]errandgen.Errand, error) {
 			return s.queries.ListHistory(ctx, errandgen.ListHistoryParams{
-				UserID: q.UserID, Statuses: terminalStatuses(),
+				Role: role, UserID: q.UserID, Statuses: terminalStatuses(),
 				AfterAt: at, AfterID: id, RowLimit: rowLimit(q.Limit + 1),
 			})
 		})
