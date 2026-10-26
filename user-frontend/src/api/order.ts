@@ -514,9 +514,17 @@ export async function listDeliveringErrands(
   );
 }
 
+// Narrows history to errands the caller requested or delivered; omitted, it
+// lists both. A cursor is bound to the role it was issued for.
+export type HistoryRole = "REQUESTER" | "COURIER";
+
+export interface ListHistoryParams extends PageParams {
+  role?: HistoryRole;
+}
+
 export async function listErrandHistory(
   token: string,
-  params: PageParams = {},
+  params: ListHistoryParams = {},
 ): Promise<HistoryPage> {
   return parse<HistoryPage>(
     await fetch(`${BASE}/me/errands/history${query({ ...params })}`, { headers: headers(token) }),
