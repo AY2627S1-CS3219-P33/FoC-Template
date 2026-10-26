@@ -37,7 +37,7 @@ Beyond the D1 wireframes, the shell now carries the other services' screens:
 | Suppliers | Server-side search, type/building filters and sort; admin create, edit, delete | `src/pages/suppliers/SuppliersPage.tsx` |
 | Buildings & types | Admin: add and retire the managed lookup lists | `src/pages/admin/LookupsPage.tsx` |
 | Errands → Browse | Open errands, pickup filter, nearest-first ordering, accept | `src/pages/errands/OpenErrandList.tsx` |
-| Errands → Requested / Delivering / History | The caller's own errands, with the deadline that matters in each state | `src/pages/errands/MyErrandList.tsx` |
+| Errands → Requested / Delivering / History | The caller's own errands, with the deadline that matters in each state; history filters to My orders or My deliveries | `src/pages/errands/MyErrandList.tsx` |
 | Errand detail | Role-aware lifecycle actions (edit, cancel, confirm, dispute, pick up, deliver, withdraw, report) | `src/pages/errands/ErrandDetail.tsx` |
 | Request errand | Supplier picker, building dropdown, items, reward, contact, deadline | `src/pages/errands/ErrandForm.tsx` |
 | Credits | Available / reserved / total, ledger and active holds | `src/pages/credit/CreditPage.tsx` |
