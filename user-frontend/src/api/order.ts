@@ -75,6 +75,16 @@ export const ACTIVE_STATUSES: readonly ErrandStatus[] = [
   "REVIEW_REQUIRED",
 ];
 
+// Terminal states. Used only to offer "Order again", which creates a new errand
+// through the normal create path; the old errand is never touched.
+export const TERMINAL_STATUSES: readonly ErrandStatus[] = [
+  "COMPLETED",
+  "CANCELLED",
+  "EXPIRED",
+  "REJECTED",
+  "REFUNDED",
+];
+
 export type ReviewReason = "COURIER_ISSUE" | "REQUESTER_DISPUTE" | "DELIVERY_OVERDUE";
 export type ActorType = "REQUESTER" | "COURIER" | "ADMIN" | "SYSTEM";
 export type ViewerRole = "REQUESTER" | "COURIER" | "PUBLIC" | "ADMIN";
@@ -514,9 +524,17 @@ export async function listDeliveringErrands(
   );
 }
 
+// Narrows history to errands the caller requested or delivered; omitted, it
+// lists both. A cursor is bound to the role it was issued for.
+export type HistoryRole = "REQUESTER" | "COURIER";
+
+export interface ListHistoryParams extends PageParams {
+  role?: HistoryRole;
+}
+
 export async function listErrandHistory(
   token: string,
-  params: PageParams = {},
+  params: ListHistoryParams = {},
 ): Promise<HistoryPage> {
   return parse<HistoryPage>(
     await fetch(`${BASE}/me/errands/history${query({ ...params })}`, { headers: headers(token) }),

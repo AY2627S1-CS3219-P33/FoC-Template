@@ -7,7 +7,7 @@ requester, courier and history lists`):
 | --- | --- | --- | --- | --- |
 | `GET /me/errands/requested` | `ListRequested` | active errands the caller requested (F3.11) | newest `createdAt` first | `RequesterErrandView` |
 | `GET /me/errands/delivering` | `ListDelivering` | active errands assigned to the caller (F3.12) | newest `updatedAt` first | `CourierErrandView` |
-| `GET /me/errands/history` | `ListHistory` | terminal errands the caller requested or delivered (F3.13) | newest `updatedAt` first | by the caller's role in each errand |
+| `GET /me/errands/history` | `ListHistory` | terminal errands the caller requested or delivered (F3.13), or one of the two with `role` | newest `updatedAt` first | by the caller's role in each errand |
 
 "Active" is every non-terminal state, including `PENDING_RESERVATION` and
 `REVIEW_REQUIRED`. The filtering and ordering are the store's (A1); the
@@ -24,6 +24,18 @@ parameters. The user is always the token's subject; no route takes a user ID
 | --- | --- | --- | --- |
 | `limit` | integer | `25` | 1 to 100 |
 | `cursor` | string | first page | The previous page's `nextCursor` from the same list, unchanged; at most 512 characters |
+
+`GET /me/errands/history` also takes an optional `role` (requester
+enhancements, R1). The other lists ignore it.
+
+| `role` | Holds | Item view |
+| --- | --- | --- |
+| left out | errands the caller requested or delivered (as before) | by the caller's role in each errand |
+| `REQUESTER` | errands the caller requested | `RequesterErrandView` |
+| `COURIER` | errands the caller delivered | `CourierErrandView` |
+
+It is case-sensitive; any other value, including an empty one, is
+`400 INVALID_ARGUMENT`.
 
 ```http
 GET /me/errands/history?limit=2
@@ -44,8 +56,10 @@ Authorization: Bearer <user token with errands:use>
 last page.
 
 The cursor is base64url JSON of the list's name and the last item's sort key
-(`createdAt` or `updatedAt`, and `errandId`). A cursor from another list,
-or one that does not decode, is `400 INVALID_ARGUMENT`. It carries no user
+(`createdAt` or `updatedAt`, and `errandId`). The history list's name
+includes the role (`history`, `history:REQUESTER`, `history:COURIER`). A
+cursor from another list or role, or one that does not decode, is
+`400 INVALID_ARGUMENT`. It carries no user
 ID: given to another user, it only pages through that user's own errands.
 
 ## Field visibility
@@ -63,10 +77,12 @@ list-specific:
   and no `history` item does.
 - In `history`, an errand the caller requested is shown in the requester
   view, any other in the courier view. A requester cannot accept their own
-  errand, so no errand is both.
+  errand, so no errand is both. With `role`, every item has that role's
+  view.
 
 A courier who withdrew is no longer the errand's courier, so it is in neither
-their `delivering` list nor their `history`.
+their `delivering` list nor their `history`, with or without
+`role=COURIER`.
 
 ## Pickup details
 
@@ -79,7 +95,7 @@ once (`errandhttp.LoadPickups` now takes several errands).
 ## Errors
 
 1. token and scope (`401`, `403`; a service token is `403`);
-2. `limit` and `cursor` (`400 INVALID_ARGUMENT`);
+2. `role` (history only), `limit` and `cursor` (`400 INVALID_ARGUMENT`);
 3. the store read (`500 INTERNAL` on failure);
 4. supplier-service (`503 DEPENDENCY_UNAVAILABLE`). The whole page fails
    rather than returning items without their pickup location. A version

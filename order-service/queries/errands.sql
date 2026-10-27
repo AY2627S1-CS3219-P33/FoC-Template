@@ -177,9 +177,12 @@ ORDER BY updated_at DESC, id DESC
 LIMIT @row_limit;
 
 -- name: ListHistory :many
+-- A NULL role keeps errands the user requested or delivered.
 SELECT *
 FROM errands
-WHERE (requester_id = @user_id OR courier_id = @user_id)
+WHERE ((sqlc.narg(role)::text IS NULL AND (requester_id = @user_id OR courier_id = @user_id))
+       OR (sqlc.narg(role)::text = 'REQUESTER' AND requester_id = @user_id)
+       OR (sqlc.narg(role)::text = 'COURIER' AND courier_id = @user_id))
   AND status = ANY (@statuses::text[])
   AND (sqlc.narg(after_at)::timestamptz IS NULL
        OR (updated_at, id) < (sqlc.narg(after_at)::timestamptz, sqlc.narg(after_id)::uuid))

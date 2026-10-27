@@ -924,6 +924,39 @@ textarea.input {
   padding: 0.85rem 0.5rem;
 }
 
+/* A compact filter inside a tab body, where a second tab strip would read as
+   another level of navigation. */
+.segmented {
+  display: inline-flex;
+  flex-wrap: wrap;
+  border: 1px solid var(--line);
+  border-radius: 0.6rem;
+  overflow: hidden;
+}
+.segment {
+  appearance: none;
+  border: none;
+  background: var(--surface-2);
+  color: var(--ink-3);
+  font: inherit;
+  font-weight: 650;
+  font-size: 0.88rem;
+  padding: 0.45rem 0.9rem;
+  cursor: pointer;
+}
+.segment + .segment {
+  border-left: 1px solid var(--line);
+}
+.segment[aria-pressed="true"] {
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: inset 0 -3px 0 var(--accent);
+}
+.segment:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: -3px;
+}
+
 .errand-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(19rem, 1fr));
@@ -941,6 +974,15 @@ textarea.input {
   cursor: pointer;
   font: inherit;
   color: inherit;
+}
+/* A card with an action under it; the card still fills its grid cell. */
+.errand-card-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.errand-card-stack .errand-card {
+  flex: 1;
 }
 .errand-card:hover {
   border-color: var(--line);

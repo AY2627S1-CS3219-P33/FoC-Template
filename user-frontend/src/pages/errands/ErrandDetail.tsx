@@ -9,6 +9,7 @@ import {
   pickUpErrand,
   reportIssue,
   withdrawErrand,
+  TERMINAL_STATUSES,
   type ErrandView,
   type RequesterErrandView,
 } from "../../api/order";
@@ -29,6 +30,7 @@ interface Props {
   getToken: () => Promise<string>;
   onBack: () => void;
   onEdit: (errand: RequesterErrandView) => void;
+  onOrderAgain: (errand: RequesterErrandView) => void;
   // Lets the surrounding lists refresh after a transition.
   onChanged: () => void;
 }
@@ -44,7 +46,14 @@ const REJECTION_TEXT: Record<string, string> = {
   RESERVATION_FAILED: "The credit service did not answer in time, so nothing was reserved.",
 };
 
-export function ErrandDetail({ errandId, getToken, onBack, onEdit, onChanged }: Props) {
+export function ErrandDetail({
+  errandId,
+  getToken,
+  onBack,
+  onEdit,
+  onOrderAgain,
+  onChanged,
+}: Props) {
   const [errand, setErrand] = useState<ErrandView | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -245,6 +254,11 @@ export function ErrandDetail({ errandId, getToken, onBack, onEdit, onChanged }: 
           )
         }
         onEdit={requester ? () => onEdit(requester) : undefined}
+        onOrderAgain={
+          requester && TERMINAL_STATUSES.includes(requester.status)
+            ? () => onOrderAgain(requester)
+            : undefined
+        }
         onDispute={() =>
           setPrompt({
             verb: "dispute",
@@ -488,6 +502,8 @@ function Actions(props: {
   onDeliver: () => void;
   onWithdraw: () => void;
   onEdit?: () => void;
+  // Set only for the requester of a terminal errand.
+  onOrderAgain?: () => void;
   onDispute: () => void;
   onReportIssue: () => void;
 }) {
@@ -507,6 +523,7 @@ function Actions(props: {
       buttons.push({ label: "Confirm delivery", onClick: props.onConfirm });
       buttons.push({ label: "Dispute", onClick: props.onDispute, kind: "danger" });
     }
+    if (props.onOrderAgain) buttons.push({ label: "Order again", onClick: props.onOrderAgain });
   }
 
   if (role === "COURIER") {

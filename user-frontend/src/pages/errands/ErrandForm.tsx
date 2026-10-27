@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { OrderError, type ErrandCreate, type ErrandEdit, type Item, type RequesterErrandView } from "../../api/order";
-import { listSuppliers, type Lookup, type Supplier } from "../../api/supplier";
+import {
+  getSupplier,
+  listSuppliers,
+  SupplierError,
+  type Lookup,
+  type Supplier,
+} from "../../api/supplier";
 import type { Profile } from "../../api/types";
 import {
   LIMITS,
@@ -13,11 +19,13 @@ import {
   type ErrandFormErrors,
   type ItemDraft,
 } from "../../orderValidation";
-import { creditText } from "./format";
+import { creditText, formatDateTime } from "./format";
 
 interface Props {
   mode: "create" | "edit";
   initial?: RequesterErrandView;
+  // Create mode only: a finished errand to copy ("Order again").
+  template?: RequesterErrandView;
   profile: Profile;
   buildings: Lookup[];
   getSupplierToken: () => Promise<string>;
@@ -25,7 +33,13 @@ interface Props {
   onCancel: () => void;
 }
 
-function draftFrom(initial: RequesterErrandView | undefined, profile: Profile): ErrandDraft {
+// An edit keeps the errand's acceptance deadline; a copy for "Order again"
+// starts from the default, since the old one has passed.
+function draftFrom(
+  initial: RequesterErrandView | undefined,
+  profile: Profile,
+  keepDeadline: boolean,
+): ErrandDraft {
   if (!initial) {
     return {
       supplierId: "",
@@ -53,7 +67,9 @@ function draftFrom(initial: RequesterErrandView | undefined, profile: Profile): 
     contactName: initial.contactName,
     contactMobile: initial.contactMobile,
     reward: String(initial.reward),
-    acceptanceDeadline: toLocalInput(new Date(initial.acceptanceDeadline)),
+    acceptanceDeadline: keepDeadline
+      ? toLocalInput(new Date(initial.acceptanceDeadline))
+      : defaultDeadline(),
   };
 }
 
@@ -67,14 +83,25 @@ function toItems(drafts: ItemDraft[]): Item[] {
 export function ErrandForm({
   mode,
   initial,
+  template,
   profile,
   buildings,
   getSupplierToken,
   onSubmit,
   onCancel,
 }: Props) {
-  const original = useMemo(() => draftFrom(initial, profile), [initial, profile]);
+  // The errand the form starts from: the one being edited, or the one being
+  // ordered again.
+  const source = mode === "edit" ? initial : template;
+  // State rather than a memo: "Order again" may drop a copied supplier or
+  // building, and the baseline drops it too so the form still starts clean.
+  const [original, setOriginal] = useState<ErrandDraft>(() =>
+    draftFrom(source, profile, mode === "edit"),
+  );
   const [draft, setDraft] = useState<ErrandDraft>(original);
+  // A copy is shown only once its supplier has been checked.
+  const [ready, setReady] = useState(!template);
+  const [dropped, setDropped] = useState({ supplier: false, building: false });
   const [submitted, setSubmitted] = useState(false);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -122,14 +149,59 @@ export function ErrandForm({
     if (match) setChosen(match);
   }, [draft.supplierId, suppliers]);
 
-  // An errand being edited already names a supplier, which the first (empty)
-  // search need not contain. Until it is found, label it from the pickup
-  // details stored on the errand so the picker never looks empty.
+  function drop(field: "supplierId" | "deliveryBuildingId", id: string) {
+    const strip = (d: ErrandDraft) => (d[field] === id ? { ...d, [field]: "" } : d);
+    setOriginal(strip);
+    setDraft(strip);
+  }
+
+  // "Order again": a deleted supplier is 404 here. Any other failure keeps the
+  // copy, and the create request validates it.
+  useEffect(() => {
+    if (!template) return;
+    let cancelled = false;
+    (async () => {
+      let gone = false;
+      try {
+        const token = await getSupplierToken();
+        const supplier = await getSupplier(token, template.supplierId);
+        if (cancelled) return;
+        if (supplier.available) setChosen(supplier);
+        else gone = true;
+      } catch (err) {
+        gone = err instanceof SupplierError && err.status === 404;
+      }
+      if (cancelled) return;
+      if (gone) {
+        drop("supplierId", template.supplierId);
+        setDropped((d) => ({ ...d, supplier: true }));
+      }
+      setReady(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [template, getSupplierToken]);
+
+  // "Order again": the copied building must still be live. The list arrives
+  // from the page; until it has (or if it failed) the building is kept, and
+  // the create request validates it.
+  useEffect(() => {
+    if (!template || buildings.length === 0) return;
+    const id = template.deliveryBuilding.id;
+    if (buildings.some((b) => b.id === id && !b.retired)) return;
+    drop("deliveryBuildingId", id);
+    setDropped((d) => ({ ...d, building: true }));
+  }, [template, buildings]);
+
+  // An errand being edited or copied already names a supplier, which the first
+  // (empty) search need not contain. Until it is found, label it from the
+  // pickup details stored on the errand so the picker never looks empty.
   const selectedLabel =
     chosen && chosen.supplierId === draft.supplierId
       ? `${chosen.name} — ${chosen.building}`
-      : initial && initial.supplierId === draft.supplierId
-        ? `${initial.pickup.name} — ${initial.pickup.building}`
+      : source && source.supplierId === draft.supplierId
+        ? `${source.pickup.name} — ${source.pickup.building}`
         : null;
   const needsFallbackOption =
     draft.supplierId !== "" &&
@@ -263,27 +335,52 @@ export function ErrandForm({
     (b) => !b.retired || b.id === original.deliveryBuildingId,
   );
 
+  const head = (
+    <div className="page-head">
+      <div>
+        <button type="button" className="link-btn" onClick={requestCancel}>
+          ← Cancel
+        </button>
+        <h1 style={{ marginTop: "0.4rem" }}>
+          {mode === "edit" ? "Edit errand" : template ? "Order again" : "Request an errand"}
+        </h1>
+        <p className="muted" style={{ margin: "0.3rem 0 0" }}>
+          {mode === "edit"
+            ? "Only an open errand can be edited."
+            : `${template ? `Copied from your order of ${formatDateTime(template.createdAt)}. ` : ""}Your credits are reserved when you submit, and returned if nobody accepts in time.`}
+        </p>
+      </div>
+    </div>
+  );
+
+  if (!ready) {
+    return (
+      <>
+        {head}
+        <p className="muted center mt">Loading…</p>
+      </>
+    );
+  }
+
   return (
     <>
-      <div className="page-head">
-        <div>
-          <button type="button" className="link-btn" onClick={requestCancel}>
-            ← Cancel
-          </button>
-          <h1 style={{ marginTop: "0.4rem" }}>
-            {mode === "create" ? "Request an errand" : "Edit errand"}
-          </h1>
-          <p className="muted" style={{ margin: "0.3rem 0 0" }}>
-            {mode === "create"
-              ? "Your credits are reserved when you submit, and returned if nobody accepts in time."
-              : "Only an open errand can be edited."}
-          </p>
-        </div>
-      </div>
+      {head}
 
       {formError && (
         <div className="banner banner-error" role="alert">
           <span>{formError}</span>
+        </div>
+      )}
+
+      {dropped.supplier && (
+        <div className="banner banner-wait" role="status">
+          <span>The pickup location from your last order is no longer available. Choose another.</span>
+        </div>
+      )}
+
+      {dropped.building && (
+        <div className="banner banner-wait" role="status">
+          <span>The drop-off building from your last order is no longer available. Choose another.</span>
         </div>
       )}
 
@@ -335,7 +432,7 @@ export function ErrandForm({
         ) : (
           selectedLabel && (
             <p className="muted small">
-              {initial?.pickup.building} · Floor {initial?.pickup.floor}. Search above to change
+              {source?.pickup.building} · Floor {source?.pickup.floor}. Search above to change
               the pickup location.
             </p>
           )
