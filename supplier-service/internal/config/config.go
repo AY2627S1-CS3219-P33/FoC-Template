@@ -88,6 +88,7 @@ type Config struct {
 	Database        DatabaseConfig
 	SeedNamespace   string
 	SeedCSVPath     string
+	ImageBaseURL    string
 	StartupTimeout  time.Duration
 	LogLevel        string
 	ShutdownTimeout time.Duration
@@ -146,6 +147,14 @@ func LoadFrom(lookup LookupEnv) (Config, error) {
 	}
 	seedNamespace := strings.TrimSpace(read(lookup, "SUPPLIER_SEED_DATASET_NAMESPACE", "template-v1"))
 	seedCSVPath := strings.TrimSpace(required(lookup, "SUPPLIER_SEED_CSV_PATH", &problems))
+	imageBaseURL := strings.TrimRight(strings.TrimSpace(read(lookup, "SUPPLIER_IMAGE_BASE_URL", "")), "/")
+	if imageBaseURL != "" {
+		parsed, err := url.Parse(imageBaseURL)
+		if err != nil || parsed.Scheme != "https" || parsed.Hostname() == "" || parsed.User != nil ||
+			parsed.Path != "" || parsed.RawQuery != "" || parsed.ForceQuery || parsed.Fragment != "" {
+			problems = append(problems, "SUPPLIER_IMAGE_BASE_URL must be an HTTPS origin without a path, query, fragment, or credentials")
+		}
+	}
 	startupTimeout := readDuration(lookup, "STARTUP_TIMEOUT", 30*time.Second, &problems)
 	if utf8.RuneCountInString(seedNamespace) > 120 {
 		problems = append(problems, "SUPPLIER_SEED_DATASET_NAMESPACE must not exceed 120 characters")
@@ -190,6 +199,7 @@ func LoadFrom(lookup LookupEnv) (Config, error) {
 		},
 		SeedNamespace:   seedNamespace,
 		SeedCSVPath:     seedCSVPath,
+		ImageBaseURL:    imageBaseURL,
 		StartupTimeout:  startupTimeout,
 		LogLevel:        logLevel,
 		ShutdownTimeout: shutdownTimeout,

@@ -42,6 +42,7 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger, authOption
 	// the entire seed dataset before exposing HTTP or reporting readiness.
 	importer, err := seed.New(seed.Config{
 		CSVPath: cfg.SeedCSVPath, DatasetNamespace: cfg.SeedNamespace,
+		ImageBaseURL: cfg.ImageBaseURL,
 	}, seed.NewPostgresStore(pool), logger)
 	if err != nil {
 		pool.Close()

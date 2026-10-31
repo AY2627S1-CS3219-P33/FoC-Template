@@ -44,6 +44,26 @@ func TestConfigurationAcceptsSeedDatasetNamespace(t *testing.T) {
 	require.Equal(t, "deployment-v2", cfg.SeedNamespace)
 }
 
+func TestSupplierImageBaseURL(t *testing.T) {
+	values := map[string]string{
+		"APP_ENV": "test", "TEST_DATABASE_URL": "postgresql://test@localhost/test",
+		"AUTH0_ISSUER": "https://tenant.example.com/", "SUPPLIER_SEED_CSV_PATH": "/deployment/suppliers.csv",
+	}
+	values["SUPPLIER_IMAGE_BASE_URL"] = "https://images.example.com/"
+	cfg, err := config.LoadFrom(mapLookup(values))
+	require.NoError(t, err)
+	require.Equal(t, "https://images.example.com", cfg.ImageBaseURL)
+	for _, invalid := range []string{
+		"http://images.example.com", "images.example.com", "https://user:secret-password@images.example.com",
+		"https://images.example.com/path", "https://images.example.com?secret-password", "https://images.example.com#fragment",
+	} {
+		values["SUPPLIER_IMAGE_BASE_URL"] = invalid
+		_, err := config.LoadFrom(mapLookup(values))
+		require.ErrorContains(t, err, "SUPPLIER_IMAGE_BASE_URL")
+		require.NotContains(t, err.Error(), "secret-password")
+	}
+}
+
 func TestConfigurationRejectsMissingTestDatabaseWithoutLeakingValues(t *testing.T) {
 	values := map[string]string{
 		"AUTH0_ISSUER": "https://tenant.example.com/",

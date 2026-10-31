@@ -298,6 +298,72 @@ The image bundles `data/csv/supplier-seed-data.csv` at
 `/app/data/supplier-seed-data.csv`; override `SUPPLIER_SEED_CSV_PATH` only when
 you need to supply a different deployment dataset.
 
+## Supplier image URLs and existing databases
+
+The seed CSV stores root-relative image paths such as `/ANNA.jpeg` for all
+21 template suppliers (F2.1.1, F2.2.1, F2.3.1). Set
+`SUPPLIER_IMAGE_BASE_URL` to your HTTPS image origin, for example
+`https://your-distribution.cloudfront.net`, in the root `.env` for Compose or
+the service environment for standalone runs. The importer combines the base
+URL and path before storing a complete URL in the database. Absolute HTTP(S)
+URLs and blank image fields remain supported in custom seed files. Relative
+paths require a base URL; missing configuration fails startup before writes.
+The browser reads images through CloudFront; supplier-service stores their
+URLs, not image bytes. No distribution domain is embedded in the seed data.
+
+Fresh databases receive these URLs through normal seeding. Existing databases
+retain their current records, including administrator edits. To update the
+template suppliers' image URLs, run from the repository root with Python 3:
+
+```sh
+python3 supplier-service/scripts/backfill_images.py
+python3 supplier-service/scripts/backfill_images.py --apply
+```
+
+For the Python script, **export** `SUPPLIER_IMAGE_BASE_URL` with the same value
+as the service configuration before running either command. Unlike Compose,
+the script does not automatically load `.env` files:
+
+```sh
+export SUPPLIER_IMAGE_BASE_URL=https://your-distribution.cloudfront.net
+```
+
+Each invocation prompts for an Auth0 **access token for the supplier-service
+API**, with both `suppliers:read` and `suppliers:manage` permissions. The prompt
+hides input; do not use an ID token or share the token in chat. For example,
+obtain the Bearer token from a supplier management request in your local
+browser's Network panel after signing in as an administrator. Automation may
+provide `SUPPLIER_API_TOKEN` through its secret environment instead.
+
+The default API URL is `http://localhost:8081/supplier-service`, through the
+Compose frontend proxy. Use `--api-url` for another deployment; HTTPS is
+required except on loopback addresses. Both commands require the stack to be
+running. The first command only previews changes. Review that output before
+running with `--apply`, which replaces existing image URLs for the matching
+seeded suppliers, even if they were previously edited by an administrator.
+
+The script reads every page and matches exact CSV supplier names. Missing or
+ambiguous names stop the run before any writes. Matching image URLs are
+skipped, and non-template suppliers are untouched. PATCH requests update only
+`imageUrl` through the existing API, preserving supplier version history. Old
+versions retain their original image URLs. If a request fails, earlier updates
+remain saved; rerun the preview to check progress before applying again. Avoid
+concurrent supplier edits during the backfill. This script does not verify the
+remote images or upload files to S3.
+
+Changing `SUPPLIER_IMAGE_BASE_URL` affects newly seeded records, not URLs
+already persisted in the database. Use this backfill to update existing
+template suppliers when changing image hosts.
+
+Verify the backfill script without contacting the API or AWS:
+
+```sh
+python3 -m unittest discover -s supplier-service/scripts -p 'test_*.py'
+```
+
+This change connects already-uploaded images. An administrator file-upload
+endpoint and image picker are separate work.
+
 ## Incremental API workflow
 
 For each API operation:
