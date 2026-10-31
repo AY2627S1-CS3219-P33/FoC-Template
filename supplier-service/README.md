@@ -361,8 +361,81 @@ Verify the backfill script without contacting the API or AWS:
 python3 -m unittest discover -s supplier-service/scripts -p 'test_*.py'
 ```
 
-This change connects already-uploaded images. An administrator file-upload
-endpoint and image picker are separate work.
+### Administrator image uploads
+
+The supplier create/edit form accepts JPEG or PNG uploads, shows the uploaded
+image, and supports removing the image reference. `POST /suppliers/images`
+requires both `suppliers:read` and `suppliers:manage`. Send exactly one file
+in the multipart `image` field. The backend verifies the actual format,
+decodes the image, and enforces a 5 MiB file limit and a 16-million-pixel limit.
+The frontend proxy allows a 6 MiB body to accommodate multipart overhead.
+
+Configure these values in root `.env` for Compose:
+
+```dotenv
+SUPPLIER_IMAGE_BUCKET=foc-supplier-images
+AWS_REGION=ap-southeast-1
+SUPPLIER_IMAGE_BASE_URL=https://your-distribution.cloudfront.net
+```
+
+An empty bucket disables uploads with HTTP 503 without disabling the catalogue.
+Each upload uses a generated `suppliers/<random-key>.jpeg` or `.png` key with
+SSE-S3 encryption, no ACL, and immutable caching. The response is
+`{"imageUrl":"https://your-distribution.cloudfront.net/suppliers/<key>.jpeg"}`.
+The form saves that URL through the existing supplier API. An image upload
+itself does not create a supplier version. Replacing or removing a reference
+does not delete the S3 object, so historical versions remain displayable.
+Uploads abandoned before a supplier is saved remain in S3; reference-aware
+cleanup is deferred. S3 requests and stored objects incur AWS usage charges.
+
+The AWS identity used by the backend needs `s3:PutObject` on
+`arn:aws:s3:::foc-supplier-images/suppliers/*`. No bucket management, public ACL,
+or object deletion permissions are needed. Keep Block Public Access enabled
+and retain the existing CloudFront OAC read policy; ensure it covers the new
+`suppliers/` object prefix. With SSE-S3, no KMS permissions are needed. See
+[S3 permissions](https://docs.aws.amazon.com/AmazonS3/latest/userguide/using-with-s3-policy-actions.html).
+
+To analyze the SDK calls and produce a baseline for IAM review, run from the
+repository root:
+
+```sh
+uvx iam-policy-autopilot@latest generate-policies \
+  "$PWD/supplier-service/internal/supplier/imageupload/handler.go" \
+  --region ap-southeast-1 --service-hints s3 --pretty
+```
+
+The generated baseline includes wildcard resources and conditional permissions
+for ACLs, tags, Object Lock, Object Lambda, and KMS. Do not attach it unchanged:
+review it against this endpoint's use of plain bucket `PutObject` with SSE-S3,
+and scope access to the upload prefix above. This command does not apply IAM
+changes. Auth0 administrator identity and AWS upload identity are separate.
+
+For local Docker credentials, authenticate the AWS CLI using a named
+development profile with temporary credentials (`aws login`, or an existing
+IAM Identity Center workflow). AWS CLI browser login also requires the
+`SignInLocalDevelopmentAccess` managed policy for a non-root IAM identity.
+See [AWS CLI login](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-sign-in.html).
+After authentication, export a temporary credential snapshot into the ignored
+file consumed only by supplier-service:
+
+```sh
+umask 077
+aws configure export-credentials --profile foc-supplier-dev --format env-no-export > supplier-service/.env.aws.local
+docker compose up -d --build --force-recreate supplier-service user-frontend
+```
+
+Do not print, commit, or share this file. Exported credentials do not refresh
+inside the container: when they expire, export them again and recreate
+supplier-service. In AWS deployment, omit the local credential file and attach
+a scoped IAM role to the service's compute environment; the SDK credential
+chain handles it without code changes. No AWS credentials reach the browser.
+
+Validation failures return 400 or 413; missing configuration or an S3 error
+(including expired credentials or insufficient access) returns 503 without
+provider diagnostics or secrets. The upload has an eight-second dependency
+deadline and at most two SDK attempts. There is no database migration for
+this feature. Unit tests exercise actual SDK requests against local HTTP
+stand-ins; they do not establish live bucket permissions or image delivery.
 
 ## Incremental API workflow
 

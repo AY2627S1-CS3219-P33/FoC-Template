@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"time"
 
+	awsconfig "github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/CS3219-AY2627S1/FoC-Template/supplier-service/internal/auth"
@@ -16,6 +18,7 @@ import (
 	"github.com/CS3219-AY2627S1/FoC-Template/supplier-service/internal/database/supplierrepo"
 	"github.com/CS3219-AY2627S1/FoC-Template/supplier-service/internal/readiness"
 	deletefeature "github.com/CS3219-AY2627S1/FoC-Template/supplier-service/internal/supplier/delete"
+	"github.com/CS3219-AY2627S1/FoC-Template/supplier-service/internal/supplier/imageupload"
 	"github.com/CS3219-AY2627S1/FoC-Template/supplier-service/internal/supplier/seed"
 )
 
@@ -61,9 +64,18 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger, authOption
 		pool.Close()
 		return nil, err
 	}
+	var images imageupload.Handler
+	if cfg.ImageBucket != "" {
+		awsCfg, err := awsconfig.LoadDefaultConfig(startupCtx, awsconfig.WithRegion(cfg.AWSRegion), awsconfig.WithRetryMaxAttempts(2))
+		if err != nil {
+			pool.Close()
+			return nil, errors.New("image upload AWS configuration could not be loaded")
+		}
+		images = imageupload.NewHandler(s3.NewFromConfig(awsCfg), cfg.ImageBucket, cfg.ImageBaseURL)
+	}
 	handler := NewHandler(logger, verifier, allReady{
 		readiness.NewPostgresChecker(pool, cfg.SeedNamespace), verifier,
-	}, repository, repository, repository, repository, fence)
+	}, repository, repository, repository, repository, fence, images)
 
 	// Without order-service every retry would fail, so pending operations
 	// wait for a configured restart instead of exhausting their attempts.

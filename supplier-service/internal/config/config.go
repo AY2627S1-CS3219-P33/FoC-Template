@@ -89,6 +89,8 @@ type Config struct {
 	SeedNamespace   string
 	SeedCSVPath     string
 	ImageBaseURL    string
+	ImageBucket     string
+	AWSRegion       string
 	StartupTimeout  time.Duration
 	LogLevel        string
 	ShutdownTimeout time.Duration
@@ -155,6 +157,19 @@ func LoadFrom(lookup LookupEnv) (Config, error) {
 			problems = append(problems, "SUPPLIER_IMAGE_BASE_URL must be an HTTPS origin without a path, query, fragment, or credentials")
 		}
 	}
+	imageBucket := strings.TrimSpace(read(lookup, "SUPPLIER_IMAGE_BUCKET", ""))
+	awsRegion := strings.TrimSpace(read(lookup, "AWS_REGION", ""))
+	if imageBucket != "" {
+		if strings.ContainsAny(imageBucket, "/:@?# \t\r\n") || len(imageBucket) < 3 || len(imageBucket) > 63 {
+			problems = append(problems, "SUPPLIER_IMAGE_BUCKET must be an S3 bucket name")
+		}
+		if awsRegion == "" {
+			problems = append(problems, "AWS_REGION is required with SUPPLIER_IMAGE_BUCKET")
+		}
+		if imageBaseURL == "" {
+			problems = append(problems, "SUPPLIER_IMAGE_BASE_URL is required with SUPPLIER_IMAGE_BUCKET")
+		}
+	}
 	startupTimeout := readDuration(lookup, "STARTUP_TIMEOUT", 30*time.Second, &problems)
 	if utf8.RuneCountInString(seedNamespace) > 120 {
 		problems = append(problems, "SUPPLIER_SEED_DATASET_NAMESPACE must not exceed 120 characters")
@@ -200,6 +215,8 @@ func LoadFrom(lookup LookupEnv) (Config, error) {
 		SeedNamespace:   seedNamespace,
 		SeedCSVPath:     seedCSVPath,
 		ImageBaseURL:    imageBaseURL,
+		ImageBucket:     imageBucket,
+		AWSRegion:       awsRegion,
 		StartupTimeout:  startupTimeout,
 		LogLevel:        logLevel,
 		ShutdownTimeout: shutdownTimeout,
