@@ -23,6 +23,7 @@ var tables = []string{
 	"errand_reviews",
 	"admin_audit",
 	"settings",
+	"saved_places",
 }
 
 var indexes = []string{
@@ -44,6 +45,9 @@ var indexes = []string{
 	"outbox_unconfirmed_credit_idx",
 	"supplier_fences_supplier_idx",
 	"errand_reviews_open_idx",
+	"saved_places_label_idx",
+	"saved_places_supplier_idx",
+	"saved_places_user_idx",
 }
 
 func TestOrderSchemaMigrationUp(t *testing.T) {
