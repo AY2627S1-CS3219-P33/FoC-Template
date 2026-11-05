@@ -236,14 +236,19 @@ func TestPostgresServiceFlow(t *testing.T) {
 	if err := svc.DeleteAccount(ctx, u.ID, false); !errors.Is(err, service.ErrValidation) {
 		t.Fatalf("confirmation: %v", err)
 	}
-	if err := svc.DeleteAccount(ctx, u.ID, true); !errors.Is(err, service.ErrUnavailable) {
-		t.Fatalf("deletion must be blocked: %v", err)
-	}
 	if _, err := svc.GetProfile(ctx, u.ID); err != nil {
-		t.Fatalf("blocked deletion modified account: %v", err)
+		t.Fatalf("unconfirmed deletion modified account: %v", err)
 	}
-	if err := repo.SoftDelete(ctx, u.ID); err != nil {
-		t.Fatal(err)
+	if err := svc.DeleteAccount(ctx, u.ID, true); err != nil {
+		t.Fatalf("confirmed deletion: %v", err)
+	}
+	var active, deleted bool
+	var username, email string
+	if err := pool.QueryRow(ctx, `SELECT active, deleted_at IS NOT NULL, username, email FROM accounts WHERE id=$1`, u.ID).Scan(&active, &deleted, &username, &email); err != nil {
+		t.Fatalf("soft-deleted account must remain stored: %v", err)
+	}
+	if active || !deleted || username != u.Username || email != u.Email {
+		t.Fatal("soft deletion must deactivate and retain the account")
 	}
 	if _, err := svc.GetProfile(ctx, u.ID); !errors.Is(err, service.ErrNotFound) {
 		t.Fatalf("deleted profile: %v", err)
