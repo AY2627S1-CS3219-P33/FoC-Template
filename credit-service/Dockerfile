@@ -9,6 +9,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/credit-
 
 FROM alpine:3.23 AS runtime
 RUN apk add --no-cache ca-certificates tzdata \
+    && wget -q -O /etc/ssl/certs/rds-global-bundle.pem https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem \
     && addgroup -S credit && adduser -S -G credit credit
 WORKDIR /app
 COPY --from=build /out/credit-service /app/credit-service

@@ -1,77 +1,250 @@
 # ECS deployment notes
 
-Updated 18 October 2026. This records the AWS setup and troubleshooting discussed for the FoC services. It distinguishes observed settings from items still to verify; it is not an infrastructure-as-code source of truth.
+Updated 5 November 2026. This records the settings inspected and results reported during the deployment session. It is not infrastructure as code or a fresh audit of the AWS account. Do not add passwords, secret values, or bearer tokens.
 
-## Current setup
+## Current deployment
 
-- AWS Region: `ap-southeast-1`; ECS cluster: `comfortable-squirrel-pxwxt5`.
-- Services discussed: `user-frontend`, `user-service`, and `supplier-service`.
-- The user-service was moved to Fargate and reported as running after its PostgreSQL access was corrected. Its task was given a public IP to reach Auth0.
-- Supplier-service remained on its existing ECS compute when its Auth0 JWKS requests began failing. The exact current launch type and subnet should be checked in ECS before changing it.
-- The frontend is served by Nginx on container port 80. Its ALB target group is IP type, HTTP port 80; the target was shown healthy.
-- Task definitions and images were reported as ARM64. Verify each active task definition's runtime architecture against the image before rebuilding or changing compute.
+- Account: `842761392141`; Region: `ap-southeast-1`.
+- ECS cluster: `comfortable-squirrel-pxwxt5`.
+- User, supplier, credit, and order services run on Fargate in private subnets, with public IP assignment disabled and ARM64 task architecture.
+- The frontend is static content in S3, served through CloudFront. The old frontend ECS service was removed.
+- Browser entry point: <https://d8d2ig90yjarp.cloudfront.net/>.
+- CloudFront forwards API requests to the public ALB, which forwards to private ECS task IPs. Tasks use the NAT gateway for outbound internet access, including Auth0.
+- Amazon MQ provides RabbitMQ. The shared RDS PostgreSQL instance holds the service databases.
 
-## Networking and service discovery
+Backend deployments were healthy at the last checks. Embedded browser login and supplier loading worked after third-party cookies were allowed. Removing that browser-settings dependency is the next planned change.
 
-- Frontend Nginx routes `/api/` to `user-service:8080` and `/supplier-service/` to `supplier-service:3002` (`user-frontend/nginx.conf`).
-- ECS Service Connect is enabled in namespace `foc-local`. Screenshots showed endpoints `user-service:8080` and `supplier-service:3002`; supplier uses port name `supplier-service-port`.
-- The frontend security group was shown allowing inbound TCP 80 from `alb-public-sg` and allowing all outbound traffic.
-- The supplier task's security group was shown allowing TCP 3002 from `frontend-service-sg`; port 8080 was also allowed from that source for user-service. These rules are appropriate only if those are the groups attached to the running task ENIs.
-- The RDS access pattern discussed is a PostgreSQL inbound rule on the RDS security group, TCP 5432, sourced from each service task security group. Keep database access restricted to application security groups rather than public CIDRs.
+## VPC and NAT gateway
 
-## Supplier seed CSV packaging
+VPC: `vpc-0856f69e3b57e3ea4`, CIDR `172.31.0.0/16`.
 
-The supplier image is intended to bundle the seed file:
+| Availability Zone | Private subnet | CIDR |
+|---|---|---|
+| `ap-southeast-1a` | `subnet-0b399c33d4b961d8f` | `172.31.48.0/24` |
+| `ap-southeast-1b` | `subnet-0f07e7283c1cb1303` | `172.31.49.0/24` |
+| `ap-southeast-1c` | `subnet-0201f7b8f28efc2b4` | `172.31.50.0/24` |
 
-- `supplier-service/Dockerfile` copies `data/csv/supplier-seed-data.csv` into the image at `/app/data/supplier-seed-data.csv` and sets `SUPPLIER_SEED_CSV_PATH` to that path.
-- Root `.dockerignore` allows the supplier source and seed CSV into the build context.
-- `compose.yaml` and `supplier-service/README.md` were updated for the repository-root build context and bundled file.
-- Build from the repository root, not from `supplier-service/`:
+All three use `foc-private-rt` (`rtb-04360eed1b9d7dc28`):
 
-  ```sh
-  docker build --platform linux/arm64 \
-    -f supplier-service/Dockerfile \
-    -t supplier-service:seed-check .
-  ```
+| Destination | Target | Purpose |
+|---|---|---|
+| `172.31.0.0/16` | `local` | Traffic inside the VPC, including RDS and MQ |
+| `0.0.0.0/0` | `nat-055dc5eae694f3711` | Other IPv4 traffic, including outbound Auth0 HTTPS |
 
-The task definition was later shown with `SUPPLIER_SEED_CSV_PATH=/app/data/supplier-seed-data.csv`, but a startup log still reported that the configured CSV could not be opened. A rebuilt image with the file verified inside it and a new task definition/image deployment were recommended. The later API response shows the supplier app was reachable, but no explicit successful seed-import log was provided here; treat the seed fix as not fully verified.
+The public zonal NAT gateway is in a public subnet in `ap-southeast-1a`, using Elastic IP allocation `eipalloc-026a7f3dbbbdaaf87`. Its subnet retains a route to the Internet Gateway. Original public subnets remain useful for the ALB.
 
-## PostgreSQL
+One shared NAT gateway reduces the gateway count but creates an Availability Zone 1a dependency and possible cross-AZ data charges. NAT and its public IPv4 address remain billable when ECS tasks are stopped.
 
-- The shared RDS PostgreSQL instance has separate databases for services. User-service and supplier-service Goose migrations were previously reported applied at versions 5 and 2 respectively.
-- The user-service was reported up after creating separate task/database security-group access.
-- Supplier's current 503 is not the earlier PostgreSQL connection error: it is an authentication dependency response. The supplier endpoint is reachable, so prioritize Auth0 egress diagnostics before changing database rules.
-- See [`rds-goose-migrations.md`](rds-goose-migrations.md) for the RDS connection and migration procedure.
+| Purpose | Security group | Relevant access |
+|---|---|---|
+| ALB | `sg-0419b641a4c392cde` (`alb-public-sg`) | Public HTTP listener on port 80 |
+| Application tasks | `sg-0badb0855aab50221` | Service ports from ALB; internal service access as configured |
+| RDS | `sg-035aaddc7336f2898` | PostgreSQL 5432 from application security group |
+| RabbitMQ | `sg-014bd894dbdad3f72` (`foc-rabbitmq-sg`) | AMQPS 5671 from application security group |
 
-## Auth0 failure identified in supplier-service
+The broker also had the application security group attached at the last inspection. Verify attached groups and individual rules before editing. DBeaver development access depends on the developer's current public IP matching the permitted rule; do not allow PostgreSQL from all IPs.
 
-An API request to `/supplier-service/suppliers` returned HTTP 503 with:
+## ECS services and images
 
-```json
-{"code":"DEPENDENCY_UNAVAILABLE","message":"authentication service unavailable"}
+| Service | ECS service name | Last deployed revision | Container port |
+|---|---|---|---|
+| User | `user-service-task-service-tb6pn0x0` | `user-service-task:5` | 8080 |
+| Supplier | `supplier-service-task-service-ot78zbdx` | `supplier-service-task:6` | 3002 |
+| Credit | `credit-service` | `credit-service-task:3` | 3004 |
+| Order | `order-service-task-service-177de1f2` | `order-service-task:2` | 3003 |
+
+ECR registry: `842761392141.dkr.ecr.ap-southeast-1.amazonaws.com`.
+
+| Repository | Last deployed image tag |
+|---|---|
+| `user-service` | `2e4860c-20261101163724` |
+| `supplier-service` | `2e4860c-20261101163724` |
+| `credit-service` | `credit-20261104214829` |
+| `order-service` | `order-20261104234356` |
+
+Build for `linux/arm64`. Supplier-service requires the repository root as build context so the seed CSV is included at `/app/data/supplier-seed-data.csv`:
+
+```sh
+docker build --platform linux/arm64 \
+  -f supplier-service/Dockerfile \
+  -t supplier-service:local .
 ```
 
-Supplier CloudWatch logs then showed `auth.jwks_refresh` with `outcome=unavailable`, about 3 seconds per attempt, and later `circuit_open=true`. The supplier authentication middleware maps an unavailable Auth0 signing-key lookup to that 503. This is strong evidence that supplier-service cannot fetch Auth0's JWKS over HTTPS; it is not evidence of a frontend-to-supplier security-group failure.
+The other service images use their service directories as build contexts. Publishing an image does not deploy it: select the task definition revision and update the ECS service.
 
-The user-service's Fargate public-IP change gives that service its own outbound path. No NAT Gateway was created. Supplier-service needs its own outbound HTTPS access to the configured Auth0 issuer:
+### Service Connect
 
-- **Quick development option:** run supplier-service on Fargate in a public subnet with public IP assignment enabled. Keep inbound rules restricted to the frontend task security group and port 3002. Fargate requires `awsvpc`, compatible task CPU/memory, and a matching image architecture.
-- **Future private-subnet option:** keep tasks private and route outbound traffic through a NAT Gateway. The earlier route-table screenshots showed default routes to an Internet Gateway, not a NAT Gateway. For EC2 tasks using `awsvpc`, the task ENI does not receive a public IP; an IGW route alone does not provide task internet access.
+All four services have Service Connect enabled in namespace `foc-local`:
 
-After enabling egress, check CloudWatch for `auth.jwks_refresh` with `outcome=success`, then retry the API. Do not log or share bearer tokens.
+| Service | Internal address |
+|---|---|
+| User | `http://user-service:8080` |
+| Supplier | `http://supplier-service:3002` |
+| Credit | `http://credit-service:3004` |
+| Order | `http://order-service:3003` |
 
-## Cost pause discussed
+These names work inside participating ECS tasks, not browsers. Deploy a new server endpoint before redeploying clients that need to discover it. When inspecting ECS API output, check `deployments[].serviceConnectConfiguration`; a missing service-level field does not mean Service Connect is disabled.
 
-Pausing resources was discussed but not confirmed as completed:
+Service Connect currently uses HTTP internally. Auth0 service permissions still apply; discovery does not replace authorization.
 
-- Set ECS service desired counts to zero to stop application tasks; restore their previous counts to resume.
-- Check whether ECS Managed Instances / EC2 capacity actually scales in. Running instances may continue to incur charges even with no service tasks.
-- RDS can be stopped temporarily, but storage/backups remain billable and RDS automatically restarts a stopped DB instance after seven days. Stopping the shared DB makes all services using it unavailable.
-- An existing ALB continues to incur hourly charges while it exists. Keeping it makes resuming easier; deleting it requires recreating its listeners, target groups, and service attachment.
+## ALB and CloudFront routing
 
-## Not confirmed
+ALB: `foc-alb`, DNS `foc-alb-998900674.ap-southeast-1.elb.amazonaws.com`.
 
-- The current supplier task's ENI, subnet route, and exact compute type were not inspected after the JWKS failure.
-- No successful `auth.jwks_refresh` entry was shared.
-- No explicit successful supplier seed-import log was shared after the configured CSV path was corrected.
-- Whether any resources were paused remains unconfirmed. A NAT Gateway is a future consideration, not part of the current setup.
+Reuse the existing HTTP port 80 listener when adding services. Another listener on port 80 fails with “Listener port already exists.”
+
+| Priority | Incoming path | Path handling | Target group / port | Health check |
+|---|---|---|---|---|
+| 10 | `/api/*`, `/health` | Preserve | `user-service-tg` / 8080 | `/health`, HTTP 204 |
+| 20 | `/supplier-service/*` | Strip `/supplier-service` | `supplier-service-tg` / 3002 | `/readyz`, HTTP 200 |
+| 30 | `/credit-service/*` | Strip `/credit-service` | `credit-service-tg` / 3004 | `/readyz`, HTTP 200 |
+| 40 | `/order-service/*` | Strip `/order-service` | `order-service-tg` / 3003 | `/readyz`, HTTP 200 |
+
+Target groups use IP targets registered by ECS. Listener port 80 can forward to a different container port. A fixed 404 default action was recommended after removing the frontend target; confirm that cleanup before changing the listener.
+
+CloudFront distribution: `E39SHVSD0FXUB9` (`d8d2ig90yjarp.cloudfront.net`).
+
+| Behavior | Origin | Configuration |
+|---|---|---|
+| `/assets/*` | `frontend-s3`, origin path `/frontend` | Static asset caching |
+| `/api/*` | `foc-alb-api` | All seven HTTP methods; caching disabled |
+| `/supplier-service/*` | `foc-alb-api` | All seven HTTP methods; caching disabled |
+| `/credit-service/*` | `foc-alb-api` | All seven HTTP methods; caching disabled |
+| `/order-service/*` | `foc-alb-api` | All seven HTTP methods; caching disabled |
+| Default | Original S3 origin, no origin path | Existing images; default root object `frontend/index.html` |
+
+API behaviors use `AllViewerExceptHostHeader`. ALB rules perform the prefix rewrites. No distribution-wide SPA error mapping was configured; such mappings can hide API/image errors.
+
+Browser-to-CloudFront HTTPS works on the distribution domain. CloudFront-to-ALB currently uses HTTP port 80; origin HTTPS remains to be configured. The ALB HTTP listener was publicly reachable at the last inspection.
+
+## S3 frontend and supplier images
+
+Bucket: `foc-supplier-images`, Region `ap-southeast-1`. The frontend and images deliberately share the bucket and CloudFront distribution.
+
+- Original images remain at root keys such as `ANNA.jpeg`.
+- Administrator uploads use `suppliers/`.
+- Frontend output uses `frontend/index.html` and `frontend/assets/`.
+- The bucket remains private; CloudFront reads through Origin Access Control and its bucket policy.
+- Supplier CSV paths remain relative. `SUPPLIER_IMAGE_BASE_URL` supplies the public base URL; changing the CSV alone does not update existing database rows.
+- The image backfill was run against AWS and image viewing was confirmed. See `supplier-service/scripts/backfill_images.py` and the supplier README for preview/apply instructions. Enter the administrator token through the hidden prompt.
+- Administrator image uploads were confirmed after the WAF change below. Supplier task role `foc-supplier-task-role` has scoped S3 upload permission for `suppliers/*`.
+- Abandoned/orphaned upload cleanup remains deferred.
+
+### WAF upload exception
+
+CloudFront web ACL `CreatedByCloudFront-c92a3694` blocked uploads with Common Rule Set rule `SizeRestrictions_BODY`, producing a CloudFront HTML 403 before the application received the request.
+
+Only `SizeRestrictions_BODY` was changed from **Block** to **Count**. Other managed rules remained enabled, and uploads then worked. This exception applies wherever that rule group applies, not only the upload endpoint. Application administrator authorization, image validation, and the 5 MiB application upload limit remain in place.
+
+## RDS databases and migrations
+
+Instance: `foc-shared-database`, PostgreSQL 18.3 as reported in the console.
+
+Endpoint: `foc-shared-database.cn22asqiuahb.ap-southeast-1.rds.amazonaws.com`, port 5432.
+
+| Service | Database | Runtime role | Recorded migration state |
+|---|---|---|---|
+| User | `user_service_db` | Existing service credentials | Previously reported version 5; not rechecked |
+| Supplier | `supplier_service_db` | Existing service credentials | Previously reported version 2; not rechecked |
+| Credit | `creditservice` | `app_rw` | Version 5 applied; privileges checked |
+| Order | `order_service_db` | `order_service_user` | Initial migration applied; tables visible |
+
+The separate older `credit_service_db`, owned by `migrator`, contained only migration bookkeeping when checked and was left untouched. Do not point credit-service at it or delete it without checking usage.
+
+Credit migrations used the existing `migrator` role. `app_rw` login, application table permissions, and required sequence permissions were checked; Goose bookkeeping is read-only for this role. The order runtime role currently owns its database; separate migration/runtime privileges have not been established there. Do not rerun a bootstrap that resets shared role passwords.
+
+Credit and order Dockerfiles now package the RDS CA bundle at `/etc/ssl/certs/rds-global-bundle.pem`. Their configured connection strings use `sslmode=verify-full` and `sslrootcert` pointing there. User/supplier runtime TLS verification has not been audited to the same level.
+
+In DBeaver, use an absolute local path to the CA bundle. `./global-bundle.pem` may not resolve from its working directory. Find tables under the selected database's `Schemas → public → Tables` and refresh after migrations.
+
+See [RDS migration notes](rds-goose-migrations.md) for the existing user/supplier procedure and each service README for its migration instructions.
+
+## Amazon MQ
+
+- Broker: `foc-rabbitmq`, ID `b-2073f411-5a0f-4452-ac34-7406eac4ff7f`.
+- RabbitMQ 4.3, `mq.m7g.medium`, single instance in `ap-southeast-1c`, privately accessible.
+- Endpoint: `amqps://b-2073f411-5a0f-4452-ac34-7406eac4ff7f.mq.ap-southeast-1.on.aws:5671`.
+- RabbitMQ username/password authentication is separate from IAM. Store the authenticated URL in Secrets Manager; percent-encode reserved password characters once (`!` becomes `%21`).
+- Credit successfully logged `consuming credit commands` for `credit-service.commands` after correcting credentials. Old-task retry/shutdown messages appeared alongside new-task success; compare task IDs.
+- Order readiness reported `creditResults: running`, `postgres: ok`, `rabbitmq: ok`, `redis: disabled`, `supplier: closed`. `closed` describes the supplier circuit breaker; it does not prove an authorized supplier request succeeded.
+- Order uses `AMQP_DECLARE_TAP=true` for the current event-tap topology. Redis is intentionally disabled.
+
+Standard CloudShell is outside this VPC. Independent broker tests need a VPC-connected environment/task and TLS/AMQP authentication. Do not deploy the local RabbitMQ container to ECS alongside Amazon MQ.
+
+## Secrets and wallet provisioning
+
+| Secret | JSON keys used |
+|---|---|
+| `foc/credit-service/runtime` | `DATABASE_URL`, `AMQP_URL`, `CREDIT_M2M_CLIENT_ID`, `CREDIT_M2M_CLIENT_SECRET` |
+| `foc/order-service/runtime` | `DATABASE_URL`, `AMQP_URL`, `ORDER_M2M_CLIENT_ID`, `ORDER_M2M_CLIENT_SECRET` |
+
+User-service reuses the credit secret's `CREDIT_M2M_*` keys for wallet provisioning. These are Auth0 machine-to-machine credentials, separate from AWS IAM and browser authentication.
+
+- Execution role `ecsTaskExecutionRole` has permission to retrieve the runtime secrets, alongside image/logging permissions.
+- JSON key names must match references exactly. `CREDIT_M2M_SECRET` failed because the saved key was `CREDIT_M2M_CLIENT_SECRET`.
+- Secrets are injected at task startup: force a new deployment after changing values.
+- Order revision 2 replaced plaintext environment credentials with secret references. Older task revisions may retain earlier values; cleanup and credential rotation remain outstanding.
+- The supplier task role's S3 upload permission is separate from execution-role secret access.
+
+User-service is configured with:
+
+```text
+CREDIT_SERVICE_URL=http://credit-service:3004
+CREDIT_AUDIENCE=https://api.foc.local/credit-service
+```
+
+Its `CREDIT_M2M_CLIENT_ID` and `CREDIT_M2M_CLIENT_SECRET` are secret references. Credit uses `INITIAL_CREDIT_AMOUNT=100`. Provisioning is idempotent and also handles existing users when they provision again; retries must not grant another initial balance. End-to-end wallet creation and the M2M grant still need verification.
+
+## Confirmed Auth0 browser issue and domain plan
+
+Tenant: `dev-nj7qnvzgpr2panhl.us.auth0.com`; application: `FOC Auth0`.
+
+The frontend uses `auth0.js` embedded email/password login with implicit responses (`token id_token`). Background token acquisition uses iframe-based `checkSession` with `prompt=none`. Frontend and Auth0 currently have different sites (`cloudfront.net` and `auth0.com`).
+
+Observed failures:
+
+- Embedded login: `fcoa`, `Unable to configure verification page.`
+- Silent authentication: `fsa`, `login_required`.
+- Supplier connection messages could appear when token acquisition failed before an API request was sent.
+
+On 5 November, temporarily allowing third-party cookies made embedded login and supplier loading work. This confirms the cookie dependency; local Compose working did not rule out a deployed-origin browser issue. These errors did not establish a backend M2M failure. The missing `favicon.ico` 403 was unrelated.
+
+A silent `login_required` before signing in is expected; after login it can also indicate that the iframe cannot access the session. Silent authentication can return HTTP 200 HTML containing an error, so inspect the auth result/logs rather than status alone.
+
+### Next direction: keep embedded login with a shared domain
+
+The user wants to retain the embedded form. Configure frontend and Auth0 under a domain the team controls, for example:
+
+| Component | Example |
+|---|---|
+| CloudFront frontend | `https://app.example.com` |
+| Auth0 custom domain | `https://login.example.com` |
+
+Both must share the same registrable parent domain. Changing just one hostname while keeping the other on `cloudfront.net` or `auth0.com` does not fix the cookie dependency. This domain rollout has not started.
+
+Required work: configure frontend DNS/CloudFront HTTPS and the Auth0 custom domain, update frontend Auth0 configuration and allowed URLs, then coordinate API issuer validation and M2M configuration. Tokens obtained through the custom domain carry that domain as issuer; audience identifiers do not automatically change. Do not switch only the frontend while API validators still accept only the old issuer.
+
+Current distribution URL settings should be:
+
+| Auth0 setting | Value |
+|---|---|
+| Allowed Callback URLs | `https://d8d2ig90yjarp.cloudfront.net/` |
+| Allowed Logout URLs | `https://d8d2ig90yjarp.cloudfront.net/` |
+| Allowed Web Origins | `https://d8d2ig90yjarp.cloudfront.net` |
+| Allowed Origins (CORS) | `https://d8d2ig90yjarp.cloudfront.net` |
+
+Keep required localhost entries. Callback/logout URLs must match what the app sends; origins have no path or trailing slash. Saved dashboard values have not been independently rechecked.
+
+References: [Auth0 cross-origin authentication](https://auth0.com/docs/authenticate/login/cross-origin-authentication), [silent authentication](https://auth0.com/docs/authenticate/login/configure-silent-authentication), [custom domains and token issuers](https://auth0.com/docs/customize/custom-domains).
+
+## Remaining work
+
+1. Configure shared-domain frontend/Auth0 hosting; verify embedded login, supplier reads, and token renewal with third-party cookies blocked.
+2. Verify new/existing-user wallet provisioning, initial balance of 100 exactly once, and required Auth0 M2M permissions.
+3. Test credit reads and the order lifecycle through CloudFront, including RabbitMQ commands/results. Readiness alone does not verify these workflows.
+4. Review remaining integration settings, including supplier-to-order checks, before relying on those workflows in production.
+5. Configure CloudFront-to-ALB HTTPS and review direct ALB access during domain setup.
+6. Review historical plaintext credentials/task revisions, unused infrastructure, and user/supplier database TLS verification; rotate credentials where needed.
+7. Implement CI/CD for frontend assets, service images, migrations, and ECS deployments. Scope frontend sync/deletion to `frontend/` so supplier images remain safe. CI/CD has only been discussed.
+
+RDS, ALB, NAT/Elastic IP, and Amazon MQ can keep incurring charges when ECS desired counts are zero. Stopping application tasks does not pause the entire deployment.

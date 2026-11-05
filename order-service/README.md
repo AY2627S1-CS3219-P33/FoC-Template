@@ -52,6 +52,11 @@ order-service/
 
 ## Setup
 
+The Docker image includes the public RDS CA bundle at
+`/etc/ssl/certs/rds-global-bundle.pem`. For RDS deployments, configure
+`DATABASE_URL` with `sslmode=verify-full&sslrootcert=/etc/ssl/certs/rds-global-bundle.pem`
+to verify the database certificate and hostname.
+
 Install Go 1.27, then from `order-service/`:
 
 ```sh

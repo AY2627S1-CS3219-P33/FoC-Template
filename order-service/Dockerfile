@@ -24,6 +24,7 @@ FROM alpine:3.23 AS runtime
 
 # tzdata: supplier opening hours are checked in Asia/Singapore.
 RUN apk add --no-cache ca-certificates tzdata \
+    && wget -q -O /etc/ssl/certs/rds-global-bundle.pem https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem \
     && addgroup -S order \
     && adduser -S -G order order
 
