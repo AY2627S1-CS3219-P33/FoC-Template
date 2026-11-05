@@ -8,11 +8,11 @@ Updated 5 November 2026. This records the settings inspected and results reporte
 - ECS cluster: `comfortable-squirrel-pxwxt5`.
 - User, supplier, credit, and order services run on Fargate in private subnets, with public IP assignment disabled and ARM64 task architecture.
 - The frontend is static content in S3, served through CloudFront. The old frontend ECS service was removed.
-- Browser entry point: <https://d8d2ig90yjarp.cloudfront.net/>.
+- Browser entry point: <https://app.bestfoc.app/>. The original distribution address is `d8d2ig90yjarp.cloudfront.net`; use the custom frontend domain for same-site Auth0 login.
 - CloudFront forwards API requests to the public ALB, which forwards to private ECS task IPs. Tasks use the NAT gateway for outbound internet access, including Auth0.
 - Amazon MQ provides RabbitMQ. The shared RDS PostgreSQL instance holds the service databases.
 
-Backend deployments were healthy at the last checks. Embedded browser login and supplier loading worked after third-party cookies were allowed. Removing that browser-settings dependency is the next planned change.
+Backend deployments were healthy at the earlier checks. The user has since confirmed custom-domain frontend HTTPS, Auth0 domain verification, and deployment of new task-definition revisions for all four services. The public auth configuration was independently checked and returns `login.bestfoc.app`. Embedded login, API access, and renewal with third-party cookies blocked still need verification.
 
 ## VPC and NAT gateway
 
@@ -46,7 +46,9 @@ The broker also had the application security group attached at the last inspecti
 
 ## ECS services and images
 
-| Service | ECS service name | Last deployed revision | Container port |
+The revisions and image tags below were recorded before the custom-domain rollout. The user reports all four services were redeployed afterward; their current revision numbers and image tags have not been rechecked.
+
+| Service | ECS service name | Revision before domain rollout | Container port |
 |---|---|---|---|
 | User | `user-service-task-service-tb6pn0x0` | `user-service-task:5` | 8080 |
 | Supplier | `supplier-service-task-service-ot78zbdx` | `supplier-service-task:6` | 3002 |
@@ -55,7 +57,7 @@ The broker also had the application security group attached at the last inspecti
 
 ECR registry: `842761392141.dkr.ecr.ap-southeast-1.amazonaws.com`.
 
-| Repository | Last deployed image tag |
+| Repository | Image tag recorded before domain rollout |
 |---|---|
 | `user-service` | `2e4860c-20261101163724` |
 | `supplier-service` | `2e4860c-20261101163724` |
@@ -102,7 +104,7 @@ Reuse the existing HTTP port 80 listener when adding services. Another listener 
 
 Target groups use IP targets registered by ECS. Listener port 80 can forward to a different container port. A fixed 404 default action was recommended after removing the frontend target; confirm that cleanup before changing the listener.
 
-CloudFront distribution: `E39SHVSD0FXUB9` (`d8d2ig90yjarp.cloudfront.net`).
+CloudFront distribution: `E39SHVSD0FXUB9` (`d8d2ig90yjarp.cloudfront.net`), with alternate domain `app.bestfoc.app`.
 
 | Behavior | Origin | Configuration |
 |---|---|---|
@@ -115,7 +117,7 @@ CloudFront distribution: `E39SHVSD0FXUB9` (`d8d2ig90yjarp.cloudfront.net`).
 
 API behaviors use `AllViewerExceptHostHeader`. ALB rules perform the prefix rewrites. No distribution-wide SPA error mapping was configured; such mappings can hide API/image errors.
 
-Browser-to-CloudFront HTTPS works on the distribution domain. CloudFront-to-ALB currently uses HTTP port 80; origin HTTPS remains to be configured. The ALB HTTP listener was publicly reachable at the last inspection.
+Browser-to-CloudFront HTTPS works on the distribution domain; the user also confirmed HTTPS on `app.bestfoc.app` after attaching the issued ACM certificate from `us-east-1`. CloudFront-to-ALB used HTTP port 80 at the last inspection; origin HTTPS remains unverified. The ALB HTTP listener was publicly reachable at the last inspection.
 
 ## S3 frontend and supplier images
 
@@ -195,11 +197,11 @@ CREDIT_AUDIENCE=https://api.foc.local/credit-service
 
 Its `CREDIT_M2M_CLIENT_ID` and `CREDIT_M2M_CLIENT_SECRET` are secret references. Credit uses `INITIAL_CREDIT_AMOUNT=100`. Provisioning is idempotent and also handles existing users when they provision again; retries must not grant another initial balance. End-to-end wallet creation and the M2M grant still need verification.
 
-## Confirmed Auth0 browser issue and domain plan
+## Auth0 browser issue and custom-domain rollout
 
 Tenant: `dev-nj7qnvzgpr2panhl.us.auth0.com`; application: `FOC Auth0`.
 
-The frontend uses `auth0.js` embedded email/password login with implicit responses (`token id_token`). Background token acquisition uses iframe-based `checkSession` with `prompt=none`. Frontend and Auth0 currently have different sites (`cloudfront.net` and `auth0.com`).
+The frontend uses `auth0.js` embedded email/password login with implicit responses (`token id_token`). Background token acquisition uses iframe-based `checkSession` with `prompt=none`. Before the custom-domain rollout, frontend and Auth0 had different sites (`cloudfront.net` and `auth0.com`).
 
 Observed failures:
 
@@ -211,35 +213,70 @@ On 5 November, temporarily allowing third-party cookies made embedded login and 
 
 A silent `login_required` before signing in is expected; after login it can also indicate that the iframe cannot access the session. Silent authentication can return HTTP 200 HTML containing an error, so inspect the auth result/logs rather than status alone.
 
-### Next direction: keep embedded login with a shared domain
+### Shared-domain setup
 
-The user wants to retain the embedded form. Configure frontend and Auth0 under a domain the team controls, for example:
+The embedded form is retained. The user registered `bestfoc.app` through Name.com; its authoritative DNS is hosted there.
 
-| Component | Example |
+| Component | Address |
 |---|---|
-| CloudFront frontend | `https://app.example.com` |
-| Auth0 custom domain | `https://login.example.com` |
+| CloudFront frontend | `https://app.bestfoc.app` |
+| Auth0 custom domain | `https://login.bestfoc.app` |
 
-Both must share the same registrable parent domain. Changing just one hostname while keeping the other on `cloudfront.net` or `auth0.com` does not fix the cookie dependency. This domain rollout has not started.
+Both share the registrable parent domain `bestfoc.app`, addressing the cross-site cookie dependency when the app is accessed through `app.bestfoc.app`. Using the original CloudFront hostname with the custom Auth0 domain is still cross-site.
 
-Required work: configure frontend DNS/CloudFront HTTPS and the Auth0 custom domain, update frontend Auth0 configuration and allowed URLs, then coordinate API issuer validation and M2M configuration. Tokens obtained through the custom domain carry that domain as issuer; audience identifiers do not automatically change. Do not switch only the frontend while API validators still accept only the old issuer.
+DNS records added through Name.com:
 
-Current distribution URL settings should be:
+| Type | Host relative to `bestfoc.app` | Target |
+|---|---|---|
+| CNAME | `app` | `d8d2ig90yjarp.cloudfront.net` |
+| CNAME | `_edc271adda9e81035e2c09fb5b0d7700.app` | `_027028ebba10473698abb1208d7ad014.wzccmgtwzk.acm-validations.aws` |
+| CNAME | `login` | `dev-nj7qnvzgpr2panhl-cd-qcdsq35pmjy7fuov.edge.tenants.us.auth0.com` |
+
+The frontend certificate was requested in ACM `us-east-1`, required for CloudFront viewer HTTPS, and the user confirmed it reached **Issued**. Auth0 uses its own Auth0-managed certificate; the user confirmed the custom domain reached verified status. Keep the ACM validation and Auth0 CNAME records for certificate renewal. Public DNS lookups confirmed both validation targets during setup.
+
+The school role's IAM simulation showed `cloudfront:UpdateDistribution` allowed with organization policies enabled; the user also reported `acm:RequestCertificate` allowed. `route53domains:ListDomains` was denied by AWS Organizations. Registration and DNS management through Name.com avoided needing Route 53 Domains.
+
+The user created new ECS task-definition revisions and reported all four services deployed. The instructed environment changes were:
+
+| Task definition | Variable | Value |
+|---|---|---|
+| `user-service-task` | `AUTH0_DOMAIN` | `login.bestfoc.app` |
+| `supplier-service-task` | `AUTH0_ISSUER` | `https://login.bestfoc.app/` |
+| `credit-service-task` | `AUTH0_ISSUER` | `https://login.bestfoc.app/` |
+| `order-service-task` | `AUTH0_ISSUER` | `https://login.bestfoc.app/` |
+
+Tokens obtained through the custom domain carry `https://login.bestfoc.app/` as issuer. Existing API audience identifiers remain unchanged. Issuer changes also affect the services' outbound M2M token requests; cross-service requests must be verified after rollout. Exact live task-definition values have not been independently rechecked.
+
+A read-only request to `https://app.bestfoc.app/api/auth/config` returned HTTP 200 with:
+
+```json
+{"domain":"login.bestfoc.app","clientId":"nFcNCHhBlYEkxwwewFt02hjWUmxjVg4x","audience":"https://api.foc.local/user-service"}
+```
+
+The frontend reads its Auth0 domain from this endpoint; this confirms the deployed user-service publishes the custom domain, not that authentication or all API workflows succeed.
+
+The user confirmed adding these Auth0 application settings:
 
 | Auth0 setting | Value |
 |---|---|
-| Allowed Callback URLs | `https://d8d2ig90yjarp.cloudfront.net/` |
-| Allowed Logout URLs | `https://d8d2ig90yjarp.cloudfront.net/` |
-| Allowed Web Origins | `https://d8d2ig90yjarp.cloudfront.net` |
-| Allowed Origins (CORS) | `https://d8d2ig90yjarp.cloudfront.net` |
+| Allowed Callback URLs | `https://app.bestfoc.app/` |
+| Allowed Logout URLs | `https://app.bestfoc.app/` |
+| Allowed Web Origins | `https://app.bestfoc.app` |
+| Allowed Origins (CORS) | `https://app.bestfoc.app` |
 
-Keep required localhost entries. Callback/logout URLs must match what the app sends; origins have no path or trailing slash. Saved dashboard values have not been independently rechecked.
+These were added alongside existing entries; keep required localhost entries. Callback/logout URLs must match what the app sends; origins have no path or trailing slash. Saved dashboard values have not been independently rechecked.
 
-References: [Auth0 cross-origin authentication](https://auth0.com/docs/authenticate/login/cross-origin-authentication), [silent authentication](https://auth0.com/docs/authenticate/login/configure-silent-authentication), [custom domains and token issuers](https://auth0.com/docs/customize/custom-domains).
+### Outstanding user-service Management API issue
+
+Local code inspection found that `user-service/internal/auth/management.go` derives both Management API request URLs and its audience from `AUTH0_DOMAIN`. With `AUTH0_DOMAIN=login.bestfoc.app`, it requests the incorrect audience `https://login.bestfoc.app/api/v2/`. The Management API audience must remain `https://dev-nj7qnvzgpr2panhl.us.auth0.com/api/v2/`.
+
+Management API calls can use either the original tenant domain or the custom domain, but token requests and API requests must use the same domain and retain the original audience identifier. Separate the management configuration or audience from the browser login domain, test the fix, and deploy a new user-service image. This fix has not been implemented. Administrator user listings and role changes may fail; ordinary login does not exercise these Management API calls.
+
+References: [Auth0 cross-origin authentication](https://auth0.com/docs/authenticate/login/cross-origin-authentication), [silent authentication](https://auth0.com/docs/authenticate/login/configure-silent-authentication), [custom domains and token issuers](https://auth0.com/docs/customize/custom-domains), [custom-domain API configuration](https://auth0.com/docs/customize/custom-domains/configure-features-to-use-custom-domains).
 
 ## Remaining work
 
-1. Configure shared-domain frontend/Auth0 hosting; verify embedded login, supplier reads, and token renewal with third-party cookies blocked.
+1. Verify the reported ECS domain rollout and test embedded login, profile/supplier/credit/order reads, page-refresh session restoration, token renewal, and logout/login at `https://app.bestfoc.app` with third-party cookies blocked. Fix and deploy the user-service Management API audience issue, then verify administrator listings and role changes.
 2. Verify new/existing-user wallet provisioning, initial balance of 100 exactly once, and required Auth0 M2M permissions.
 3. Test credit reads and the order lifecycle through CloudFront, including RabbitMQ commands/results. Readiness alone does not verify these workflows.
 4. Review remaining integration settings, including supplier-to-order checks, before relying on those workflows in production.
