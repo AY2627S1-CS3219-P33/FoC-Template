@@ -1,6 +1,6 @@
 # ECS deployment notes
 
-Updated 5 November 2026. This records the settings inspected and results reported during the deployment session. It is not infrastructure as code or a fresh audit of the AWS account. Do not add passwords, secret values, or bearer tokens.
+Updated 6 November 2026. This records the settings inspected and results reported during the deployment session. It is not infrastructure as code or a fresh audit of the AWS account. Do not add passwords, secret values, or bearer tokens.
 
 ## Current deployment
 
@@ -282,6 +282,80 @@ References: [Auth0 cross-origin authentication](https://auth0.com/docs/authentic
 4. Review remaining integration settings, including supplier-to-order checks, before relying on those workflows in production.
 5. Configure CloudFront-to-ALB HTTPS and review direct ALB access during domain setup.
 6. Review historical plaintext credentials/task revisions, unused infrastructure, and user/supplier database TLS verification; rotate credentials where needed.
-7. Implement CI/CD for frontend assets, service images, migrations, and ECS deployments. Scope frontend sync/deletion to `frontend/` so supplier images remain safe. CI/CD has only been discussed.
+7. Configure and exercise the repository CI/CD workflows described below. Automated migration tasks remain deferred; database migrations are manual.
 
 RDS, ALB, NAT/Elastic IP, and Amazon MQ can keep incurring charges when ECS desired counts are zero. Stopping application tasks does not pause the entire deployment.
+
+## GitHub Actions CI/CD
+
+Workflows are implemented locally for the public team repository `AY2627S1-CS3219-P33/FoC-Template`, whose default branch is `main`. They have not been pushed or run on GitHub, and no IAM or GitHub environment configuration has been applied by this implementation.
+
+- [CI](../.github/workflows/ci.yml) runs on pull requests and pushes to `main`. It regenerates supplier/order SQL query code as their Docker builds do, then checks Go formatting, vet, tests, and builds for all four services, plus frontend type checking/build, OpenAPI lint, workflow lint, and deployment-script tests. Disposable PostgreSQL 18, RabbitMQ 4, and Redis 7.4 containers enable the existing integration tests. The explicit database-restart test remains opt-in.
+- [Deploy](../.github/workflows/deploy.yml) runs only when manually triggered on the team repository's `main` branch. Deploy operations rerun CI on that exact commit before requesting AWS credentials. Rollback skips source-code CI and restores recorded release artifacts instead.
+- [Deployment configuration](../.github/deploy.json) contains the existing AWS identifiers and public check URLs. [The script](../.github/scripts/deploy.py) uses AWS CLI commands, builds backend images on an ARM64 runner, and creates new task-definition revisions from the service's currently selected revision. Environment variables, secret references, task roles, resource limits, tags, and service configuration are preserved; only the application image changes. It does not choose the highest-numbered unrelated revision.
+
+### One-time console setup
+
+1. Review the deployment configuration against the live account. Confirm each service uses an ARM64 task and the matching ECR repository. Fix the outstanding user-service Management API issue separately; CI/CD does not fix application bugs.
+2. In the **team repository → Settings → Environments**, create `production`. Under deployment branches/tags, allow only the branch `main`. This restriction is required because the OIDC trust identifies the environment rather than the branch. Optionally add required reviewers. Protect `main` with required CI checks using the repository's branch rules.
+3. In **AWS IAM → Identity providers**, add or reuse the OpenID Connect provider `https://token.actions.githubusercontent.com`, with audience `sts.amazonaws.com`.
+4. In **IAM → Roles**, create a dedicated role such as `foc-github-deploy`, using [deploy-trust.json](../.github/aws/deploy-trust.json) as its trust relationship. A read-only GitHub API check confirmed this repository uses the immutable subject prefix `repo:AY2627S1-CS3219-P33@330282387/FoC-Template@1373992806`; do not replace it with the older name-only format. Recheck if the repository is renamed, transferred, or its OIDC configuration changes.
+5. Create and attach a customer-managed permissions policy from [deploy-permissions.json](../.github/aws/deploy-permissions.json). Before attaching, confirm its `iam:PassRole` list includes exactly the execution/task role ARNs in the four live task definitions. The template uses the two roles recorded in these notes; add any other actual roles individually, never a wildcard. ECR login and task-definition registration require wildcard resources; other permissions target the existing repositories, services, task families, S3 prefixes, and distribution. No database credentials or Secrets Manager read permissions are granted to the pipeline. If these resources use customer-managed KMS keys, add the required permissions scoped to those keys.
+6. In **GitHub → production environment → Environment variables**, set `AWS_DEPLOY_ROLE_ARN` to the new role ARN. Do not add AWS access keys or application secrets to GitHub. Existing application secrets remain in ECS references and are retrieved by task execution roles.
+7. Merge the workflows into the team repository's `main` branch, confirm CI succeeds, then trigger the first deployment. If IAM provider/role creation is denied by school organization policies, stop here and ask the school administrator to provision them.
+
+Only the frontend and deployment metadata prefixes are writable by the role. Supplier image keys at the bucket root and under `suppliers/` are outside its object permissions. No object deletion permission is needed. The trust and permissions JSON are setup templates, not resources already installed in AWS.
+
+Sources: [GitHub OIDC with AWS](https://docs.github.com/en/actions/how-tos/secure-your-work/security-harden-deployments/oidc-in-aws), [immutable OIDC subjects](https://docs.github.com/en/actions/reference/security/oidc), [ECR push permissions](https://docs.aws.amazon.com/AmazonECR/latest/userguide/image-push-iam.html), [ECS deployment permissions](https://github.com/aws-actions/amazon-ecs-deploy-task-definition#permissions).
+
+### Deploying a change
+
+Open **team repository → Actions → Deploy → Run workflow**, select branch `main`, and use operation `deploy`.
+
+| Component selection | Behavior |
+|---|---|
+| `auto` | Deploy only components whose build inputs changed since their own recorded successful deployment |
+| A named service or `frontend` | Redeploy just that component, even if its source has not changed |
+| `all` | Deploy every component |
+
+Each service owns its folder; frontend owns `user-frontend/`. Supplier also depends on `data/csv/supplier-seed-data.csv` and the root `.dockerignore`. Deployment-script/configuration/deploy-workflow changes conservatively select all components. Markdown-only changes do not trigger deployments. CI still checks all components.
+
+State is stored at `s3://foc-supplier-images/deployments/state/<component>.json`, including the source commit and one previous release. Change detection compares the full Git trees against each component's record, so multiple commits accumulate and deleted files are included. Missing history errors stop the workflow rather than silently skipping changes. The first run has no baseline and selects all components in `auto`; explicitly select one component to bootstrap gradually. All existing migration SQL files are flagged for that component's first deployment, even if already applied.
+
+For a backend, the workflow builds and pushes a uniquely tagged image (`<commit>-<run-id>-<attempt>`), then uses its immutable digest in the new revision. It updates only the selected ECS service, waits for stability while running, and verifies ECS retained the requested revision rather than automatically rolling back. Public checks use the configured JSON endpoints. These checks establish deployment/readiness, not authenticated business-workflow correctness; order readiness can return HTTP 200 while reporting degraded dependencies.
+
+ECS desired counts are never supplied to `update-service`. A service at zero stays stopped and is reported as **updated while stopped; runtime checks skipped**. Its configuration baseline is recorded after the revision is selected; this is not proof the image starts. When you later scale it up, ECS uses that selected revision. Auto Scaling or manual actions can independently change counts; avoid console deployments during a workflow run. GitHub serializes deploy/rollback runs without cancelling a deployment already in progress. Multi-component releases are sequential and not atomic; successful components retain their records if a later component fails.
+
+For the frontend, the workflow builds static content, saves a release snapshot under `deployments/frontend/<release>/`, uploads non-HTML assets before `frontend/index.html`, and invalidates `/` and `/frontend/index.html`. It waits for invalidation completion and verifies the served HTML hash. Uploads never delete objects, so old browser sessions retain their hashed assets and supplier images remain untouched. Old snapshots/assets and ECR images consume storage; cleanup remains manual and must preserve rollback releases. Do not apply a bucket lifecycle policy that deletes `deployments/state/`.
+
+### Manual database migrations
+
+If selected components have changed migration SQL, the workflow lists the files and stops before any build/push/deployment unless **migrations_applied** is checked. This checkbox is the operator's attestation, not a database query or migration runner.
+
+1. Review the exact workflow commit and listed migrations. For a first deployment, compare all listed files against the database's existing Goose versions.
+2. From an authorized machine with RDS network access, use each service's documented Goose procedure with its migration credentials: [user](../user-service/migrations/README.md), [supplier](../supplier-service/migrations/README.md), [credit](../credit-service/README.md), and [order](../order-service/migrations/README.md). Check `status`, apply only pending migrations with `up`, and confirm `status` afterward. Use TLS verification and the intended service database; do not reset users or bootstrap existing databases.
+3. Keep migrations backward compatible with running application versions. If that is impossible, plan downtime and explicitly stop affected services before applying them. Never assume an application rollback reverses schema or data changes.
+4. Trigger Deploy again on the same reviewed commit with **migrations_applied** checked. If `main` advanced, review and apply any additional migrations before confirming. A rerun of the original workflow retains its commit; a fresh dispatch selects the current branch commit.
+
+RDS does not need to be exposed to GitHub runners. A future dedicated ECS migration task can replace the manual procedure, using VPC access and separate credentials, but no such task is implemented here.
+
+### Rollback and recovery
+
+In **Actions → Deploy → Run workflow**, choose operation `rollback`, select exactly one named component, and check **migrations_applied** only after confirming the database remains compatible with the older application. `auto` and `all` are rejected for rollback.
+
+If the live service revision or frontend HTML differs from the last recorded successful release, rollback restores that record (for example, after a failed deployment). Otherwise, it restores the record's predecessor. Backend rollback selects the recorded task-definition ARN and preserves desired count; frontend rollback republishes the saved snapshot and invalidates the entry page. Neither rebuilds an old image or changes the database. The first backend deployment records the pre-pipeline task revision for rollback, but its source commit is unknown; after restoring it, the next deployment rechecks the component's full tree. Frontend rollback requires a tracked snapshot: the pre-pipeline frontend is not backed up automatically, so the first frontend release has no predecessor snapshot.
+
+State is written only after the selected revision/public checks succeed (or revision selection for a stopped service). A failure can still leave an image, task revision, frontend snapshot, or partially updated live deployment behind. Check the workflow summary and ECS events; do not treat a red run as proof that AWS made no changes. Do not delete previous task definitions, ECR digests, or frontend snapshots while they are needed for rollback.
+
+If ECS already automatically restored the last successful revision, no further rollback is needed. An explicit rollback while that recorded revision is live intentionally moves to its predecessor.
+
+### Local verification
+
+```sh
+python3 -m unittest discover -s .github/scripts -p 'test_*.py' -v
+go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7 .github/workflows/ci.yml .github/workflows/deploy.yml
+```
+
+The script tests exercise accumulated change selection, shared inputs, migration blocking, fork/branch restrictions, task-definition preservation, zero desired counts, ECS automatic rollback detection, safe frontend uploads, failed-release state handling, and recorded rollback. Local checks cannot establish live AWS permissions or replace an initial GitHub deployment trial.
+
+Local verification passed deployment-script tests, actionlint, frontend type checking/build, and OpenAPI validation (with existing warnings). Supplier, credit, and order tests passed with disposable PostgreSQL, RabbitMQ, and Redis dependencies. Enabling user-service's database tests exposed two outdated assertions, which have now been corrected. After the user confirmed soft deletion is intentional, `TestPostgresServiceFlow` was updated to check that unconfirmed deletion leaves the account accessible, confirmed deletion retains an inactive row with a deletion timestamp and unchanged username/email, and profile reads then return not-found. `TestBootstrapConflictAndRollback` now expects the pre-existing matching account in its subject-conflict case, verifies existing accounts remain unchanged, and still requires bootstrap completion to remain unset. The full user-service suite, vet, and build pass with disposable PostgreSQL as of 6 November. No application behavior was changed. Live AWS permissions and the first GitHub deployment remain unverified.
