@@ -1,0 +1,31 @@
+{
+  "repository": "AY2627S1-CS3219-P33/FoC-Template",
+  "account": "842761392141",
+  "region": "ap-southeast-1",
+  "cluster": "comfortable-squirrel-pxwxt5",
+  "bucket": "foc-supplier-images",
+  "distribution": "E39SHVSD0FXUB9",
+  "base_url": "https://app.bestfoc.app",
+  "services": {
+    "user-service": {
+      "service": "user-service-task-service-tb6pn0x0",
+      "context": "user-service",
+      "health_path": "/api/auth/config"
+    },
+    "supplier-service": {
+      "service": "supplier-service-task-service-ot78zbdx",
+      "context": ".",
+      "health_path": "/supplier-service/readyz"
+    },
+    "credit-service": {
+      "service": "credit-service",
+      "context": "credit-service",
+      "health_path": "/credit-service/readyz"
+    },
+    "order-service": {
+      "service": "order-service-task-service-177de1f2",
+      "context": "order-service",
+      "health_path": "/order-service/readyz"
+    }
+  }
+}

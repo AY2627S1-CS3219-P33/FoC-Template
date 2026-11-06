@@ -83,6 +83,7 @@ func TestBootstrapConflictAndRollback(t *testing.T) {
 			repo := repository.NewPostgres(pool)
 			input := repository.CreateAuth0User{Subject: "auth0|admin", Username: "admin", Email: "admin@example.com"}
 			var err error
+			var existingAccount *repository.User
 			switch kind {
 			case "completion":
 				_, err = pool.Exec(ctx, `ALTER TABLE bootstrap_state ADD CHECK (completed_at IS NULL)`)
@@ -98,7 +99,7 @@ func TestBootstrapConflictAndRollback(t *testing.T) {
 				case "email":
 					existing.Email = input.Email
 				}
-				_, _, err = repo.CreateAuth0(ctx, existing)
+				existingAccount, _, err = repo.CreateAuth0(ctx, existing)
 			}
 			if err != nil {
 				t.Fatal(err)
@@ -106,9 +107,19 @@ func TestBootstrapConflictAndRollback(t *testing.T) {
 			if err := service.BootstrapSuperAdmin(ctx, repo, input); err == nil {
 				t.Fatal("expected failure")
 			}
-			var admins, completed int
-			if err := pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM accounts WHERE auth0_subject='auth0|admin'),(SELECT count(*) FROM bootstrap_state WHERE completed_at IS NOT NULL)`).Scan(&admins, &completed); err != nil || admins != 0 || completed != 0 {
+			wantAccounts := 0
+			if kind == "subject" {
+				wantAccounts = 1
+			}
+			var accounts, completed int
+			if err := pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM accounts WHERE auth0_subject='auth0|admin'),(SELECT count(*) FROM bootstrap_state WHERE completed_at IS NOT NULL)`).Scan(&accounts, &completed); err != nil || accounts != wantAccounts || completed != 0 {
 				t.Fatal("partial bootstrap persisted", err)
+			}
+			if existingAccount != nil {
+				after, err := repo.FindByID(ctx, existingAccount.ID)
+				if err != nil || *after != *existingAccount {
+					t.Fatal("failed bootstrap modified the existing account", err)
+				}
 			}
 			// The pool remains usable after a failed bootstrap.
 			if err := pool.Ping(ctx); err != nil {

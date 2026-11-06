@@ -161,6 +161,19 @@ export async function createSupplier(token: string, body: SupplierWrite): Promis
   );
 }
 
+export async function uploadSupplierImage(token: string, file: File): Promise<string> {
+  const body = new FormData();
+  body.append("image", file);
+  const result = await parse<{ imageUrl: string }>(
+    await fetch(`${BASE}/suppliers/images`, {
+      method: "POST",
+      headers: headers(token),
+      body,
+    }),
+  );
+  return result.imageUrl;
+}
+
 export async function updateSupplier(
   token: string,
   id: string,

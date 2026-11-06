@@ -13,6 +13,7 @@ import (
 	"github.com/CS3219-AY2627S1/FoC-Template/supplier-service/internal/app"
 	"github.com/CS3219-AY2627S1/FoC-Template/supplier-service/internal/auth"
 	"github.com/CS3219-AY2627S1/FoC-Template/supplier-service/internal/supplier"
+	"github.com/CS3219-AY2627S1/FoC-Template/supplier-service/internal/supplier/imageupload"
 	"github.com/CS3219-AY2627S1/FoC-Template/supplier-service/internal/testauth"
 	"github.com/stretchr/testify/require"
 )
@@ -85,7 +86,7 @@ func TestComposedAuth0Routes_F2_1_F2_2_NFR3_3(t *testing.T) {
 	verifier, err := auth.NewAuth0(cfg, logger, auth.WithHTTPClient(f.Server.Client()))
 	require.NoError(t, err)
 	store := &authRouteStore{}
-	handler := app.NewHandler(logger, verifier, readyFunc(func(context.Context) error { return nil }), store, store, store, store, app.UnavailableDeletionFence{})
+	handler := app.NewHandler(logger, verifier, readyFunc(func(context.Context) error { return nil }), store, store, store, store, app.UnavailableDeletionFence{}, imageupload.Handler{})
 	read := f.Token(t, f.Claims(auth.SupplierAudience, []string{"suppliers:read"}), "one")
 	admin := f.Token(t, f.Claims(auth.SupplierAudience, []string{"suppliers:read", "suppliers:manage"}), "one")
 	noPermissions := f.Token(t, f.Claims(auth.SupplierAudience, nil), "one")
@@ -104,6 +105,10 @@ func TestComposedAuth0Routes_F2_1_F2_2_NFR3_3(t *testing.T) {
 		{"detail", "GET", "/suppliers/00000000-0000-4000-8000-000000000001", read, "", 200},
 		{"version", "GET", "/supplier-versions/00000000-0000-4000-8000-000000000002", read, "", 200},
 		{"read cannot write", "POST", "/suppliers?role=administrator", read, createBody, 403},
+		{"image upload needs login", "POST", "/suppliers/images", "", "", 401},
+		{"image upload needs manage permission", "POST", "/suppliers/images", read, "", 403},
+		{"image upload also needs read permission", "POST", "/suppliers/images", manageOnly, "", 403},
+		{"image upload disabled without configuration", "POST", "/suppliers/images", admin, "", 503},
 		{"manage also needs router read permission", "POST", "/suppliers", manageOnly, createBody, 403},
 		{"admin creates", "POST", "/suppliers", admin, createBody, 201},
 		{"update needs login", "PATCH", "/suppliers/00000000-0000-4000-8000-000000000001", "", `{"name":"Updated"}`, 401},
@@ -155,7 +160,7 @@ func TestComposedAuth0Routes_F2_1_F2_2_NFR3_3(t *testing.T) {
 	f.Response(503, []byte("private-provider-error"), 0, "")
 	fresh, err := auth.NewAuth0(cfg, logger, auth.WithHTTPClient(f.Server.Client()))
 	require.NoError(t, err)
-	unavailable := app.NewHandler(logger, fresh, readyFunc(fresh.Check), store, store, store, store, app.UnavailableDeletionFence{})
+	unavailable := app.NewHandler(logger, fresh, readyFunc(fresh.Check), store, store, store, store, app.UnavailableDeletionFence{}, imageupload.Handler{})
 	req := httptest.NewRequest("GET", "/suppliers", nil)
 	req.Header.Set("Authorization", "Bearer "+read)
 	rec := httptest.NewRecorder()

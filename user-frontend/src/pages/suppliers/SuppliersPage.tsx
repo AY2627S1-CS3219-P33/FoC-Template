@@ -8,6 +8,7 @@ import {
   listSuppliers,
   listSupplierTypes,
   updateSupplier,
+  uploadSupplierImage,
   type Lookup,
   type Supplier,
   type SupplierSort,
@@ -140,6 +141,11 @@ export function SuppliersPage() {
     await reload();
   }
 
+  async function onUpload(file: File): Promise<string> {
+    const token = await getSupplierToken(true);
+    return uploadSupplierImage(token, file);
+  }
+
   async function onUpdate(id: string, patch: SupplierPatch): Promise<void> {
     const token = await getSupplierToken(true);
     const updated = await updateSupplier(token, id, patch);
@@ -176,6 +182,7 @@ export function SuppliersPage() {
         types={types}
         buildings={buildings}
         onSubmit={(body) => onCreate(body)}
+        onUpload={onUpload}
         onCancel={() => setView({ kind: "list" })}
       />
     );
@@ -188,6 +195,7 @@ export function SuppliersPage() {
         types={types}
         buildings={buildings}
         onSubmit={(body) => onUpdate(view.supplier.supplierId, body)}
+        onUpload={onUpload}
         onCancel={() => setView({ kind: "detail", supplier: view.supplier })}
       />
     );

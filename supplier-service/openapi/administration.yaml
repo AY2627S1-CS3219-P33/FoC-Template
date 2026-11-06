@@ -1,4 +1,64 @@
 operations:
+  uploadSupplierImage:
+    operationId: uploadSupplierImage
+    tags: [Administration]
+    summary: Upload an optional supplier image
+    description: >-
+      Accepts exactly one JPEG or PNG file, at most 5 MiB (5242880 bytes)
+      and 16 million pixels, in the image field. File contents are decoded
+      and validated; filename and supplied MIME type are not trusted.
+      Each upload uses a unique S3 key and returns a permanent imageUrl.
+      Submit that URL through the existing supplier create or update endpoint.
+      This operation does not create or modify a supplier record.
+      Upload retries may create additional objects. Old images are retained
+      for historical supplier versions; abandoned uploads are not cleaned up.
+    x-required-permissions: [suppliers:read, suppliers:manage]
+    security:
+      - bearerAuth: []
+    requestBody:
+      required: true
+      content:
+        multipart/form-data:
+          schema:
+            type: object
+            additionalProperties: false
+            required: [image]
+            properties:
+              image:
+                type: string
+                format: binary
+    responses:
+      "201":
+        description: Image stored; use imageUrl when saving a supplier.
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [imageUrl]
+              properties:
+                imageUrl:
+                  type: string
+                  format: uri
+                  example: https://images.example.com/suppliers/unique-key.jpeg
+      "400":
+        description: Invalid multipart request, file format, or dimensions.
+        content:
+          application/json:
+            schema:
+              $ref: ./common.yaml#/components/schemas/Error
+      "413":
+        description: Image or multipart request exceeds the allowed size.
+        content:
+          application/json:
+            schema:
+              $ref: ./common.yaml#/components/schemas/Error
+      "401":
+        $ref: ./common.yaml#/components/responses/Unauthenticated
+      "403":
+        $ref: ./common.yaml#/components/responses/Forbidden
+      "503":
+        $ref: ./common.yaml#/components/responses/DependencyUnavailable
+
   createSupplier:
     operationId: createSupplier
     tags: [Administration]

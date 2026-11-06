@@ -17,6 +17,7 @@ func TestOpenAPIExposesFrozenOperations(t *testing.T) {
 
 	expected := map[string][]string{
 		"/suppliers":                       {"get", "post"},
+		"/suppliers/images":                {"post"},
 		"/suppliers/{supplierId}":          {"get", "patch", "delete"},
 		"/supplier-versions/{versionId}":   {"get"},
 		"/buildings":                       {"get", "post"},
