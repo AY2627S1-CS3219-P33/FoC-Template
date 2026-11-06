@@ -1,7 +1,7 @@
-// Package testfakes has in-memory fakes of every port in internal/errand,
-// plus FakeCreditService, which plays credit-service's side of the credit
-// message contract. The fakes are safe for concurrent use and need no setup
-// beyond their constructors.
+// Package testfakes has in-memory fakes of every port in internal/errand
+// and of places.Store, plus FakeCreditService, which plays credit-service's
+// side of the credit message contract. The fakes are safe for concurrent use
+// and need no setup beyond their constructors.
 //
 // Each fake can be told to fail through its embedded Faults, and the ones
 // without state of their own record their calls through CallLog.

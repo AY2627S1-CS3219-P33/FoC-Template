@@ -3,6 +3,7 @@ import { useAuth } from "../auth/AuthContext";
 import { RequestError, updateProfile } from "../api/client";
 import type { Profile as ProfileData } from "../api/types";
 import { RoleBadge, CAPABILITIES } from "../components/RoleBadge";
+import { SavedPlaces } from "./SavedPlaces";
 import {
   DISPLAY_NAME_MAX,
   MOBILE_MAX,
@@ -167,6 +168,8 @@ export function Profile() {
           </button>
         </div>
       </form>
+
+      <SavedPlaces />
     </>
   );
 }

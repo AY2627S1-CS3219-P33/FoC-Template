@@ -34,6 +34,10 @@ export function errandError(err: unknown): string {
       return "That pickup location is closed right now, or no longer exists.";
     case "SUPPLIER_DELETION_IN_PROGRESS":
       return "That pickup location is being removed and cannot take new errands.";
+    case "PLACE_NOT_FOUND":
+      return "That saved place no longer exists.";
+    case "PLACE_LIMIT_REACHED":
+      return "You already have 20 saved places of this kind. Remove one to save another.";
     case "DEPENDENCY_UNAVAILABLE":
       return "The order service is temporarily unavailable. Please try again shortly.";
     case "VALIDATION_FAILED":
@@ -42,6 +46,16 @@ export function errandError(err: unknown): string {
     default:
       return err.message;
   }
+}
+
+// Saved places have no highlighted fields to point at (the save runs after the
+// errand form is gone, or inline in a list), so a field error such as a
+// duplicate label is shown by its own message.
+export function placeError(err: unknown): string {
+  if (err instanceof OrderError && err.code === "VALIDATION_FAILED" && err.fields.length > 0) {
+    return err.fields.map((f) => f.message).join(" ");
+  }
+  return errandError(err);
 }
 
 // A stale expectedVersion is recoverable by reloading, so callers refresh the
