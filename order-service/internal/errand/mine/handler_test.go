@@ -319,6 +319,113 @@ func TestHistory(t *testing.T) {
 	})
 }
 
+func TestHistoryRole(t *testing.T) {
+	h := newHarness(t)
+	h.store.Put(errandOf(1, errand.StatusCompleted, courierID))
+	h.store.Put(errandOf(2, errand.StatusCancelled, ""))
+	// The caller delivered someone else's errand.
+	delivered := errandOf(3, errand.StatusCompleted, requesterID)
+	delivered.RequesterID = otherID
+	h.store.Put(delivered)
+	h.store.Put(errandOf(4, errand.StatusOpen, ""))
+
+	t.Run("without a role the list is unchanged", func(t *testing.T) {
+		p := decodePage(t, h.get(t, h.requester, historyPath))
+		assert.Equal(t, []string{errandID(3), errandID(2), errandID(1)}, ids(p))
+		assert.Equal(t, "COURIER", p.Items[0]["viewerRole"])
+		assert.Equal(t, "REQUESTER", p.Items[1]["viewerRole"])
+	})
+
+	t.Run("REQUESTER lists what the caller requested, in the requester view", func(t *testing.T) {
+		p := decodePage(t, h.get(t, h.requester, historyPath+"?role=REQUESTER"))
+		assert.Equal(t, []string{errandID(2), errandID(1)}, ids(p))
+		for _, item := range p.Items {
+			assert.Equal(t, "REQUESTER", item["viewerRole"])
+			assert.Equal(t, contactName, item["contactName"])
+			assertNoCourier(t, item)
+		}
+	})
+
+	t.Run("COURIER lists what the caller delivered, in the courier view", func(t *testing.T) {
+		p := decodePage(t, h.get(t, h.requester, historyPath+"?role=COURIER"))
+		assert.Equal(t, []string{errandID(3)}, ids(p))
+		for _, item := range p.Items {
+			assert.Equal(t, "COURIER", item["viewerRole"])
+			assert.NotContains(t, item, "contactName", "NFR3.6.4: terminal errands hide the contact person")
+			assertNoRequester(t, item)
+		}
+	})
+
+	t.Run("a courier who withdrew is not listed", func(t *testing.T) {
+		withdrawn := errandOf(5, errand.StatusExpired, "")
+		h.store.Put(withdrawn)
+		p := decodePage(t, h.get(t, h.courier, historyPath+"?role=COURIER"))
+		assert.Equal(t, []string{errandID(1)}, ids(p))
+		assert.Empty(t, decodePage(t, h.get(t, h.courier, historyPath+"?role=REQUESTER")).Items)
+	})
+
+	for name, query := range map[string]string{
+		"lower case": "role=requester",
+		"empty":      "role=",
+		"unknown":    "role=ADMIN",
+	} {
+		t.Run("an invalid role is 400: "+name, func(t *testing.T) {
+			requireError(t, h.get(t, h.requester, historyPath+"?"+query), http.StatusBadRequest, apperror.InvalidArgument)
+		})
+	}
+
+	t.Run("the other lists ignore role", func(t *testing.T) {
+		p := decodePage(t, h.get(t, h.requester, requestedPath+"?role=COURIER"))
+		assert.Equal(t, []string{errandID(4)}, ids(p))
+	})
+}
+
+func TestHistoryRoleCursor(t *testing.T) {
+	h := newHarness(t)
+	for n := 1; n <= 3; n++ {
+		h.store.Put(errandOf(n, errand.StatusCompleted, courierID))
+	}
+
+	t.Run("a role's cursor pages that role", func(t *testing.T) {
+		var got []string
+		target := historyPath + "?role=REQUESTER&limit=2"
+		for pages := 1; ; pages++ {
+			require.LessOrEqual(t, pages, 2)
+			p := decodePage(t, h.get(t, h.requester, target))
+			got = append(got, ids(p)...)
+			if p.NextCursor == "" {
+				break
+			}
+			target = historyPath + "?role=REQUESTER&limit=2&cursor=" + p.NextCursor
+		}
+		assert.Equal(t, []string{errandID(3), errandID(2), errandID(1)}, got)
+	})
+
+	first := func(query string) string {
+		t.Helper()
+		p := decodePage(t, h.get(t, h.requester, historyPath+"?limit=1"+query))
+		require.NotEmpty(t, p.NextCursor)
+		return p.NextCursor
+	}
+	for name, tc := range map[string]struct{ from, to string }{
+		"REQUESTER on COURIER":    {"&role=REQUESTER", "&role=COURIER"},
+		"REQUESTER on unfiltered": {"&role=REQUESTER", ""},
+		"unfiltered on REQUESTER": {"", "&role=REQUESTER"},
+	} {
+		t.Run("a cursor is bound to its role: "+name, func(t *testing.T) {
+			requireError(t, h.get(t, h.requester, historyPath+"?cursor="+first(tc.from)+tc.to),
+				http.StatusBadRequest, apperror.InvalidArgument)
+		})
+	}
+
+	t.Run("a COURIER cursor is refused on the unfiltered list", func(t *testing.T) {
+		p := decodePage(t, h.get(t, h.courier, historyPath+"?role=COURIER&limit=1"))
+		require.NotEmpty(t, p.NextCursor)
+		requireError(t, h.get(t, h.courier, historyPath+"?cursor="+p.NextCursor),
+			http.StatusBadRequest, apperror.InvalidArgument)
+	})
+}
+
 func TestPagination(t *testing.T) {
 	h := newHarness(t)
 	for n := 1; n <= 5; n++ {

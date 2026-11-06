@@ -555,6 +555,85 @@ func TestLists(t *testing.T) {
 	requireCode(t, apperror.InvalidArgument, err)
 }
 
+func TestListHistoryRoles(t *testing.T) {
+	s, _ := newStore(t)
+	ctx := context.Background()
+	admin := errand.Actor{Type: errand.ActorAdmin, ID: "admin-1"}
+
+	// refund sends an assigned errand through review to REFUNDED, which
+	// keeps its courier.
+	refund := func(e errand.Errand, courierID string) errand.Errand {
+		t.Helper()
+		e, err := s.Apply(ctx, next(t, e, errand.EventPickUp, courier(courierID), errand.EventInput{}, t0))
+		require.NoError(t, err)
+		e, err = s.Apply(ctx, next(t, e, errand.EventReportIssue, courier(courierID), errand.EventInput{Reason: "shop closed"}, t0))
+		require.NoError(t, err)
+		e, err = s.Apply(ctx, next(t, e, errand.EventAdminRefund, admin, errand.EventInput{Reason: "never picked up"}, t0))
+		require.NoError(t, err)
+		require.Equal(t, courierID, e.CourierID)
+		return e
+	}
+
+	// courier-a withdrew from withdrawn before the requester cancelled it.
+	withdrawn, err := s.Apply(ctx, next(t, openErrand(t, s, newUUID(t)), errand.EventAccept, courier("courier-a"), acceptInput(), t0))
+	require.NoError(t, err)
+	withdrawn, err = s.Apply(ctx, next(t, withdrawn, errand.EventWithdraw, courier("courier-a"), errand.EventInput{}, t0))
+	require.NoError(t, err)
+	withdrawn, err = s.Apply(ctx, next(t, withdrawn, errand.EventCancel, requester(), errand.EventInput{}, t0))
+	require.NoError(t, err)
+
+	// courier-a delivered requested.
+	requested, err := s.Apply(ctx, next(t, openErrand(t, s, newUUID(t)), errand.EventAccept, courier("courier-a"), acceptInput(), t0))
+	require.NoError(t, err)
+	requested = refund(requested, "courier-a")
+
+	// The requester delivered someone else's errand.
+	other := newErrand(t, newUUID(t))
+	other.RequesterID = "requester-2"
+	created, _, err := s.Create(ctx, other, submitTransition(t, other, t0))
+	require.NoError(t, err)
+	other, err = s.Apply(ctx, next(t, created, errand.EventReservationConfirmed, errand.SystemActor(), errand.EventInput{}, t0))
+	require.NoError(t, err)
+	other, err = s.Apply(ctx, next(t, other, errand.EventAccept, courier(requesterID), acceptInput(), t0))
+	require.NoError(t, err)
+	delivered := refund(other, requesterID)
+
+	for _, tc := range []struct {
+		name   string
+		userID string
+		role   errand.HistoryRole
+		want   []string
+	}{
+		{"any role", requesterID, errand.HistoryAny, []string{withdrawn.ID, requested.ID, delivered.ID}},
+		{"as requester", requesterID, errand.HistoryRequester, []string{withdrawn.ID, requested.ID}},
+		{"as courier", requesterID, errand.HistoryCourier, []string{delivered.ID}},
+		{"a courier who withdrew is excluded", "courier-a", errand.HistoryCourier, []string{requested.ID}},
+		{"a courier who withdrew is excluded under any role", "courier-a", errand.HistoryAny, []string{requested.ID}},
+		{"a courier who requested nothing", "courier-a", errand.HistoryRequester, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p, err := s.ListHistory(ctx, errand.UserListQuery{UserID: tc.userID, Role: tc.role, Limit: 10})
+			require.NoError(t, err)
+			assert.ElementsMatch(t, tc.want, ids(p.Items))
+		})
+	}
+
+	t.Run("pages stay within the role", func(t *testing.T) {
+		q := errand.UserListQuery{UserID: requesterID, Role: errand.HistoryRequester, Limit: 1}
+		first, err := s.ListHistory(ctx, q)
+		require.NoError(t, err)
+		require.NotNil(t, first.Next)
+		q.After = first.Next
+		second, err := s.ListHistory(ctx, q)
+		require.NoError(t, err)
+		assert.Nil(t, second.Next)
+		assert.ElementsMatch(t, []string{withdrawn.ID, requested.ID}, append(ids(first.Items), ids(second.Items)...))
+	})
+
+	_, err = s.ListHistory(ctx, errand.UserListQuery{UserID: requesterID, Role: "requester", Limit: 10})
+	requireCode(t, apperror.InvalidArgument, err)
+}
+
 func TestCourierHistory(t *testing.T) {
 	s, _ := newStore(t)
 	ctx := context.Background()

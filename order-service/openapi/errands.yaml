@@ -657,12 +657,23 @@ operations:
       carries the contact person for terminal errands (NFR3.6.4). Pickup
       details come from the stored supplier version, so they stay readable
       after the supplier is deleted (F2.4.3). An errand the caller withdrew
-      from is not listed.
+      from is not listed. The optional role narrows the list to the errands
+      the caller requested or delivered.
     x-required-permissions: [errands:use]
     x-required-relationship: requester or courier (implicit, from the token)
     security:
       - bearerAuth: []
     parameters:
+      - name: role
+        in: query
+        description: >-
+          Only errands the caller requested (REQUESTER, every item in the
+          requester view) or delivered (COURIER, every item in the courier
+          view). Without it, both. Case-sensitive; any other value is
+          INVALID_ARGUMENT. A cursor is bound to the role that issued it.
+        schema:
+          type: string
+          enum: [REQUESTER, COURIER]
       - $ref: ./common.yaml#/components/parameters/Limit
       - $ref: ./common.yaml#/components/parameters/Cursor
     responses:

@@ -6,7 +6,7 @@
 //     recently updated first (F3.12), in the courier view.
 //   - GET /me/errands/history: the caller's terminal errands as requester or
 //     courier, most recently updated first (F3.13), each in the view of the
-//     caller's role in it.
+//     caller's role in it. An optional role narrows it to one role.
 //
 // The caller is always the token's subject; no list takes a user ID
 // (NFR3.3.1). Every list reads the store, never the cache, and pickup
@@ -70,6 +70,8 @@ type list struct {
 	// name binds the list's cursors, whose At means different things per
 	// list, and names the list in logs.
 	name string
+	// role is passed to load; only the history lists set it.
+	role errand.HistoryRole
 	load func(errand.Store, context.Context, errand.UserListQuery) (errand.Page[errand.UserListCursor], error)
 	// view is the response item for e listed for caller.
 	view func(e errand.Errand, caller string, pickups errandhttp.Pickups) any
@@ -111,6 +113,23 @@ var historyList = list{
 	},
 }
 
+// requesterHistoryList and courierHistoryList are historyList narrowed to
+// one role, so every item is that role's view. Their names differ from
+// historyList's, so a cursor only pages the list and role that issued it.
+var requesterHistoryList = list{
+	name: "history:REQUESTER",
+	role: errand.HistoryRequester,
+	load: errand.Store.ListHistory,
+	view: requestedList.view,
+}
+
+var courierHistoryList = list{
+	name: "history:COURIER",
+	role: errand.HistoryCourier,
+	load: errand.Store.ListHistory,
+	view: deliveringList.view,
+}
+
 func (h Handler) requested(response http.ResponseWriter, request *http.Request) {
 	h.list(response, request, requestedList)
 }
@@ -120,7 +139,19 @@ func (h Handler) delivering(response http.ResponseWriter, request *http.Request)
 }
 
 func (h Handler) history(response http.ResponseWriter, request *http.Request) {
-	h.list(response, request, historyList)
+	role, err := parseRole(request.URL.Query())
+	if err != nil {
+		h.fail(response, request, "list "+historyList.name, err)
+		return
+	}
+	switch role {
+	case errand.HistoryRequester:
+		h.list(response, request, requesterHistoryList)
+	case errand.HistoryCourier:
+		h.list(response, request, courierHistoryList)
+	default:
+		h.list(response, request, historyList)
+	}
 }
 
 // page is RequesterErrandPage, CourierErrandPage and HistoryPage.
@@ -144,7 +175,7 @@ func (h Handler) list(response http.ResponseWriter, request *http.Request, l lis
 		h.fail(response, request, operation, err)
 		return
 	}
-	q.UserID = caller
+	q.UserID, q.Role = caller, l.role
 
 	p, err := l.load(h.store, ctx, q)
 	if err != nil {
