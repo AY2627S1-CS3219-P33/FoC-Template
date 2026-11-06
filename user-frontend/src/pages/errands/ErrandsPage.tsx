@@ -20,7 +20,9 @@ type View =
   | { kind: "list" }
   | { kind: "detail"; errandId: string }
   | { kind: "create" }
-  | { kind: "edit"; errand: RequesterErrandView };
+  | { kind: "edit"; errand: RequesterErrandView }
+  // "Order again": a new create prefilled from a finished errand.
+  | { kind: "reorder"; source: RequesterErrandView };
 
 const ORDER_AUDIENCE =
   import.meta.env.VITE_ORDER_AUDIENCE || "https://api.foc.local/order-service";
@@ -129,6 +131,22 @@ export function ErrandsPage() {
     );
   }
 
+  // Goes through onCreate like any new errand, so it gets that submission's
+  // Idempotency-Key, never the old errand's.
+  if (view.kind === "reorder") {
+    return (
+      <ErrandForm
+        mode="create"
+        template={view.source}
+        profile={account}
+        buildings={buildings}
+        getSupplierToken={getSupplierToken}
+        onSubmit={(body) => onCreate(body as ErrandCreate)}
+        onCancel={() => setView({ kind: "list" })}
+      />
+    );
+  }
+
   if (view.kind === "edit") {
     return (
       <ErrandForm
@@ -150,6 +168,7 @@ export function ErrandsPage() {
         getToken={getOrderToken}
         onBack={() => setView({ kind: "list" })}
         onEdit={(errand) => setView({ kind: "edit", errand })}
+        onOrderAgain={(source) => setView({ kind: "reorder", source })}
         onChanged={onChanged}
       />
     );
@@ -205,6 +224,7 @@ export function ErrandsPage() {
             getToken={getOrderToken}
             onOpen={(errandId) => setView({ kind: "detail", errandId })}
             onCreate={() => setView({ kind: "create" })}
+            onOrderAgain={(source) => setView({ kind: "reorder", source })}
           />
         )}
       </div>

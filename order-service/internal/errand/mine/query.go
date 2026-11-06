@@ -20,8 +20,9 @@ const (
 	maxCursorLength = 512
 )
 
-// cursor is nextCursor before encoding. List is the list that issued it, so
-// a cursor reused on another list is refused. It holds no user ID: every
+// cursor is nextCursor before encoding. List is the list that issued it,
+// including the history role, so a cursor reused on another list or role is
+// refused. It holds no user ID: every
 // list reads the token's subject, so a cursor passed to another user only
 // pages through that user's own errands.
 type cursor struct {
@@ -49,6 +50,19 @@ func parseQuery(values url.Values, name string) (errand.UserListQuery, error) {
 		q.After = &after
 	}
 	return q, nil
+}
+
+// parseRole reads the history list's optional role, which must be exactly
+// REQUESTER or COURIER.
+func parseRole(values url.Values) (errand.HistoryRole, error) {
+	if !values.Has("role") {
+		return errand.HistoryAny, nil
+	}
+	switch role := errand.HistoryRole(values.Get("role")); role {
+	case errand.HistoryRequester, errand.HistoryCourier:
+		return role, nil
+	}
+	return errand.HistoryAny, invalidArgument("role must be REQUESTER or COURIER")
 }
 
 func encodeCursor(name string, after errand.UserListCursor) string {
