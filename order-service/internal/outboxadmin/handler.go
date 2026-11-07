@@ -1,4 +1,5 @@
-// Package outboxadmin exposes audited replay of failed outbox messages.
+// Package outboxadmin exposes audited replay of outbox messages, and the list
+// of messages that are overdue for one.
 package outboxadmin
 
 import (
@@ -7,7 +8,9 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"math"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -16,6 +19,7 @@ import (
 	"github.com/CS3219-AY2627S1/FoC-Template/order-service/internal/apperror"
 	"github.com/CS3219-AY2627S1/FoC-Template/order-service/internal/auth"
 	"github.com/CS3219-AY2627S1/FoC-Template/order-service/internal/database/msgrepo"
+	"github.com/CS3219-AY2627S1/FoC-Template/order-service/internal/errand"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -23,6 +27,7 @@ import (
 // Store keeps replay and its audit atomic. PostgresStore implements it.
 type Store interface {
 	ListFailed(context.Context, int, int64) ([]msgrepo.Record, error)
+	ListOverdue(ctx context.Context, threshold time.Duration, status string, limit int, afterID int64) ([]msgrepo.Record, error)
 	Requeue(context.Context, string, int64, string) (msgrepo.Record, error)
 }
 type PostgresStore struct{ pool *pgxpool.Pool }
@@ -36,6 +41,9 @@ func NewStore(pool *pgxpool.Pool) *PostgresStore {
 func (s *PostgresStore) ListFailed(ctx context.Context, limit int, after int64) ([]msgrepo.Record, error) {
 	return msgrepo.New(s.pool).ListFailed(ctx, limit, after)
 }
+func (s *PostgresStore) ListOverdue(ctx context.Context, threshold time.Duration, status string, limit int, afterID int64) ([]msgrepo.Record, error) {
+	return msgrepo.New(s.pool).ListOverdue(ctx, threshold, status, limit, afterID)
+}
 func (s *PostgresStore) Requeue(ctx context.Context, actor string, id int64, reason string) (msgrepo.Record, error) {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
@@ -44,7 +52,7 @@ func (s *PostgresStore) Requeue(ctx context.Context, actor string, id int64, rea
 	defer tx.Rollback(ctx)
 	repo := msgrepo.New(tx)
 	row, replayErr := repo.Requeue(ctx, id)
-	if replayErr != nil && !errors.Is(replayErr, msgrepo.ErrNotFound) && !errors.Is(replayErr, msgrepo.ErrNotFailed) {
+	if replayErr != nil && !errors.Is(replayErr, msgrepo.ErrNotFound) && !errors.Is(replayErr, msgrepo.ErrNotRequeueable) {
 		return row, replayErr
 	}
 	outcome := msgrepo.AuditSucceeded
@@ -61,19 +69,24 @@ func (s *PostgresStore) Requeue(ctx context.Context, actor string, id int64, rea
 }
 
 type Handler struct {
-	store  Store
-	guard  func(http.Handler) http.Handler
-	logger *slog.Logger
+	store    Store
+	settings errand.Settings
+	guard    func(http.Handler) http.Handler
+	logger   *slog.Logger
+	now      func() time.Time
 }
 
-func NewHandler(store Store, guard *auth.Middleware, logger *slog.Logger) Handler {
-	if store == nil || guard == nil || logger == nil {
+// NewHandler serves the outbox admin routes. settings supplies the default
+// overdue threshold, outboxConfirmTimeout.
+func NewHandler(store Store, settings errand.Settings, guard *auth.Middleware, logger *slog.Logger) Handler {
+	if store == nil || settings == nil || guard == nil || logger == nil {
 		panic("outboxadmin: dependencies are required")
 	}
-	return Handler{store, guard.RequireReview, logger}
+	return Handler{store, settings, guard.RequireReview, logger, time.Now}
 }
 func (h Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /admin/outbox/failed", h.guard(http.HandlerFunc(h.list)))
+	mux.Handle("GET /admin/outbox/overdue", h.guard(http.HandlerFunc(h.overdue)))
 	mux.Handle("POST /admin/outbox/{id}/requeue", h.guard(http.HandlerFunc(h.requeue)))
 }
 
@@ -100,15 +113,16 @@ func write(w http.ResponseWriter, body any) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(body)
 }
-func (h Handler) list(w http.ResponseWriter, r *http.Request) {
-	limit := 25
-	after := int64(0)
-	q := r.URL.Query()
+
+// pageParams reads limit and cursor. It writes the error response and
+// reports false when either is invalid.
+func pageParams(w http.ResponseWriter, q url.Values) (limit int, after int64, ok bool) {
+	limit = 25
 	if q.Has("limit") {
 		n, err := strconv.Atoi(q.Get("limit"))
 		if err != nil || n < 1 || n > 100 {
 			auth.WriteError(w, apperror.InvalidArgument, "invalid limit")
-			return
+			return 0, 0, false
 		}
 		limit = n
 	}
@@ -116,9 +130,17 @@ func (h Handler) list(w http.ResponseWriter, r *http.Request) {
 		n, err := strconv.ParseInt(q.Get("cursor"), 10, 64)
 		if err != nil || n < 1 {
 			auth.WriteError(w, apperror.InvalidArgument, "invalid cursor")
-			return
+			return 0, 0, false
 		}
 		after = n
+	}
+	return limit, after, true
+}
+
+func (h Handler) list(w http.ResponseWriter, r *http.Request) {
+	limit, after, ok := pageParams(w, r.URL.Query())
+	if !ok {
+		return
 	}
 	rows, err := h.store.ListFailed(r.Context(), limit+1, after)
 	if err != nil {
@@ -135,6 +157,70 @@ func (h Handler) list(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, row := range rows {
 		page.Items = append(page.Items, project(row))
+	}
+	write(w, page)
+}
+
+// overdueRow is a row plus how long it has waited: since it was sent for a
+// SENT row, since it was created for a PENDING one.
+type overdueRow struct {
+	rowResponse
+	AgeSeconds int64 `json:"ageSeconds"`
+}
+
+// overdue lists SENT credit commands still waiting for a result and PENDING
+// rows the dispatcher has not published, older than olderThan seconds (default
+// the outboxConfirmTimeout setting). Neither is retried by anyone else
+// automatically: PENDING rows are retried by the dispatcher already, and a SENT
+// command is held by the broker, so a human decides whether to requeue.
+func (h Handler) overdue(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	limit, after, ok := pageParams(w, q)
+	if !ok {
+		return
+	}
+	status := q.Get("status")
+	if status != "" && status != msgrepo.StatusSent && status != msgrepo.StatusPending {
+		auth.WriteError(w, apperror.InvalidArgument, "invalid status")
+		return
+	}
+	var threshold time.Duration
+	if q.Has("olderThan") {
+		n, err := strconv.ParseInt(q.Get("olderThan"), 10, 64)
+		if err != nil || n < 1 || n > math.MaxInt32 {
+			auth.WriteError(w, apperror.InvalidArgument, "invalid olderThan")
+			return
+		}
+		threshold = time.Duration(n) * time.Second
+	} else {
+		settings, err := h.settings.Get(r.Context())
+		if err != nil {
+			h.fail(w, r, err)
+			return
+		}
+		threshold = settings.OutboxConfirmTimeout
+	}
+	rows, err := h.store.ListOverdue(r.Context(), threshold, status, limit+1, after)
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	page := struct {
+		ThresholdSeconds int64        `json:"thresholdSeconds"`
+		Items            []overdueRow `json:"items"`
+		NextCursor       string       `json:"nextCursor,omitempty"`
+	}{ThresholdSeconds: int64(threshold / time.Second), Items: make([]overdueRow, 0, limit)}
+	if len(rows) > limit {
+		page.NextCursor = strconv.FormatInt(rows[limit-1].ID, 10)
+		rows = rows[:limit]
+	}
+	now := h.now()
+	for _, row := range rows {
+		since := row.CreatedAt
+		if row.Status == msgrepo.StatusSent {
+			since = row.SentAt
+		}
+		page.Items = append(page.Items, overdueRow{rowResponse: project(row), AgeSeconds: max(0, int64(now.Sub(since)/time.Second))})
 	}
 	write(w, page)
 }
@@ -168,8 +254,8 @@ func (h Handler) requeue(w http.ResponseWriter, r *http.Request) {
 		auth.WriteError(w, apperror.OutboxRowNotFound, "outbox row not found")
 		return
 	}
-	if errors.Is(err, msgrepo.ErrNotFailed) {
-		auth.WriteError(w, apperror.InvalidTransition, "outbox row is not FAILED")
+	if errors.Is(err, msgrepo.ErrNotRequeueable) {
+		auth.WriteError(w, apperror.InvalidTransition, "only a FAILED row or a SENT credit command can be requeued")
 		return
 	}
 	if err != nil {

@@ -27,7 +27,7 @@ tags:
   - name: My errands
     description: The caller's own errand lists.
   - name: Administration
-    description: Review, settings, logs, flags and failed outbox rows (errands:review).
+    description: Review, settings, logs, flags and failed or overdue outbox rows (errands:review).
   - name: Internal
     description: Service-to-service routes (service tokens with orders:internal only).
   - name: Operations
@@ -98,6 +98,9 @@ paths:
   /admin/outbox/failed:
     get:
       $ref: ./openapi/admin.yaml#/operations/listFailedOutboxRows
+  /admin/outbox/overdue:
+    get:
+      $ref: ./openapi/admin.yaml#/operations/listOverdueOutboxRows
   /admin/outbox/{id}/requeue:
     post:
       $ref: ./openapi/admin.yaml#/operations/requeueOutboxRow

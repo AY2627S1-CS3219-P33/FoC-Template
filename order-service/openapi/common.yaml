@@ -871,7 +871,9 @@ components:
         outboxConfirmTimeout:
           type: integer
           minimum: 1
-          description: Re-send a SENT credit command with no result after, seconds (default 600).
+          description: >-
+            A SENT credit command with no result, or a PENDING row, older than this
+            many seconds is listed by GET /admin/outbox/overdue (default 5400).
       additionalProperties: false
 
     TransitionRecord:
@@ -996,6 +998,35 @@ components:
           type: string
           format: date-time
       additionalProperties: false
+
+    OverdueOutboxRow:
+      description: An outbox row plus how long it has waited.
+      allOf:
+        - $ref: "#/components/schemas/OutboxRow"
+        - type: object
+          required: [ageSeconds]
+          properties:
+            ageSeconds:
+              type: integer
+              minimum: 0
+              description: Seconds since sentAt for a SENT row, since createdAt for a PENDING row.
+
+    OverdueOutboxRowPage:
+      type: object
+      required: [thresholdSeconds, items]
+      properties:
+        thresholdSeconds:
+          type: integer
+          minimum: 1
+          description: The age beyond which a row was listed.
+        items:
+          type: array
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/OverdueOutboxRow"
+        nextCursor:
+          type: string
+          description: Omitted when there is no next page.
 
     OutboxRowPage:
       type: object

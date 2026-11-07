@@ -232,9 +232,9 @@ operations:
     tags: [Administration]
     summary: List failed outbox rows
     description: >-
-      Credit commands and events that exhausted their retries or were
-      answered with credit.operation_failed (NFR7.4.1), oldest first.
-      Payloads are never returned.
+      Rows that can never succeed by retrying: an unpublishable message, or a
+      credit command answered with credit.operation_failed (NFR7.4.1), oldest
+      first. Payloads are never returned.
     x-required-permissions: [errands:review]
     security:
       - bearerAuth: []
@@ -259,15 +259,67 @@ operations:
       "503":
         $ref: ./common.yaml#/components/responses/DependencyUnavailable
 
+  listOverdueOutboxRows:
+    operationId: listOverdueOutboxRows
+    tags: [Administration]
+    summary: List overdue outbox rows
+    description: >-
+      SENT credit commands that have had no result, and PENDING rows the
+      dispatcher has not managed to publish, for longer than olderThan
+      (default the outboxConfirmTimeout setting). Nothing resends these by
+      itself: the broker holds a SENT command until credit-service consumes
+      it, and the dispatcher keeps retrying a PENDING row. A SENT command that
+      stays overdue may have been dead-lettered; requeue it. A PENDING row
+      usually means the broker is unreachable, which a requeue does not fix.
+      Event rows end at SENT by design and are never listed. Oldest first;
+      payloads are never returned.
+    x-required-permissions: [errands:review]
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: ./common.yaml#/components/parameters/Limit
+      - $ref: ./common.yaml#/components/parameters/Cursor
+      - name: status
+        in: query
+        schema:
+          type: string
+          enum: [SENT, PENDING]
+        description: Only rows in this status. Omit for both.
+      - name: olderThan
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+        description: Minimum age in seconds. Defaults to the outboxConfirmTimeout setting.
+    responses:
+      "200":
+        description: A page of overdue rows.
+        content:
+          application/json:
+            schema:
+              $ref: ./common.yaml#/components/schemas/OverdueOutboxRowPage
+      "400":
+        $ref: ./common.yaml#/components/responses/InvalidArgument
+      "401":
+        $ref: ./common.yaml#/components/responses/Unauthenticated
+      "403":
+        $ref: ./common.yaml#/components/responses/Forbidden
+      "500":
+        $ref: ./common.yaml#/components/responses/Internal
+      "503":
+        $ref: ./common.yaml#/components/responses/DependencyUnavailable
+
   requeueOutboxRow:
     operationId: requeueOutboxRow
     tags: [Administration]
-    summary: Requeue a failed outbox row
+    summary: Requeue a failed or overdue outbox row
     description: >-
-      Resets a FAILED row to PENDING with its attempts cleared and its
-      idempotency key unchanged, so the replayed message has the same
-      messageId and cannot apply its effect twice (NFR7.4.2). Every requeue
-      writes an audit row with the reason (F6.5).
+      Resets a FAILED row, or a SENT credit command, to PENDING with its
+      attempts cleared and its idempotency key unchanged, so the replayed
+      message has the same messageId and cannot apply its effect twice
+      (NFR7.4.2). A PENDING row, a CONFIRMED row and a SENT event are refused.
+      Every requeue, accepted or refused, writes an audit row with the reason
+      (F6.5).
     x-required-permissions: [errands:review]
     security:
       - bearerAuth: []
@@ -295,7 +347,7 @@ operations:
       "404":
         $ref: ./common.yaml#/components/responses/OutboxRowNotFound
       "409":
-        description: The row is not FAILED.
+        description: The row is neither FAILED nor a SENT credit command.
         content:
           application/json:
             schema:

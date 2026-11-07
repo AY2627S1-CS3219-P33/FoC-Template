@@ -161,7 +161,7 @@ const defaultSettingsJSON = `{
 	"cancellationFlag": {"count": 20, "window": 3600},
 	"reservationTimeout": 300,
 	"editTimeout": 300,
-	"outboxConfirmTimeout": 600
+	"outboxConfirmTimeout": 5400
 }`
 
 func settingsJSON(edit func(map[string]any)) string {

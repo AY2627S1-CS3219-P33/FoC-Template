@@ -227,9 +227,9 @@ func TestDispatcherPublishesDatabaseOutboxToRabbitMQ(t *testing.T) {
 	var envelope errand.Envelope
 	require.NoError(t, json.Unmarshal(delivery.Body, &envelope))
 	require.Equal(t, string(errand.ErrandPlaced), envelope.Type)
-	resent, err := repo.ResendUnconfirmed(context.Background(), time.Microsecond, 10)
+	overdue, err := repo.ListOverdue(context.Background(), time.Microsecond, "", 10, 0)
 	require.NoError(t, err)
-	require.Empty(t, resent, "events do not wait for credit results")
+	require.Empty(t, overdue, "events do not wait for credit results")
 	require.Equal(t, "SENT", rowStatus(t, pool, id))
 }
 
