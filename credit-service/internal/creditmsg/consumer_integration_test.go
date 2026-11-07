@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -21,6 +22,14 @@ import (
 // `podman run -d -p 127.0.0.1:5673:5672 rabbitmq:4-alpine`. The tests delete
 // and recreate the credit-service queues, so use a throwaway broker.
 
+// testRetryDelay is how long a failed command waits on the retry queue in
+// these tests. It is a queue argument, so brokerChannel deletes the queue
+// before and after, or a later declaration with the real delay would be refused.
+const testRetryDelay = 100 * time.Millisecond
+
+// testMaxAttempts is the attempt limit that testConfig gives the consumer.
+const testMaxAttempts = 5
+
 func brokerChannel(t *testing.T) *amqp.Channel {
 	t.Helper()
 	url := os.Getenv("TEST_AMQP_URL")
@@ -32,15 +41,26 @@ func brokerChannel(t *testing.T) *amqp.Channel {
 	t.Cleanup(func() { _ = conn.Close() })
 	ch, err := conn.Channel()
 	require.NoError(t, err)
-	for _, queue := range []string{creditmsg.QueueCommands, creditmsg.QueueCommandsDLQ} {
-		_, err := ch.QueueDelete(queue, false, false, false)
-		require.NoError(t, err)
+	deleteQueues := func() {
+		for _, queue := range []string{creditmsg.QueueCommands, creditmsg.QueueCommandsRetry, creditmsg.QueueCommandsDLQ} {
+			_, err := ch.QueueDelete(queue, false, false, false)
+			require.NoError(t, err)
+		}
 	}
+	deleteQueues()
+	restore := creditmsg.SetRetryDelay(testRetryDelay)
+	// Cleanups run last in, first out: the consumer has stopped by now, and the
+	// connection is closed after this.
+	t.Cleanup(func() {
+		deleteQueues()
+		restore()
+	})
 	return ch
 }
 
 func testConfig() creditmsg.Config {
 	return creditmsg.Config{
+		MaxAttempts:      testMaxAttempts,
 		RetryBackoff:     creditmsg.Backoff{Base: time.Millisecond, Cap: 5 * time.Millisecond},
 		ReconnectBackoff: creditmsg.Backoff{Base: 10 * time.Millisecond, Cap: 50 * time.Millisecond},
 	}
@@ -125,7 +145,9 @@ func TestConsumerRetriesATemporaryFailureThenDeadLetters(t *testing.T) {
 
 	require.Eventually(t, func() bool { return queueLength(t, ch, creditmsg.QueueCommandsDLQ) == 1 },
 		10*time.Second, 20*time.Millisecond)
-	require.EqualValues(t, creditmsg.DeliveryLimit, calls.Load(), "tried up to the attempt limit")
+	require.EqualValues(t, testMaxAttempts, calls.Load(), "tried up to the attempt limit")
+	require.Zero(t, queueLength(t, ch, creditmsg.QueueCommands))
+	require.Zero(t, queueLength(t, ch, creditmsg.QueueCommandsRetry), "nothing is left waiting")
 }
 
 func TestConsumerRecoversFromATemporaryFailure(t *testing.T) {
@@ -143,6 +165,87 @@ func TestConsumerRecoversFromATemporaryFailure(t *testing.T) {
 	require.Eventually(t, func() bool { return calls.Load() == 3 && queueLength(t, ch, creditmsg.QueueCommands) == 0 },
 		10*time.Second, 20*time.Millisecond)
 	require.Zero(t, queueLength(t, ch, creditmsg.QueueCommandsDLQ))
+	require.Zero(t, queueLength(t, ch, creditmsg.QueueCommandsRetry))
+}
+
+// A parked command comes back as the same command: same routing key, body and
+// message ID, so the handler and the stored result treat every try alike.
+func TestARetriedCommandIsTheSameCommand(t *testing.T) {
+	ch := brokerChannel(t)
+	type try struct {
+		routingKey string
+		body       string
+	}
+	var mu sync.Mutex
+	var tries []try
+	startConsumer(t, handlerFunc(func(_ context.Context, routingKey string, body []byte) error {
+		mu.Lock()
+		defer mu.Unlock()
+		tries = append(tries, try{routingKey, string(body)})
+		if len(tries) < 3 {
+			return errors.New("database unavailable")
+		}
+		return nil
+	}))
+
+	publishCommand(t, ch, "credit.transfer", []byte(`{"amount":7}`))
+
+	require.Eventually(t, func() bool { mu.Lock(); defer mu.Unlock(); return len(tries) == 3 },
+		10*time.Second, 20*time.Millisecond)
+	for _, got := range tries {
+		require.Equal(t, try{"credit.transfer", `{"amount":7}`}, got)
+	}
+}
+
+// The point of the retry queue: a failing command waits there, so the commands
+// behind it are not held up.
+func TestAFailingCommandDoesNotHoldUpTheOnesBehindIt(t *testing.T) {
+	ch := brokerChannel(t)
+	// Restored by a cleanup that runs after the consumer has stopped, not by a
+	// defer, which would change the delay under the running consumer.
+	t.Cleanup(creditmsg.SetRetryDelay(2 * time.Second))
+	var failing, healthy atomic.Int32
+	startConsumer(t, handlerFunc(func(_ context.Context, _ string, body []byte) error {
+		if string(body) == `{"id":"bad"}` {
+			failing.Add(1)
+			return errors.New("database unavailable")
+		}
+		healthy.Add(1)
+		return nil
+	}))
+
+	publishCommand(t, ch, "credit.release", []byte(`{"id":"bad"}`))
+	publishCommand(t, ch, "credit.release", []byte(`{"id":"good"}`))
+
+	require.Eventually(t, func() bool { return healthy.Load() == 1 }, time.Second, 10*time.Millisecond,
+		"the healthy command is handled while the bad one waits")
+	require.EqualValues(t, 1, failing.Load(), "the bad one has not been tried again yet")
+	require.Equal(t, 1, queueLength(t, ch, creditmsg.QueueCommandsRetry))
+	require.Eventually(t, func() bool { return failing.Load() >= 2 }, 10*time.Second, 20*time.Millisecond,
+		"and it is tried again after the delay")
+}
+
+// If the command cannot be parked, the consumer still keeps it: it requeues the
+// original, and reconnects so that the topology is declared again.
+func TestConsumerRequeuesWhenTheRetryQueueIsUnavailable(t *testing.T) {
+	ch := brokerChannel(t)
+	var calls atomic.Int32
+	startConsumer(t, handlerFunc(func(context.Context, string, []byte) error {
+		if calls.Add(1) == 1 {
+			return errors.New("database unavailable")
+		}
+		return nil
+	}))
+	require.NoError(t, ch.ExchangeDelete(creditmsg.ExchangeCommandsRetry, false, false))
+
+	publishCommand(t, ch, "credit.release", []byte(`{}`))
+
+	require.Eventually(t, func() bool { return calls.Load() == 2 && queueLength(t, ch, creditmsg.QueueCommands) == 0 },
+		10*time.Second, 20*time.Millisecond, "the command is tried again and acked")
+	require.Zero(t, queueLength(t, ch, creditmsg.QueueCommandsDLQ))
+	require.Eventually(t, func() bool {
+		return ch.ExchangeDeclarePassive(creditmsg.ExchangeCommandsRetry, "direct", true, false, false, false, nil) == nil
+	}, 10*time.Second, 50*time.Millisecond, "the reconnect declared the retry exchange again")
 }
 
 func TestConsumerSurvivesAPanic(t *testing.T) {
