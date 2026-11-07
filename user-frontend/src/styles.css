@@ -1300,3 +1300,31 @@ button.credit-chip:focus-visible {
   outline: 3px solid var(--focus);
   outline-offset: 2px;
 }
+
+/* ---------- Admin area ---------- */
+.content-wide {
+  max-width: 76rem;
+}
+.admin-back-link {
+  margin-top: 1rem;
+  color: var(--ink-2);
+}
+.admin-header {
+  margin-bottom: 1.5rem;
+}
+@media (max-width: 52rem) {
+  /* Eight admin links do not fit five equal columns, so scroll sideways. */
+  .admin-bottom-nav {
+    display: flex;
+    overflow-x: auto;
+  }
+  .admin-bottom-nav .bn-item {
+    flex: 0 0 4.5rem;
+  }
+  /* The user app's bottom nav gains an Admin link for administrators. */
+  .bottom-nav:not(.admin-bottom-nav) {
+    grid-template-columns: none;
+    grid-auto-flow: column;
+    grid-auto-columns: 1fr;
+  }
+}
