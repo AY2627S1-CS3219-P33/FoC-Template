@@ -16,11 +16,12 @@ type FlagReport interface {
 	List(ctx context.Context) ([]Flag, error)
 }
 
-// ActivityCounter counts withdrawals and cancellations per user;
+// ActivityCounter counts withdrawals, cancellations and completions per user;
 // *opsrepo.Repository implements it.
 type ActivityCounter interface {
 	ListWithdrawalCounts(ctx context.Context, since time.Time, minCount, limit int) ([]opsrepo.ActivityCount, error)
 	ListCancellationCounts(ctx context.Context, since time.Time, minCount, limit int) ([]opsrepo.ActivityCount, error)
+	ListCompletionCounts(ctx context.Context, since time.Time, minCount, limit int) ([]opsrepo.ActivityCount, error)
 }
 
 // FlagKind is what a flag is about.
@@ -33,6 +34,9 @@ const (
 	// FlagRequesterCancellations: a requester exceeded the cancellation-flag
 	// count within its window (F6.3.2, F3.5.3).
 	FlagRequesterCancellations FlagKind = "REQUESTER_CANCELLATIONS"
+	// FlagCourierCompletions: a courier reached the completion-flag count
+	// within its window. Completions by an admin do not count.
+	FlagCourierCompletions FlagKind = "COURIER_COMPLETIONS"
 )
 
 // MaxFlags caps the flag list (FlagList in openapi/common.yaml).
@@ -42,7 +46,8 @@ const MaxFlags = opsrepo.MaxActivityRows
 type Flag struct {
 	UserID string
 	Kind   FlagKind
-	// Count is the user's withdrawals or cancellations within the window.
+	// Count is the user's withdrawals, cancellations or completions within
+	// the window.
 	Count int
 	// Threshold is the settings count the user reached or exceeded.
 	Threshold int
@@ -77,8 +82,9 @@ func NewFlagService(counts ActivityCounter, settings errand.Settings, clock erra
 
 // List returns every flag, most events first, then by user ID and kind,
 // capped at MaxFlags. A courier is flagged at the withdrawal-restriction
-// count (the third withdrawal restricts, F3.6.4); a requester only above the
-// cancellation-flag count ("more than", F3.5.3).
+// count (the third withdrawal restricts, F3.6.4) and at the completion-flag
+// count; a requester only above the cancellation-flag count ("more than",
+// F3.5.3).
 func (s *FlagService) List(ctx context.Context) ([]Flag, error) {
 	settings, err := s.settings.Get(ctx)
 	if err != nil {
@@ -99,7 +105,14 @@ func (s *FlagService) List(ctx context.Context) ([]Flag, error) {
 		return nil, fmt.Errorf("count cancellations: %w", err)
 	}
 
-	flags := make([]Flag, 0, len(couriers)+len(requesters))
+	completions := settings.CompletionFlag
+	completionsSince := now.Add(-completions.Window)
+	finishers, err := s.counts.ListCompletionCounts(ctx, completionsSince, completions.Count, MaxFlags)
+	if err != nil {
+		return nil, fmt.Errorf("count completions: %w", err)
+	}
+
+	flags := make([]Flag, 0, len(couriers)+len(requesters)+len(finishers))
 	for _, c := range couriers {
 		flags = append(flags, Flag{
 			UserID: c.UserID, Kind: FlagCourierWithdrawals, Count: c.Count,
@@ -112,6 +125,13 @@ func (s *FlagService) List(ctx context.Context) ([]Flag, error) {
 			UserID: r.UserID, Kind: FlagRequesterCancellations, Count: r.Count,
 			Threshold: cancellations.Count, Window: cancellations.Window, Since: cancellationsSince,
 			Summary: fmt.Sprintf("High cancellation rate, %d in %s", r.Count, formatWindow(cancellations.Window)),
+		})
+	}
+	for _, f := range finishers {
+		flags = append(flags, Flag{
+			UserID: f.UserID, Kind: FlagCourierCompletions, Count: f.Count,
+			Threshold: completions.Count, Window: completions.Window, Since: completionsSince,
+			Summary: fmt.Sprintf("High completion rate, %d in %s", f.Count, formatWindow(completions.Window)),
 		})
 	}
 	slices.SortFunc(flags, func(a, b Flag) int {

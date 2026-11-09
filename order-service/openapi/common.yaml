@@ -817,6 +817,7 @@ components:
         - verificationReminderAfter
         - withdrawalRestriction
         - cancellationFlag
+        - completionFlag
         - reservationTimeout
         - editTimeout
         - outboxConfirmTimeout
@@ -861,6 +862,21 @@ components:
           description: >-
             More than count cancellations within window flag the requester
             (defaults 20, 3600; F3.5.3, F6.3.2).
+          required: [count, window]
+          properties:
+            count:
+              type: integer
+              minimum: 1
+            window:
+              type: integer
+              minimum: 1
+          additionalProperties: false
+        completionFlag:
+          type: object
+          description: >-
+            count or more completed errands within window flag the courier
+            (defaults 10, 900). Counts completions by confirm or
+            auto-verification, not an admin's admin_complete.
           required: [count, window]
           properties:
             count:
@@ -941,11 +957,11 @@ components:
           type: string
         kind:
           type: string
-          enum: [COURIER_WITHDRAWALS, REQUESTER_CANCELLATIONS]
+          enum: [COURIER_WITHDRAWALS, REQUESTER_CANCELLATIONS, COURIER_COMPLETIONS]
         count:
           type: integer
           minimum: 1
-          description: Withdrawals or cancellations within the window.
+          description: Withdrawals, cancellations or completions within the window.
         threshold:
           type: integer
           minimum: 1
