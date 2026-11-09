@@ -58,6 +58,24 @@ func TestNotReadyWhenAnyCheckFails(t *testing.T) {
 	}
 }
 
+func TestOptionalCheckDegradesButStaysReady(t *testing.T) {
+	running := false
+	handler := NewHandler(Postgres(probe(true)), ErrandEvents(func() bool { return running }))
+
+	recorder := serve(t, handler)
+	require.Equal(t, http.StatusOK, recorder.Code, "the consumer being down does not take chat offline")
+	require.JSONEq(t, `{"status":"degraded","dependencies":{"postgres":"ok","errandEvents":"down"}}`, recorder.Body.String())
+
+	running = true
+	recorder = serve(t, handler)
+	require.Equal(t, http.StatusOK, recorder.Code)
+	require.JSONEq(t, `{"status":"ready","dependencies":{"postgres":"ok","errandEvents":"ok"}}`, recorder.Body.String())
+
+	recorder = serve(t, NewHandler(Postgres(probe(false)), ErrandEvents(func() bool { return true })))
+	require.Equal(t, http.StatusServiceUnavailable, recorder.Code, "a required check still decides")
+	require.JSONEq(t, `{"status":"not_ready"}`, recorder.Body.String())
+}
+
 func TestHungCheckTimesOut(t *testing.T) {
 	hang := make(chan struct{})
 	t.Cleanup(func() { close(hang) })
@@ -99,4 +117,5 @@ func TestNewHandlerRejectsWiringMistakes(t *testing.T) {
 	require.Panics(t, func() { NewHandler(Postgres(nil)) })
 	require.Panics(t, func() { NewHandler(Postgres(probe(true)), Postgres(probe(true))) })
 	require.Panics(t, func() { NewHandler(Postgres(probe(true))).WithTimeout(0) })
+	require.Panics(t, func() { ErrandEvents(nil) })
 }

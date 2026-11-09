@@ -21,18 +21,10 @@ func (q *Queries) LockErrand(ctx context.Context, errandID uuid.UUID) error {
 	return translate("lock errand", q.q.LockErrand(ctx, errandID))
 }
 
-// AcceptedRoom is the room errand.accepted asks for.
-type AcceptedRoom struct {
-	ErrandID      uuid.UUID
-	RequesterID   string
-	CourierID     string
-	OpenedVersion int // errandVersion of errand.accepted
-}
-
 // UpsertRoomOnAccept creates the room for errand.accepted, or returns the
 // existing one. inserted is true only when this call created it. A room that
 // errand.withdrawn created first gets its OpenedVersion and stays ended.
-func (q *Queries) UpsertRoomOnAccept(ctx context.Context, room AcceptedRoom) (chat.Room, bool, error) {
+func (q *Queries) UpsertRoomOnAccept(ctx context.Context, room chat.AcceptedRoom) (chat.Room, bool, error) {
 	row, err := q.q.UpsertRoomOnAccept(ctx, chatgen.UpsertRoomOnAcceptParams{
 		ErrandID:      room.ErrandID,
 		RequesterID:   room.RequesterID,
@@ -204,20 +196,11 @@ func (q *Queries) ListRoomsForErrand(ctx context.Context, errandID uuid.UUID) ([
 
 // ---- Messages ----
 
-// NewMessage is a message to store. Rules (participant, room open, body
-// length) are chat's; the database only backs up the length rules.
-type NewMessage struct {
-	RoomID      uuid.UUID
-	SenderID    string
-	Body        string
-	ClientMsgID string
-}
-
 // InsertMessage stores the message. If the room already has one with the
 // same ClientMsgID (a retried send), it returns that one with inserted false
 // and stores nothing. chat.ErrRoomNotFound if the room does not exist,
 // chat.ErrInvalidMessage if the body or ClientMsgID length is wrong.
-func (q *Queries) InsertMessage(ctx context.Context, message NewMessage) (chat.Message, bool, error) {
+func (q *Queries) InsertMessage(ctx context.Context, message chat.NewMessage) (chat.Message, bool, error) {
 	row, err := q.q.InsertMessage(ctx, chatgen.InsertMessageParams{
 		RoomID:      message.RoomID,
 		SenderID:    message.SenderID,

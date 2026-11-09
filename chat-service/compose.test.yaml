@@ -1,8 +1,10 @@
 # Test dependencies for integration tests. Tests skip unless the matching
 # variable is set, for example with the default ports:
 #   TEST_DATABASE_URL=postgres://chat_test@127.0.0.1:5435/chat_test?sslmode=disable
+#   TEST_AMQP_URL=amqp://guest:guest@127.0.0.1:5674/
 # Each test creates its own schema in this database, migrates it and drops it
-# afterwards. A throwaway RabbitMQ is added here with the event consumer.
+# afterwards. The RabbitMQ is throwaway: tests delete and recreate
+# chat-service's queues on it.
 services:
   chat-test-db:
     image: postgres:17-alpine
@@ -20,6 +22,18 @@ services:
       interval: 2s
       timeout: 2s
       retries: 15
+
+  chat-test-rabbitmq:
+    image: rabbitmq:4.3-management
+    ports:
+      # Offset from 5672 (queue-service) and 5673 (order-service's tests).
+      - "127.0.0.1:${CHAT_TEST_AMQP_PORT:-5674}:5672"
+      - "127.0.0.1:${CHAT_TEST_AMQP_UI_PORT:-15674}:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_port_connectivity"]
+      interval: 5s
+      timeout: 5s
+      retries: 24
 
 volumes:
   chat-test-data:

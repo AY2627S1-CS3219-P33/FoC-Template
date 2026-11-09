@@ -96,6 +96,7 @@ jobs:
           npx --yes @redocly/cli@2.54.1 lint
           user-service/openapi.yaml supplier-service/openapi.yaml
           credit-service/openapi.yaml order-service/openapi.yaml
+          chat-service/openapi.yaml
       - name: Test deployment selection and safeguards
         run: python3 -m unittest discover -s .github/scripts -p 'test_*.py' -v
       - name: Validate workflows

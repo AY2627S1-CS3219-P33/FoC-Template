@@ -115,6 +115,23 @@ type Message struct {
 	CreatedAt   time.Time
 }
 
+// AcceptedRoom is the room errand.accepted asks for.
+type AcceptedRoom struct {
+	ErrandID      uuid.UUID
+	RequesterID   string
+	CourierID     string
+	OpenedVersion int // errandVersion of errand.accepted
+}
+
+// NewMessage is a message to store. Service.Send checks the rules first; the
+// database only backs up the length rules.
+type NewMessage struct {
+	RoomID      uuid.UUID
+	SenderID    string
+	Body        string
+	ClientMsgID string
+}
+
 // ErrandEnding records that a whole errand completed or was refunded.
 type ErrandEnding struct {
 	ErrandID uuid.UUID
@@ -139,6 +156,11 @@ var (
 	// ErrInvalidMessage: the message breaks a rule (body length, client
 	// message ID length).
 	ErrInvalidMessage = errors.New("invalid message")
+	// ErrRoomClosed: the room is read-only, so sending is refused.
+	ErrRoomClosed = errors.New("room is closed")
+	// ErrInvalidPage: the paging parameters are wrong (both after and
+	// before, a negative ID, or a limit out of range).
+	ErrInvalidPage = errors.New("invalid page")
 	// ErrInvalidRoom: room data breaks a rule, for example the requester and
 	// the courier are the same person, or an unknown end reason.
 	ErrInvalidRoom = errors.New("invalid room data")

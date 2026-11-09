@@ -1,6 +1,6 @@
 # Chat service implementation plan
 
-Status: phases 1 (skeleton) and 2 (database) implemented; phases 3 to 10 not started. Last updated 9 November 2026.
+Status: phases 1 to 5 (skeleton, database, auth and REST, room creation, live delivery) implemented; phases 6 to 10 not started. Last updated 9 November 2026.
 
 This plan describes a new Go service, `chat-service`, that lets the **requester** and the
 **assigned courier** of an errand message each other in real time. It follows the same
@@ -288,6 +288,7 @@ and report every problem at once without printing secret values (copy the order-
 | `HTTP_HOST`, `HTTP_PORT` | `0.0.0.0`, `3005` | |
 | `DATABASE_URL` | `postgresql://chat_service:...@chat-db:5432/chat_service?sslmode=disable` | On RDS: `sslmode=verify-full&sslrootcert=/etc/ssl/certs/rds-global-bundle.pem` |
 | `AMQP_URL` | `amqp://foc:...@queue-service:5672/` | Required: rooms cannot be created without it |
+| `AMQP_PREFETCH` | `10` | Events RabbitMQ sends ahead of acknowledgements |
 | `AUTH0_ISSUER` | `https://login.bestfoc.app/` | |
 | `AUTH0_AUDIENCE` | `https://api.foc.local/chat-service` | New Auth0 API, see [section 6](#6-auth) |
 | `CHAT_CLOSE_DELAY` | `24h` | How long a room stays open after the errand ends. Use `1m` for manual testing |
@@ -344,19 +345,23 @@ type Service struct {
 }
 
 // Participants
-func (s *Service) MyRooms(ctx, p Principal) ([]Room, error)
-func (s *Service) RoomsForErrand(ctx, p Principal, errandID uuid.UUID) ([]Room, error)
-func (s *Service) History(ctx, p Principal, roomID uuid.UUID, page Page) ([]Message, error)
-func (s *Service) Send(ctx, p Principal, roomID uuid.UUID, clientMsgID, body string) (Message, error)
+// userID is the verified token's subject; the handler takes it from auth.Principal.
+func (s *Service) MyRooms(ctx, userID string) ([]RoomView, error)
+func (s *Service) RoomsForErrand(ctx, userID string, errandID uuid.UUID) ([]RoomView, error)
+func (s *Service) Room(ctx, userID string, roomID uuid.UUID) (RoomView, error)
+func (s *Service) History(ctx, userID string, roomID uuid.UUID, page Page) ([]MessageView, error)
+func (s *Service) Send(ctx, userID string, roomID uuid.UUID, clientMsgID, body string) (MessageView, created bool, error)
 
-// Event consumer
-func (s *Service) OnAccepted(ctx, e AcceptedEvent) error
-func (s *Service) OnWithdrawn(ctx, e WithdrawnEvent) error
-func (s *Service) OnErrandEnded(ctx, e ErrandEndedEvent) error   // completed / refunded
+// Event consumer: a separate type, chat.Lifecycle, with its own transactional
+// store interface (chat.LifecycleStore / chat.Tx), so the participant fake stays small.
+func (l *Lifecycle) OnAccepted(ctx, e AcceptedEvent) (AcceptResult, error)   // phase 4
+func (l *Lifecycle) OnWithdrawn(ctx, e WithdrawnEvent) (..., error)           // phase 7
+func (l *Lifecycle) OnErrandEnded(ctx, e ErrandEndedEvent) (..., error)       // phase 7: completed / refunded
 
 // Admin
-func (s *Service) AdminRoomsForErrand(ctx, p Principal, errandID uuid.UUID) ([]Room, error)
-func (s *Service) AdminExport(ctx, p Principal, roomID uuid.UUID, format string) (Export, error)
+// Permission (chats:export) is checked by the route's middleware.
+func (s *Service) AdminRoomsForErrand(ctx, errandID uuid.UUID) ([]Room, error)
+func (s *Service) AdminExport(ctx, adminID string, roomID uuid.UUID, format string) (Export, error)
 ```
 
 Every `Room` returned to a client includes `status` (`OPEN`, `CLOSING` or `CLOSED`, from
@@ -366,12 +371,12 @@ Every `Room` returned to a client includes `status` (`OPEN`, `CLOSING` or `CLOSE
 
 **Reading (participants):**
 - Caller must be the room's `requester_id` or `courier_id`. Otherwise return
-  `404 room_not_found`, so outsiders cannot even tell whether the room exists.
+  `404 ROOM_NOT_FOUND`, so outsiders cannot even tell whether the room exists.
 - Reading is allowed in every state, including `CLOSED`.
 
 **Sending (participants):**
-- Caller must be a participant (otherwise `404 room_not_found`).
-- Room status must be `OPEN` or `CLOSING`. If it is `CLOSED`, return `409 room_closed`.
+- Caller must be a participant (otherwise `404 ROOM_NOT_FOUND`).
+- Room status must be `OPEN` or `CLOSING`. If it is `CLOSED`, return `409 ROOM_CLOSED`.
 - Body is trimmed, must be 1–2000 characters, and contain no control characters other
   than newline and tab. Text is stored as typed. Escaping happens when it is displayed (React does this).
 
@@ -397,10 +402,12 @@ in one transaction that first calls `LockErrand(errandId)`, and publishes to the
   and `closesAt`) and who said what (`REQUESTER`/`COURIER`).
 - Records a `chat_log_exports` row in the same transaction as the read.
 
-**Errors** (stable codes, same JSON shape as other services:
-`{"error": "<code>", "message": "<human text>"}`):
-`unauthenticated` (401), `forbidden` (403), `room_not_found` (404), `room_closed` (409),
-`invalid_message` (400), `rate_limited` (429), `internal` (500).
+**Errors** (stable codes, the same JSON shape as order-, credit- and supplier-service:
+`{"code": "<CODE>", "message": "<human text>"}`):
+`INVALID_ARGUMENT` (400, malformed path, query or body), `INVALID_MESSAGE` (400),
+`UNAUTHENTICATED` (401), `FORBIDDEN` (403), `ROOM_NOT_FOUND` (404), `ROOM_CLOSED` (409),
+`RATE_LIMITED` (429), `INTERNAL` (500), `DEPENDENCY_UNAVAILABLE` (503). WebSocket `error`
+frames use the same codes.
 
 **Done when:** unit tests with an in-memory store fake and a fake clock cover every rule above,
 including:
@@ -529,7 +536,7 @@ the browser reconnects and catches up.
 5. Send `{"type":"ready","userId":"..."}`.
 6. Start three goroutines:
    - **read loop:** parse frames and handle `send` via `chat.Service.Send`. Reply with `ack`
-     to the sender, or `error` with the `clientMsgId` (for example `room_closed`).
+     to the sender, or `error` with the `clientMsgId` (for example `ROOM_CLOSED`).
    - **write loop:** drain the client's send channel to the socket, with a write timeout.
    - **heartbeat:** `conn.Ping` every `WS_PING_INTERVAL`. If no pong arrives, close.
 7. **Token expiry:** close with code 4401 when the token's `exp` passes. The browser gets a fresh
@@ -539,7 +546,7 @@ the browser reconnects and catches up.
    browsers reconnect at once (to another copy, once there are several).
 
 **Rate limit:** a token bucket per connection (`golang.org/x/time/rate`). Excess `send` frames
-get `error` with code `rate_limited`.
+get `error` with code `RATE_LIMITED`.
 
 ### WebSocket protocol (write this up fully in `docs/websocket-protocol.md`)
 
@@ -562,16 +569,26 @@ Server → client:
 | `room_closing` | `roomId`, `errandId`, `endReason`, `closesAt` | The errand ended. The room becomes read-only at `closesAt` |
 
 There is no "room closed" push. The browser already knows `closesAt` and switches to read-only
-at that time on its own timer. If its clock is wrong, the server's `room_closed` error on the
+at that time on its own timer. If its clock is wrong, the server's `ROOM_CLOSED` error on the
 next send corrects it.
 
 Close codes: `1000` normal, `1008` policy (too slow or bad frames), `1012` server restart,
-`4401` authentication failed or expired, `4429` too many connections.
+`1013` try again later (Auth0 unreachable), `4401` authentication failed or expired,
+`4403` valid token without `chats:use` or not a user token (do not retry), `4429` too many
+connections.
+
+As built in phase 5: frames and the shared Room/Message JSON live in `internal/protocol`. `chat`
+does not call `Publish` directly; it calls a `chat.Notifier` (`MessageSent`, `RoomOpened`,
+`RoomClosing`) after commit, implemented by `broadcast.Notifier`, which builds the frames and
+publishes envelopes. This keeps the wire format out of `chat` and lets `room_opened` be
+personalised (`myRole`) per recipient. `LocalBroadcaster.Run` blocks until shutdown so every
+broadcaster runs as a worker the same way. `auth.Principal` gained `ExpiresAt` (the token's
+`exp`) for the expiry close; the `auth` frame uses the same `auth.Port.Authenticate` as REST.
 
 **Done when:** an integration test using `httptest.Server` and two WebSocket clients shows:
 A sends, B receives `message` and A receives `ack`; a third user gets nothing; a resend with the
 same `clientMsgId` produces one database row; no `auth` frame within the timeout closes with 4401;
-sending to a `CLOSED` room returns `error` `room_closed`.
+sending to a `CLOSED` room returns `error` `ROOM_CLOSED`.
 
 ---
 
@@ -588,12 +605,24 @@ changes to order-service are needed: it already publishes these events (see
 | Exchange | `foc.events` (topic, durable), declared with the same arguments as order-service |
 | Queue | `chat-service.errand-events`, quorum, `x-delivery-limit: 5`, dead-letters to the DLQ |
 | Dead-letter queue | `chat-service.errand-events.dlq`, quorum |
-| Bindings | `errand.accepted`, `errand.withdrawn`, `errand.completed`, `errand.refunded` |
+| Bindings | `errand.accepted` (phase 4); `errand.withdrawn`, `errand.completed`, `errand.refunded` (phase 7) |
 | Prefetch | 10 |
 
 Model the consumer on `order-service/internal/creditmsg/consumer.go`: reconnect with backoff,
-ack only after the database transaction commits, requeue on temporary failures (database down),
-reject without requeue on undecodable or invalid messages (they go to the DLQ), and never log the AMQP URL.
+ack only after the database transaction commits, reject without requeue on undecodable or invalid
+messages (they go to the DLQ), and never log the AMQP URL.
+
+Retries (as built in phase 4, `internal/events`):
+- **Temporary failure** (`chat.ErrUnavailable`, e.g. the database is down): requeue with growing
+  backoff (1 s to 30 s) for as long as it takes. Dead-lettering would lose the room, because
+  order-service publishes each event once.
+- **Unexpected error or panic**: requeue up to `MaxAttempts` (5) times, counted by the consumer,
+  then dead-letter, so one bad event cannot block the queue.
+- **RabbitMQ 4 finding:** `x-delivery-limit` on a quorum queue does *not* count explicit
+  `basic.nack` requeues (no `x-delivery-count` is set); it only counts deliveries a consumer never
+  answered (crash, lost connection). Tests confirm both. The queue keeps the limit as crash
+  protection; the consumer counts the rest. order-service and credit-service rely on the limit
+  for requeues and may be affected.
 
 Fields come from the `Envelope` and `ErrandEventData` schemas: `occurredAt`, `errandId`,
 `errandVersion`, `data.requesterId` and `data.courierId`. Validate them first. If anything
@@ -659,11 +688,11 @@ The browser calls them under `/chat-service/...`, and nginx or the ALB strips th
 | `GET /errands/{errandId}/chats` | `chats:use` | My rooms for this errand, newest first. A courier gets at most one. A requester gets one per courier who accepted. Empty list until the accept event is processed (usually under a second) |
 | `GET /chats/{roomId}/messages?after={id}&limit=50` | `chats:use` | Catch-up: messages newer than `id`, oldest first. Works in every state |
 | `GET /chats/{roomId}/messages?before={id}&limit=50` | `chats:use` | Scroll back: messages older than `id` |
-| `POST /chats/{roomId}/messages` | `chats:use` | Send without a WebSocket (testing, fallback). Body `{clientMsgId, body}`. Same rules and broadcast as WebSocket send. `409 room_closed` when closed |
+| `POST /chats/{roomId}/messages` | `chats:use` | Send without a WebSocket (testing, fallback). Body `{clientMsgId, body}`. Same rules and broadcast as WebSocket send. `201` with the message, `200` for a retry of the same `clientMsgId`, `409 ROOM_CLOSED` when closed |
 | `GET /ws` | `chats:use` (checked in the handshake) | WebSocket upgrade |
 | `GET /admin/errands/{errandId}/chats` | `chats:export` | Every room for the errand, including withdrawn couriers' rooms |
 | `GET /admin/chats/{roomId}/log?format=json\|text` | `chats:export` | Download the full log. `Content-Disposition: attachment; filename="chat-<errandId>-<roomId>.<ext>"`. Logged in `chat_log_exports` |
-| `GET /readyz` | none | `200` when Postgres is reachable and the event consumer is subscribed |
+| `GET /readyz` | none | `200` when Postgres is reachable (with the schema this build expects): `ready`, or `degraded` while the event consumer is not subscribed. `503` only without Postgres, so a RabbitMQ outage does not take chat offline |
 
 `limit` is 1–100 (default 50). Message lists are always ordered by `id`.
 
@@ -729,7 +758,7 @@ export sets the download header and records an audit row.
 |---|---|
 | `src/api/chat.ts` | REST calls: `getMyChats`, `getChatsForErrand`, `getMessages`, `postMessage`, admin `listErrandChats`, `downloadChatLog` |
 | `src/chat/useChatSocket.ts` | React hook: open the socket, send `auth` with a token from `getAccessToken({audience: CHAT_AUDIENCE})`, reconnect with backoff (1 s, 2 s, 5 s, up to 30 s), and get a new token on 4401 |
-| `src/chat/ChatPanel.tsx` | Message list and input. On `ready`, fetch `?after=<last id>` to catch up. Show messages immediately as "sending", mark them sent on `ack`, and offer retry on `error`. De-duplicate by message `id`. **States:** `OPEN` shows the normal input. `CLOSING` shows a banner ("This errand has ended. Chat closes in 23 h") and keeps the input. `CLOSED` hides the input and shows "Chat closed". A timer switches `CLOSING` to `CLOSED` at `closesAt`. `room_closing` frames and `room_closed` errors update the state |
+| `src/chat/ChatPanel.tsx` | Message list and input. On `ready`, fetch `?after=<last id>` to catch up. Show messages immediately as "sending", mark them sent on `ack`, and offer retry on `error`. De-duplicate by message `id`. **States:** `OPEN` shows the normal input. `CLOSING` shows a banner ("This errand has ended. Chat closes in 23 h") and keeps the input. `CLOSED` hides the input and shows "Chat closed". A timer switches `CLOSING` to `CLOSED` at `closesAt`. `room_closing` frames and `ROOM_CLOSED` errors update the state |
 | [ErrandDetail.tsx](../user-frontend/src/pages/errands/ErrandDetail.tsx) | Call `GET /errands/{id}/chats`. If the viewer has a room, show `ChatPanel`. A requester with several rooms sees the room for the errand's current courier first and can switch to older ones. If the list is empty right after accepting, retry a few times ("Connecting chat…") |
 | Admin review screen ([ReviewQueue.tsx](../user-frontend/src/pages/admin/ReviewQueue.tsx)) | "Download chat log" button, which lists rooms for the errand and downloads each |
 | `.env.example` | `VITE_CHAT_AUDIENCE=https://api.foc.local/chat-service` |
@@ -782,7 +811,7 @@ Each phase ends with something that works and can be shown.
 | 4. Room creation | `events` consumer for `errand.accepted`, asyncapi update | Accept an errand in the app and a room appears |
 | 5. Live delivery | `hub`, `broadcast` (Local), `ws`, protocol doc | Two browser consoles (or `websocat`) exchange messages live |
 | 6. Frontend | `api/chat.ts`, `useChatSocket`, `ChatPanel` (open state only), nginx and Vite routes | Requester and courier chat in two browsers |
-| 7. Room closing | `errand.withdrawn`, `errand.completed` and `errand.refunded` handlers, `room_closed` check in `Send`, `room_closing` frame, `CLOSING`/`CLOSED` states in `ChatPanel` | With `CHAT_CLOSE_DELAY=1m`: complete an errand, see the banner, and a minute later the chat is read-only |
+| 7. Room closing | `errand.withdrawn`, `errand.completed` and `errand.refunded` handlers (the `ROOM_CLOSED` check in `Send` already exists from phase 3), `room_closing` frame, `CLOSING`/`CLOSED` states in `ChatPanel` | With `CHAT_CLOSE_DELAY=1m`: complete an errand, see the banner, and a minute later the chat is read-only |
 | 8. Admin export | Admin routes, audit table, text format, review-screen button | Admin downloads the log of a closed room |
 | 9. Deploy | RDS, secret, ECR/ECS, ALB rule, CloudFront behavior | Chat works on `app.bestfoc.app` through CloudFront |
 | 10. Scale (later) | Redis ([section 13.4](#134-later-redis-when-running-more-than-one-copy)) | Two tasks running. Users on different tasks still chat live |

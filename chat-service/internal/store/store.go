@@ -37,6 +37,13 @@ type Queries struct {
 	q *chatgen.Queries
 }
 
+// The compiler checks that Store has every method chat.Service needs.
+var (
+	_ chat.Store          = (*Store)(nil)
+	_ chat.LifecycleStore = (*Store)(nil)
+	_ chat.Tx             = (*Queries)(nil)
+)
+
 func New(db DB) *Store {
 	if db == nil {
 		panic("store: database is required")
@@ -57,6 +64,12 @@ func (s *Store) WithTx(ctx context.Context, fn func(q *Queries) error) error {
 		return err
 	}
 	return translate("commit", tx.Commit(ctx))
+}
+
+// InTx is WithTx for package chat, which cannot name *Queries: chat imports
+// nothing from store, so it describes the methods it needs as chat.Tx.
+func (s *Store) InTx(ctx context.Context, fn func(tx chat.Tx) error) error {
+	return s.WithTx(ctx, func(q *Queries) error { return fn(q) })
 }
 
 // MaxRowLimit bounds every list query.

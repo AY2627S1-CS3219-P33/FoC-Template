@@ -69,6 +69,11 @@ services:
         condition: service_healthy
       chat-migrate:
         condition: service_completed_successfully
+      # RabbitMQ, defined in the root compose.yaml. chat-service would also
+      # start without it (the consumer reconnects, /readyz says "degraded"),
+      # but waiting lets it subscribe at once.
+      queue-service:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3005/readyz"]
       interval: 10s

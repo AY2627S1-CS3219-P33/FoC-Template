@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/CS3219-AY2627S1/FoC-Template/chat-service/internal/auth"
 )
 
 func lookupFrom(values map[string]string) LookupEnv {
@@ -42,8 +44,11 @@ func TestLoadAppliesDefaults(t *testing.T) {
 		MinConnections: 1,
 		MaxConnections: 10,
 	}, cfg.Database)
-	require.Equal(t, AuthConfig{Issuer: "https://example.auth0.com/", Audience: ChatAudience}, cfg.Auth)
-	require.Equal(t, "amqp://foc:amqp-secret@queue-service:5672/", cfg.AMQP.URL)
+	wantAuth := auth.DefaultAuth0Config()
+	wantAuth.Issuer = "https://example.auth0.com/"
+	require.Equal(t, wantAuth, cfg.Auth)
+	require.Equal(t, "https://api.foc.local/chat-service", cfg.Auth.Audience)
+	require.Equal(t, AMQPConfig{URL: "amqp://foc:amqp-secret@queue-service:5672/", Prefetch: 10}, cfg.AMQP)
 	require.Equal(t, ChatConfig{
 		CloseDelay:       24 * time.Hour,
 		MaxMessageLength: 2000,
@@ -163,6 +168,9 @@ func TestLoadRejectsInvalidValues(t *testing.T) {
 		{"AUTH0_ISSUER", "http://example.auth0.com/", "AUTH0_ISSUER must be an HTTPS origin"},
 		{"AUTH0_ISSUER", "https://example.auth0.com", "AUTH0_ISSUER must be an HTTPS origin"},
 		{"AUTH0_AUDIENCE", "a,b", "AUTH0_AUDIENCE must be"},
+		{"AUTH0_CLOCK_SKEW", "5m", "AUTH0_CLOCK_SKEW must be between 0s and 1m"},
+		{"AUTH0_JWKS_FETCH_ATTEMPTS", "9", "AUTH0_JWKS_FETCH_ATTEMPTS must be an integer between 1 and 3"},
+		{"AMQP_PREFETCH", "0", "AMQP_PREFETCH must be an integer between 1 and 1000"},
 		{"CHAT_CLOSE_DELAY", "-1h", "CHAT_CLOSE_DELAY must be a positive duration"},
 		{"CHAT_MAX_MESSAGE_LENGTH", "2001", "CHAT_MAX_MESSAGE_LENGTH must be an integer between 1 and 2000"},
 		{"CHAT_SEND_RATE", "0", "CHAT_SEND_RATE must be a number above 0"},

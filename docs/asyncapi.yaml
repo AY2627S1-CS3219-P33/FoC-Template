@@ -22,6 +22,10 @@ info:
       user recipients from requesterId, courierId, actorId and reviewReason, stores
       user-specific notifications and delivers them through its frontend interface.
       There is no notification.requested command or requirement for a queue per user.
+    - chat-service.errand-events binds to errand.accepted (later also errand.withdrawn,
+      errand.completed and errand.refunded) to open and close chat rooms. It is a
+      quorum queue with x-delivery-limit 5 that dead-letters to
+      chat-service.errand-events.dlq; chat-service owns both (chat-service/README.md).
     - Optional order-events.tap binds to errand.# only when AMQP_DECLARE_TAP is set.
 
     Delivery and recovery:
@@ -580,6 +584,14 @@ operations:
       - $ref: "#/channels/errandAccepted/messages/message"
   notificationReceivesErrandAccepted:
     action: receive
+    channel:
+      $ref: "#/channels/errandAccepted"
+    messages:
+      - $ref: "#/channels/errandAccepted/messages/message"
+  chatReceivesErrandAccepted:
+    action: receive
+    description: chat-service opens a chat room for the requester and this courier
+      (queue chat-service.errand-events).
     channel:
       $ref: "#/channels/errandAccepted"
     messages:

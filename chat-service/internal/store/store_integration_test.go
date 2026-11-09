@@ -38,7 +38,7 @@ func ending(reason chat.EndReason, endedAt time.Time) chat.Ending {
 
 func accept(t *testing.T, s *Store, errandID uuid.UUID, courier string) chat.Room {
 	t.Helper()
-	room, inserted, err := s.UpsertRoomOnAccept(context.Background(), AcceptedRoom{
+	room, inserted, err := s.UpsertRoomOnAccept(context.Background(), chat.AcceptedRoom{
 		ErrandID: errandID, RequesterID: requester, CourierID: courier, OpenedVersion: 3,
 	})
 	require.NoError(t, err)
@@ -48,7 +48,7 @@ func accept(t *testing.T, s *Store, errandID uuid.UUID, courier string) chat.Roo
 
 func send(t *testing.T, s *Store, roomID uuid.UUID, clientMsgID, body string) chat.Message {
 	t.Helper()
-	message, inserted, err := s.InsertMessage(context.Background(), NewMessage{
+	message, inserted, err := s.InsertMessage(context.Background(), chat.NewMessage{
 		RoomID: roomID, SenderID: requester, Body: body, ClientMsgID: clientMsgID,
 	})
 	require.NoError(t, err)
@@ -85,7 +85,7 @@ func TestUpsertRoomOnAcceptIsIdempotent(t *testing.T) {
 	require.Nil(t, room.Ending)
 	require.Equal(t, chat.StatusOpen, room.Status(time.Now()))
 
-	again, inserted, err := s.UpsertRoomOnAccept(ctx, AcceptedRoom{
+	again, inserted, err := s.UpsertRoomOnAccept(ctx, chat.AcceptedRoom{
 		ErrandID: errand, RequesterID: requester, CourierID: courierA, OpenedVersion: 3,
 	})
 	require.NoError(t, err)
@@ -97,7 +97,7 @@ func TestUpsertRoomOnAcceptIsIdempotent(t *testing.T) {
 }
 
 func TestUpsertRoomOnAcceptRejectsTheRequesterAsCourier(t *testing.T) {
-	_, _, err := newStore(t).UpsertRoomOnAccept(context.Background(), AcceptedRoom{
+	_, _, err := newStore(t).UpsertRoomOnAccept(context.Background(), chat.AcceptedRoom{
 		ErrandID: uuid.New(), RequesterID: requester, CourierID: requester, OpenedVersion: 1,
 	})
 	require.ErrorIs(t, err, chat.ErrInvalidRoom)
@@ -119,7 +119,7 @@ func TestWithdrawnBeforeAcceptedStaysEnded(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, changed)
 
-	room, inserted, err := s.UpsertRoomOnAccept(ctx, AcceptedRoom{
+	room, inserted, err := s.UpsertRoomOnAccept(ctx, chat.AcceptedRoom{
 		ErrandID: errand, RequesterID: requester, CourierID: courierA, OpenedVersion: 4,
 	})
 	require.NoError(t, err)
@@ -318,7 +318,7 @@ func TestInsertMessageIsIdempotent(t *testing.T) {
 	require.Equal(t, "client-1", first.ClientMsgID)
 	require.False(t, first.CreatedAt.IsZero())
 
-	retry, inserted, err := s.InsertMessage(ctx, NewMessage{
+	retry, inserted, err := s.InsertMessage(ctx, chat.NewMessage{
 		RoomID: room.ID, SenderID: requester, Body: "I'm at the lobby (retry)", ClientMsgID: "client-1",
 	})
 	require.NoError(t, err)
@@ -336,10 +336,10 @@ func TestInsertMessageErrors(t *testing.T) {
 	s := newStore(t)
 	room := accept(t, s, uuid.New(), courierA)
 
-	_, _, err := s.InsertMessage(ctx, NewMessage{RoomID: uuid.New(), SenderID: requester, Body: "hi", ClientMsgID: "c1"})
+	_, _, err := s.InsertMessage(ctx, chat.NewMessage{RoomID: uuid.New(), SenderID: requester, Body: "hi", ClientMsgID: "c1"})
 	require.ErrorIs(t, err, chat.ErrRoomNotFound)
 
-	for _, m := range []NewMessage{
+	for _, m := range []chat.NewMessage{
 		{RoomID: room.ID, SenderID: requester, Body: "", ClientMsgID: "c1"},
 		{RoomID: room.ID, SenderID: requester, Body: strings.Repeat("a", 2001), ClientMsgID: "c1"},
 		{RoomID: room.ID, SenderID: requester, Body: "hi", ClientMsgID: strings.Repeat("x", 65)},
@@ -413,7 +413,7 @@ func TestWithTxRollsBackOnError(t *testing.T) {
 	boom := errors.New("boom")
 
 	err := s.WithTx(ctx, func(q *Queries) error {
-		_, _, err := q.UpsertRoomOnAccept(ctx, AcceptedRoom{ErrandID: errand, RequesterID: requester, CourierID: courierA, OpenedVersion: 1})
+		_, _, err := q.UpsertRoomOnAccept(ctx, chat.AcceptedRoom{ErrandID: errand, RequesterID: requester, CourierID: courierA, OpenedVersion: 1})
 		require.NoError(t, err)
 		return boom
 	})

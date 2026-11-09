@@ -13,12 +13,25 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/CS3219-AY2627S1/FoC-Template/chat-service/internal/auth"
 	"github.com/CS3219-AY2627S1/FoC-Template/chat-service/internal/config"
 	"github.com/CS3219-AY2627S1/FoC-Template/chat-service/internal/testdb"
 )
 
 func testConfig(databaseURL string) config.Config {
+	authConfig := auth.DefaultAuth0Config()
+	// Never contacted: keys are only fetched when a request carries a token.
+	authConfig.Issuer = "https://issuer.invalid/"
 	return config.Config{
+		Auth: authConfig,
+		Chat: config.ChatConfig{MaxMessageLength: 2000, CloseDelay: 24 * time.Hour, SendRate: 5, SendBurst: 10},
+		WebSocket: config.WebSocketConfig{
+			AllowedOrigins: []string{"localhost:8081"}, AuthTimeout: 5 * time.Second,
+			PingInterval: 25 * time.Second, MaxConnectionsPerUser: 5,
+		},
+		// Nothing listens on port 1: the consumer keeps reconnecting, which the
+		// HTTP tests do not need. Tests that need RabbitMQ set TEST_AMQP_URL.
+		AMQP:            config.AMQPConfig{URL: "amqp://guest:guest@127.0.0.1:1/", Prefetch: 10},
 		Environment:     config.Test,
 		HTTP:            config.HTTPConfig{Host: "127.0.0.1", Port: 0},
 		LogLevel:        "info",
@@ -60,7 +73,8 @@ func TestReadyzReportsPostgres(t *testing.T) {
 	body, err := io.ReadAll(response.Body)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, response.StatusCode)
-	require.JSONEq(t, `{"status":"ready","dependencies":{"postgres":"ok"}}`, string(body))
+	// Run has not started the consumer, so the service is up but degraded.
+	require.JSONEq(t, `{"status":"degraded","dependencies":{"postgres":"ok","errandEvents":"down"}}`, string(body))
 }
 
 // The service never migrates: without the migrate job it reports not ready.
