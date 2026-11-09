@@ -1171,6 +1171,7 @@ components:
             - ERRAND_NOT_FOUND
             - FENCE_NOT_FOUND
             - OUTBOX_ROW_NOT_FOUND
+            - PLACE_NOT_FOUND
             - ERRAND_CHANGED
             - ERRAND_UNAVAILABLE
             - INVALID_TRANSITION
@@ -1178,6 +1179,7 @@ components:
             - COURIER_RESTRICTED
             - INSUFFICIENT_CREDITS
             - EDIT_PENDING
+            - PLACE_LIMIT_REACHED
             - SUPPLIER_UNAVAILABLE
             - SUPPLIER_DELETION_IN_PROGRESS
             - DEPENDENCY_UNAVAILABLE
@@ -1349,3 +1351,25 @@ components:
               - properties:
                   code:
                     const: OUTBOX_ROW_NOT_FOUND
+    PlaceNotFound:
+      description: >-
+        The caller has no saved place with this ID. Another user's place is
+        not found either.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/Error"
+              - properties:
+                  code:
+                    const: PLACE_NOT_FOUND
+    PlaceLimitReached:
+      description: The caller already has 20 saved places of this kind.
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: "#/components/schemas/Error"
+              - properties:
+                  code:
+                    const: PLACE_LIMIT_REACHED

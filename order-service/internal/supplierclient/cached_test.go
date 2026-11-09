@@ -86,6 +86,25 @@ func TestCachedResolveForCreateIsNeverCached(t *testing.T) {
 	assert.Empty(t, kv.data)
 }
 
+func TestCachedGetCurrentIsNeverCached(t *testing.T) {
+	kv := newMemKV()
+	g, s := cachedFixture(t, kv)
+	ctx := context.Background()
+
+	_, err := g.GetCurrent(ctx, supplierID)
+	require.NoError(t, err)
+	// The supplier is deleted: the next read sees it at once.
+	s.mu.Lock()
+	delete(s.current, supplierID)
+	s.mu.Unlock()
+	_, err = g.GetCurrent(ctx, supplierID)
+	requireCode(t, err, apperror.SupplierUnavailable)
+
+	assert.Equal(t, int64(2), s.count("/suppliers/"+supplierID))
+	assert.Zero(t, kv.gets.Load())
+	assert.Empty(t, kv.data)
+}
+
 func TestCachedErrorsAreNotCached(t *testing.T) {
 	kv := newMemKV()
 	g, s := cachedFixture(t, kv)

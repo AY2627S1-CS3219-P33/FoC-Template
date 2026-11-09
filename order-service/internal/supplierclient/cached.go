@@ -20,12 +20,13 @@ const (
 
 // CachedGate is an errand.SupplierGate that caches GetVersion and
 // ListBuildings in a cache.KV in front of another gate. Only successful
-// answers are cached. ResolveForCreate is passed straight through.
+// answers are cached. ResolveForCreate and GetCurrent are passed straight
+// through.
 //
 // A version's fields never change, so it is cached with no expiry. Its
 // Available flag is the exception: a cached version keeps the value it had
 // when first read, after its supplier is updated or deleted. Liveness comes
-// from ResolveForCreate, never from GetVersion.
+// from ResolveForCreate or GetCurrent, never from GetVersion.
 type CachedGate struct {
 	inner errand.SupplierGate
 	kv    cache.KV
@@ -47,6 +48,12 @@ func NewCachedGate(inner errand.SupplierGate, kv cache.KV) *CachedGate {
 // ResolveForCreate implements errand.SupplierGate without the cache.
 func (g *CachedGate) ResolveForCreate(ctx context.Context, supplierID string, now time.Time) (errand.SupplierVersion, error) {
 	return g.inner.ResolveForCreate(ctx, supplierID, now)
+}
+
+// GetCurrent implements errand.SupplierGate without the cache, so a deleted
+// supplier shows as unavailable at once.
+func (g *CachedGate) GetCurrent(ctx context.Context, supplierID string) (errand.SupplierVersion, error) {
+	return g.inner.GetCurrent(ctx, supplierID)
 }
 
 // GetVersion implements errand.SupplierGate.

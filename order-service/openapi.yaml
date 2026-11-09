@@ -26,6 +26,8 @@ tags:
     description: Actions of the courier accepting or delivering an errand.
   - name: My errands
     description: The caller's own errand lists.
+  - name: Saved places
+    description: The caller's saved delivery and pickup places, used to fill in errand requests.
   - name: Administration
     description: Review, settings, logs, flags and failed or overdue outbox rows (errands:review).
   - name: Internal
@@ -78,6 +80,16 @@ paths:
   /me/errands/history:
     get:
       $ref: ./openapi/errands.yaml#/operations/listErrandHistory
+  /me/places:
+    get:
+      $ref: ./openapi/places.yaml#/operations/listPlaces
+    post:
+      $ref: ./openapi/places.yaml#/operations/createPlace
+  /me/places/{placeId}:
+    patch:
+      $ref: ./openapi/places.yaml#/operations/updatePlace
+    delete:
+      $ref: ./openapi/places.yaml#/operations/deletePlace
   /admin/reviews:
     get:
       $ref: ./openapi/admin.yaml#/operations/listReviews
@@ -139,6 +151,10 @@ components:
       $ref: ./openapi/common.yaml#/components/schemas/ErrandCreate
     ErrandEdit:
       $ref: ./openapi/common.yaml#/components/schemas/ErrandEdit
+    SavedPlace:
+      $ref: ./openapi/places.yaml#/components/schemas/SavedPlace
+    PlaceCreate:
+      $ref: ./openapi/places.yaml#/components/schemas/PlaceCreate
     Fence:
       $ref: ./openapi/common.yaml#/components/schemas/Fence
     Settings:

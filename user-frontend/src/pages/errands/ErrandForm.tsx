@@ -1,6 +1,12 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { OrderError, type ErrandCreate, type ErrandEdit, type Item, type RequesterErrandView } from "../../api/order";
 import {
+  listPlaces,
+  type DeliveryPlace,
+  type PickupPlace,
+  type PlaceCreate,
+} from "../../api/places";
+import {
   getSupplier,
   listSuppliers,
   SupplierError,
@@ -29,7 +35,11 @@ interface Props {
   profile: Profile;
   buildings: Lookup[];
   getSupplierToken: () => Promise<string>;
-  onSubmit: (body: ErrandCreate | ErrandEdit) => Promise<void>;
+  // Create mode only: reads the caller's saved places for the chips.
+  getOrderToken?: () => Promise<string>;
+  // places are the saved places to add once the errand is created; always
+  // empty in edit mode. Saving them must never fail the errand.
+  onSubmit: (body: ErrandCreate | ErrandEdit, places: PlaceCreate[]) => Promise<void>;
   onCancel: () => void;
 }
 
@@ -73,6 +83,9 @@ function draftFrom(
   };
 }
 
+// Saved place labels are at most 40 characters (order-service PlaceLabel).
+const PLACE_LABEL_MAX = 40;
+
 function toItems(drafts: ItemDraft[]): Item[] {
   return drafts.map((item) => ({
     description: item.description.trim(),
@@ -87,6 +100,7 @@ export function ErrandForm({
   profile,
   buildings,
   getSupplierToken,
+  getOrderToken,
   onSubmit,
   onCancel,
 }: Props) {
@@ -114,6 +128,33 @@ export function ErrandForm({
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [supplierError, setSupplierError] = useState<string | null>(null);
   const [chosen, setChosen] = useState<Supplier | null>(null);
+
+  // Saved places (create mode only). Loaded once; if they cannot be loaded the
+  // form works as before, just without chips.
+  const [pickupPlaces, setPickupPlaces] = useState<PickupPlace[]>([]);
+  const [deliveryPlaces, setDeliveryPlaces] = useState<DeliveryPlace[]>([]);
+  const [savePickup, setSavePickup] = useState(false);
+  const [saveDropoff, setSaveDropoff] = useState(false);
+  const [dropoffLabel, setDropoffLabel] = useState("");
+
+  useEffect(() => {
+    if (mode !== "create" || !getOrderToken) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await getOrderToken();
+        const list = await listPlaces(token);
+        if (cancelled) return;
+        setPickupPlaces(list.items.filter((p): p is PickupPlace => p.kind === "PICKUP"));
+        setDeliveryPlaces(list.items.filter((p): p is DeliveryPlace => p.kind === "DELIVERY"));
+      } catch {
+        // Chips are a shortcut only; the pickers below still work.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [mode, getOrderToken]);
 
   useEffect(() => {
     let cancelled = false;
@@ -197,10 +238,16 @@ export function ErrandForm({
   // An errand being edited or copied already names a supplier, which the first
   // (empty) search need not contain. Until it is found, label it from the
   // pickup details stored on the errand so the picker never looks empty.
+  // A supplier picked from a saved place is labelled from its saved summary.
+  const placeSupplier = pickupPlaces.find(
+    (p) => p.supplierId === draft.supplierId && p.supplier,
+  )?.supplier;
   const selectedLabel =
     chosen && chosen.supplierId === draft.supplierId
       ? `${chosen.name} — ${chosen.building}`
-      : source && source.supplierId === draft.supplierId
+      : placeSupplier
+        ? `${placeSupplier.name} — ${placeSupplier.building}`
+        : source && source.supplierId === draft.supplierId
         ? `${source.pickup.name} — ${source.pickup.building}`
         : null;
   const needsFallbackOption =
@@ -209,6 +256,56 @@ export function ErrandForm({
     !suppliers.some((s) => s.supplierId === draft.supplierId);
 
   const clientErrors = useMemo(() => validateErrandForm(draft), [draft]);
+
+  // Already-saved places get no save control: saving them again would only be
+  // rejected as a duplicate.
+  const pickupSaved = pickupPlaces.some((p) => p.supplierId === draft.supplierId);
+  const dropoffSaved = deliveryPlaces.some(
+    (p) =>
+      p.deliveryBuilding.id === draft.deliveryBuildingId &&
+      p.deliveryDetail === draft.deliveryDetail.trim(),
+  );
+  const wantPickup = mode === "create" && savePickup && !pickupSaved && draft.supplierId !== "";
+  const wantDropoff = mode === "create" && saveDropoff && !dropoffSaved;
+  const dropoffLabelError = !wantDropoff
+    ? ""
+    : dropoffLabel.trim() === ""
+      ? "Give this drop-off a name."
+      : "";
+
+  function pickPickupPlace(place: PickupPlace) {
+    set("supplierId", place.supplierId);
+  }
+
+  function pickDeliveryPlace(place: DeliveryPlace) {
+    set("deliveryBuildingId", place.deliveryBuilding.id);
+    set("deliveryDetail", place.deliveryDetail);
+  }
+
+  // The saved pickup is named after the supplier; it can be renamed in Settings.
+  function placesToSave(): PlaceCreate[] {
+    const out: PlaceCreate[] = [];
+    if (wantPickup) {
+      const name =
+        (chosen && chosen.supplierId === draft.supplierId ? chosen.name : undefined) ??
+        placeSupplier?.name ??
+        (source && source.supplierId === draft.supplierId ? source.pickup.name : "Pickup");
+      out.push({
+        kind: "PICKUP",
+        label: name.trim().slice(0, PLACE_LABEL_MAX),
+        supplierId: draft.supplierId,
+      });
+    }
+    if (wantDropoff) {
+      out.push({
+        kind: "DELIVERY",
+        label: dropoffLabel.trim(),
+        deliveryBuildingId: draft.deliveryBuildingId,
+        deliveryDetail: draft.deliveryDetail.trim(),
+      });
+    }
+    return out;
+  }
   const errors: ErrandFormErrors = { ...clientErrors, ...serverFieldErrors };
 
   const rewardChanged = mode === "edit" && draft.reward !== original.reward;
@@ -288,10 +385,13 @@ export function ErrandForm({
     event.preventDefault();
     setSubmitted(true);
     setFormError(null);
-    if (hasErrandErrors(clientErrors)) return;
+    if (hasErrandErrors(clientErrors) || dropoffLabelError) return;
     setSaving(true);
     try {
-      await onSubmit(mode === "create" ? createBody() : editBody());
+      await onSubmit(
+        mode === "create" ? createBody() : editBody(),
+        mode === "create" ? placesToSave() : [],
+      );
     } catch (err) {
       setSaving(false);
       if (err instanceof OrderError && err.fields.length > 0) {
@@ -395,6 +495,23 @@ export function ErrandForm({
 
       <form className="panel" onSubmit={onFormSubmit} noValidate>
         <h2>Pickup</h2>
+        {mode === "create" && pickupPlaces.length > 0 && (
+          <div className="place-chips" role="group" aria-label="Saved pickup locations">
+            {pickupPlaces.map((p) => (
+              <button
+                key={p.placeId}
+                type="button"
+                className="place-chip"
+                aria-pressed={p.available && draft.supplierId === p.supplierId}
+                disabled={!p.available}
+                title={p.available ? p.supplier?.name : "No longer available"}
+                onClick={() => pickPickupPlace(p)}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+        )}
         <Field label="Find a pickup location" error="">
           <input
             className="input"
@@ -432,13 +549,50 @@ export function ErrandForm({
         ) : (
           selectedLabel && (
             <p className="muted small">
-              {source?.pickup.building} · Floor {source?.pickup.floor}. Search above to change
-              the pickup location.
+              {placeSupplier
+                ? `${placeSupplier.building} · Floor ${placeSupplier.floor} · open ${placeSupplier.openingTime}–${placeSupplier.closingTime}`
+                : `${source?.pickup.building} · Floor ${source?.pickup.floor}`}
+              . Search above to change the pickup location.
             </p>
           )
         )}
+        {mode === "create" && draft.supplierId !== "" && !pickupSaved && (
+          <label className="checkbox save-place">
+            <input
+              type="checkbox"
+              checked={savePickup}
+              onChange={(e) => setSavePickup(e.target.checked)}
+            />
+            Save this pickup location
+          </label>
+        )}
 
         <h2 className="mt">Drop-off</h2>
+        {mode === "create" && deliveryPlaces.length > 0 && (
+          <div className="place-chips" role="group" aria-label="Saved drop-offs">
+            {deliveryPlaces.map((p) => (
+              <button
+                key={p.placeId}
+                type="button"
+                className="place-chip"
+                aria-pressed={
+                  p.available &&
+                  draft.deliveryBuildingId === p.deliveryBuilding.id &&
+                  draft.deliveryDetail === p.deliveryDetail
+                }
+                disabled={!p.available}
+                title={
+                  p.available
+                    ? `${p.deliveryBuilding.name} · ${p.deliveryDetail}`
+                    : "No longer available"
+                }
+                onClick={() => pickDeliveryPlace(p)}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+        )}
         <div className="form-grid">
           <Field label="Building" error={show("deliveryBuildingId")}>
             <select
@@ -478,6 +632,30 @@ export function ErrandForm({
             aria-invalid={!!show("deliveryDetail")}
           />
         </Field>
+        {mode === "create" && !dropoffSaved && (
+          <>
+            <label className="checkbox">
+              <input
+                type="checkbox"
+                checked={saveDropoff}
+                onChange={(e) => setSaveDropoff(e.target.checked)}
+              />
+              Save this drop-off as…
+            </label>
+            {saveDropoff && (
+              <Field label="Name for this drop-off" error={submitted ? dropoffLabelError : ""}>
+                <input
+                  className="input"
+                  value={dropoffLabel}
+                  maxLength={PLACE_LABEL_MAX}
+                  placeholder="e.g. Hall"
+                  onChange={(e) => setDropoffLabel(e.target.value)}
+                  aria-invalid={submitted && !!dropoffLabelError}
+                />
+              </Field>
+            )}
+          </>
+        )}
 
         <h2 className="mt">Items</h2>
         {show("items") && <p className="hint error">{show("items")}</p>}

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { Profile } from "../pages/Profile";
 import { Settings } from "../pages/Settings";
@@ -6,10 +7,9 @@ import { Placeholder } from "../pages/Placeholder";
 import { SuppliersPage } from "../pages/suppliers/SuppliersPage";
 import { ErrandsPage } from "../pages/errands/ErrandsPage";
 import { CreditPage } from "../pages/credit/CreditPage";
-import { OrderAdminPage } from "../pages/admin/OrderAdminPage";
 import type { Profile as ProfileData } from "../api/types";
 
-type Page = "suppliers" | "errands" | "credits" | "chat" | "profile" | "settings" | "orderAdmin";
+type Page = "suppliers" | "errands" | "credits" | "chat" | "profile" | "settings";
 
 interface NavDef {
   key: Page;
@@ -18,9 +18,6 @@ interface NavDef {
   // Suppliers, Errands, Credits, Profile and Settings are implemented here;
   // Chat reproduces the wireframe shell but is owned by another service.
   owned: boolean;
-  // Errand administration needs the errands:review permission, so it is only
-  // offered to accounts with an administrator role.
-  adminOnly?: boolean;
 }
 
 const NAV: NavDef[] = [
@@ -30,7 +27,6 @@ const NAV: NavDef[] = [
   { key: "chat", label: "Chat", icon: "💬", owned: false },
   { key: "profile", label: "Profile", icon: "◑", owned: true },
   { key: "settings", label: "Settings", icon: "⚙", owned: true },
-  { key: "orderAdmin", label: "Errand admin", icon: "⚖", owned: true, adminOnly: true },
 ];
 
 function creditText(balance: number | null): string {
@@ -48,7 +44,7 @@ export function AppShell() {
   const isAdmin = account.role === "ADMIN" || account.role === "SUPER_ADMIN";
   const [page, setPage] = useState<Page>("suppliers");
 
-  const nav = NAV.filter((item) => !item.adminOnly || isAdmin);
+  const nav = NAV;
 
   function render() {
     switch (page) {
@@ -58,8 +54,6 @@ export function AppShell() {
         return <ErrandsPage />;
       case "credits":
         return <CreditPage />;
-      case "orderAdmin":
-        return <OrderAdminPage />;
       case "profile":
         return <Profile />;
       case "settings":
@@ -92,6 +86,14 @@ export function AppShell() {
               {item.label}
             </button>
           ))}
+          {isAdmin && (
+            <Link to="/admin" className="nav-item">
+              <span className="ico" aria-hidden>
+                ⚖
+              </span>
+              Admin
+            </Link>
+          )}
         </nav>
         <div className="sidebar-foot">
           <span className="avatar filled">{initial(account)}</span>
@@ -123,22 +125,28 @@ export function AppShell() {
         <div className="content">{render()}</div>
 
         <nav className="bottom-nav">
-          {nav
-            .filter((item) => item.key !== "orderAdmin")
-            .map((item) => (
-              <button
-                key={item.key}
-                className="bn-item"
-                aria-current={page === item.key ? "page" : undefined}
-                disabled={!item.owned}
-                onClick={() => item.owned && setPage(item.key)}
-              >
-                <span className="ico" aria-hidden>
-                  {item.icon}
-                </span>
-                {item.label}
-              </button>
-            ))}
+          {nav.map((item) => (
+            <button
+              key={item.key}
+              className="bn-item"
+              aria-current={page === item.key ? "page" : undefined}
+              disabled={!item.owned}
+              onClick={() => item.owned && setPage(item.key)}
+            >
+              <span className="ico" aria-hidden>
+                {item.icon}
+              </span>
+              {item.label}
+            </button>
+          ))}
+          {isAdmin && (
+            <Link to="/admin" className="bn-item">
+              <span className="ico" aria-hidden>
+                ⚖
+              </span>
+              Admin
+            </Link>
+          )}
         </nav>
       </div>
     </div>
