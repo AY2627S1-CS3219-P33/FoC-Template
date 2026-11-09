@@ -410,6 +410,15 @@ type SupplierGate interface {
 	// DEPENDENCY_UNAVAILABLE (supplier-service unreachable or failing).
 	ResolveForCreate(ctx context.Context, supplierID string, now time.Time) (SupplierVersion, error)
 
+	// GetCurrent returns the current version of supplierID if it exists and
+	// is not deleted, whatever its opening hours. Saved pickup places use it
+	// to show whether a supplier still exists; errand creation must use
+	// ResolveForCreate. It is never served from a cache, so a deletion shows
+	// at once.
+	// Errors: SUPPLIER_UNAVAILABLE (missing or deleted);
+	// DEPENDENCY_UNAVAILABLE.
+	GetCurrent(ctx context.Context, supplierID string) (SupplierVersion, error)
+
 	// GetVersion returns one immutable supplier version, also for deleted
 	// suppliers (F2.4.3, F2.5.1). Results may be cached indefinitely.
 	// Errors: SUPPLIER_UNAVAILABLE (no such version); DEPENDENCY_UNAVAILABLE.

@@ -1,0 +1,347 @@
+operations:
+  listPlaces:
+    operationId: listPlaces
+    tags: [Saved places]
+    summary: List the caller's saved places
+    description: >-
+      The caller's saved delivery and pickup places, newest first. There are
+      at most 20 of each kind, so the list is not paged. Each place is
+      checked against supplier-service's current data: a DELIVERY place
+      whose building was retired, or a PICKUP place whose supplier was
+      deleted, is returned with available false and is never removed
+      automatically. A closed supplier is still available. If supplier-service
+      cannot answer, the whole list fails with DEPENDENCY_UNAVAILABLE.
+    x-required-permissions: [errands:use]
+    x-required-relationship: owner (implicit, from the token)
+    security:
+      - bearerAuth: []
+    parameters:
+      - name: kind
+        in: query
+        description: >-
+          Only places of this kind. Case-sensitive; any other value is
+          INVALID_ARGUMENT.
+        schema:
+          $ref: "#/components/schemas/PlaceKind"
+    responses:
+      "200":
+        description: The caller's saved places.
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PlaceList"
+      "400":
+        $ref: ./common.yaml#/components/responses/InvalidArgument
+      "401":
+        $ref: ./common.yaml#/components/responses/Unauthenticated
+      "403":
+        $ref: ./common.yaml#/components/responses/Forbidden
+      "500":
+        $ref: ./common.yaml#/components/responses/Internal
+      "503":
+        $ref: ./common.yaml#/components/responses/DependencyUnavailable
+
+  createPlace:
+    operationId: createPlace
+    tags: [Saved places]
+    summary: Save a delivery or pickup place
+    description: >-
+      Saves a place for the caller. A DELIVERY place's building must exist
+      and not be retired; a PICKUP place's supplier must exist and not be
+      deleted, but may be closed. Either failure is VALIDATION_FAILED on
+      that field. Labels are unique per kind, ignoring case, and a supplier
+      can be saved once. Contact details are not saved: the errand form
+      prefills them from the profile (NFR3.6.4).
+    x-required-permissions: [errands:use]
+    x-required-relationship: none (the caller becomes the owner)
+    security:
+      - bearerAuth: []
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/PlaceCreate"
+    responses:
+      "201":
+        description: The saved place.
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SavedPlace"
+      "400":
+        $ref: ./common.yaml#/components/responses/ValidationFailed
+      "401":
+        $ref: ./common.yaml#/components/responses/Unauthenticated
+      "403":
+        $ref: ./common.yaml#/components/responses/Forbidden
+      "409":
+        $ref: ./common.yaml#/components/responses/PlaceLimitReached
+      "500":
+        $ref: ./common.yaml#/components/responses/Internal
+      "503":
+        $ref: ./common.yaml#/components/responses/DependencyUnavailable
+
+  updatePlace:
+    operationId: updatePlace
+    tags: [Saved places]
+    summary: Rename a saved place or change its delivery detail
+    description: >-
+      Changes the label, and for a DELIVERY place the delivery detail.
+      The kind, supplier and building cannot change: delete the place and
+      save another. A stale place can still be changed. The response is
+      checked against supplier-service like a list item; if that fails with
+      DEPENDENCY_UNAVAILABLE the change has still been made, and repeating
+      the request is safe.
+    x-required-permissions: [errands:use]
+    x-required-relationship: owner
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: "#/components/parameters/PlaceID"
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/PlacePatch"
+    responses:
+      "200":
+        description: The changed place.
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SavedPlace"
+      "400":
+        $ref: ./common.yaml#/components/responses/ValidationFailed
+      "401":
+        $ref: ./common.yaml#/components/responses/Unauthenticated
+      "403":
+        $ref: ./common.yaml#/components/responses/Forbidden
+      "404":
+        $ref: ./common.yaml#/components/responses/PlaceNotFound
+      "500":
+        $ref: ./common.yaml#/components/responses/Internal
+      "503":
+        $ref: ./common.yaml#/components/responses/DependencyUnavailable
+
+  deletePlace:
+    operationId: deletePlace
+    tags: [Saved places]
+    summary: Delete a saved place
+    x-required-permissions: [errands:use]
+    x-required-relationship: owner
+    security:
+      - bearerAuth: []
+    parameters:
+      - $ref: "#/components/parameters/PlaceID"
+    responses:
+      "204":
+        description: The place was deleted.
+      "401":
+        $ref: ./common.yaml#/components/responses/Unauthenticated
+      "403":
+        $ref: ./common.yaml#/components/responses/Forbidden
+      "404":
+        $ref: ./common.yaml#/components/responses/PlaceNotFound
+      "500":
+        $ref: ./common.yaml#/components/responses/Internal
+
+components:
+  parameters:
+    PlaceID:
+      name: placeId
+      in: path
+      required: true
+      description: >-
+        The saved place's ID. Another user's place, or a value that is not a
+        UUID, is PLACE_NOT_FOUND.
+      schema:
+        type: string
+        format: uuid
+
+  schemas:
+    PlaceKind:
+      type: string
+      enum: [DELIVERY, PICKUP]
+
+    PlaceLabel:
+      type: string
+      minLength: 1
+      maxLength: 40
+      pattern: '\S'
+      description: >-
+        The caller's name for the place, unique among their places of the
+        same kind, ignoring case.
+
+    PlaceList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          maxItems: 40
+          items:
+            $ref: "#/components/schemas/SavedPlace"
+      additionalProperties: false
+
+    SavedPlace:
+      oneOf:
+        - $ref: "#/components/schemas/DeliveryPlace"
+        - $ref: "#/components/schemas/PickupPlace"
+      discriminator:
+        propertyName: kind
+        mapping:
+          DELIVERY: "#/components/schemas/DeliveryPlace"
+          PICKUP: "#/components/schemas/PickupPlace"
+
+    DeliveryPlace:
+      type: object
+      description: >-
+        A saved drop-off. available is false when the building is retired
+        or no longer in supplier-service's list.
+      required: [placeId, kind, label, deliveryBuilding, deliveryDetail, available, createdAt]
+      properties:
+        placeId:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          const: DELIVERY
+        label:
+          $ref: "#/components/schemas/PlaceLabel"
+        deliveryBuilding:
+          $ref: "#/components/schemas/SavedPlaceBuilding"
+        deliveryDetail:
+          $ref: ./common.yaml#/components/schemas/DeliveryDetail
+        available:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+      additionalProperties: false
+
+    PickupPlace:
+      type: object
+      description: >-
+        A saved pickup supplier. supplier is present only while available,
+        that is while the supplier exists and is not deleted, whatever its
+        opening hours.
+      required: [placeId, kind, label, supplierId, available, createdAt]
+      properties:
+        placeId:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          const: PICKUP
+        label:
+          $ref: "#/components/schemas/PlaceLabel"
+        supplierId:
+          type: string
+          format: uuid
+        supplier:
+          $ref: "#/components/schemas/SavedSupplierSummary"
+        available:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+      additionalProperties: false
+
+    SavedPlaceBuilding:
+      type: object
+      description: >-
+        The building as supplier-service lists it now, not a snapshot. name
+        is empty when the building is no longer listed.
+      required: [id, name, retired]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        retired:
+          type: boolean
+      additionalProperties: false
+
+    SavedSupplierSummary:
+      type: object
+      description: >-
+        From the supplier's current version. Times are HH:MM in
+        Asia/Singapore; a closing time at or before the opening time means
+        the hours cross midnight.
+      required: [name, building, floor, openingTime, closingTime]
+      properties:
+        name:
+          type: string
+        building:
+          type: string
+        floor:
+          type: string
+        openingTime:
+          type: string
+          pattern: '^\d{2}:\d{2}$'
+        closingTime:
+          type: string
+          pattern: '^\d{2}:\d{2}$'
+      additionalProperties: false
+
+    PlaceCreate:
+      oneOf:
+        - $ref: "#/components/schemas/DeliveryPlaceCreate"
+        - $ref: "#/components/schemas/PickupPlaceCreate"
+      discriminator:
+        propertyName: kind
+        mapping:
+          DELIVERY: "#/components/schemas/DeliveryPlaceCreate"
+          PICKUP: "#/components/schemas/PickupPlaceCreate"
+
+    DeliveryPlaceCreate:
+      type: object
+      description: >-
+        deliveryBuildingId must be an existing building that is not retired;
+        deliveryDetail follows the same rules as on an errand.
+      required: [kind, label, deliveryBuildingId, deliveryDetail]
+      properties:
+        kind:
+          type: string
+          const: DELIVERY
+        label:
+          $ref: "#/components/schemas/PlaceLabel"
+        deliveryBuildingId:
+          type: string
+          format: uuid
+        deliveryDetail:
+          $ref: ./common.yaml#/components/schemas/DeliveryDetail
+      additionalProperties: false
+
+    PickupPlaceCreate:
+      type: object
+      description: >-
+        supplierId must be an existing supplier that is not deleted, and not
+        already saved by the caller.
+      required: [kind, label, supplierId]
+      properties:
+        kind:
+          type: string
+          const: PICKUP
+        label:
+          $ref: "#/components/schemas/PlaceLabel"
+        supplierId:
+          type: string
+          format: uuid
+      additionalProperties: false
+
+    PlacePatch:
+      type: object
+      description: >-
+        At least one field to change. deliveryDetail is VALIDATION_FAILED on
+        a PICKUP place.
+      minProperties: 1
+      properties:
+        label:
+          $ref: "#/components/schemas/PlaceLabel"
+        deliveryDetail:
+          $ref: ./common.yaml#/components/schemas/DeliveryDetail
+      additionalProperties: false

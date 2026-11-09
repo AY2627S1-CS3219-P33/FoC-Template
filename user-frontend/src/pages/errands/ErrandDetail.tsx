@@ -27,6 +27,8 @@ import {
 
 interface Props {
   errandId: string;
+  // Set right after a create whose saved places could not all be added.
+  placeNotice?: string;
   getToken: () => Promise<string>;
   onBack: () => void;
   onEdit: (errand: RequesterErrandView) => void;
@@ -48,6 +50,7 @@ const REJECTION_TEXT: Record<string, string> = {
 
 export function ErrandDetail({
   errandId,
+  placeNotice,
   getToken,
   onBack,
   onEdit,
@@ -182,6 +185,11 @@ export function ErrandDetail({
         </div>
       </div>
 
+      {placeNotice && (
+        <div className="banner banner-wait" role="status">
+          <span>Your errand was requested. {placeNotice}</span>
+        </div>
+      )}
       {notice && (
         <div className="banner banner-success" role="status">
           <span>{notice}</span>
