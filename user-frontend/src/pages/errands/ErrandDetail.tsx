@@ -14,6 +14,7 @@ import {
   type RequesterErrandView,
 } from "../../api/order";
 import { validateReason, LIMITS } from "../../orderValidation";
+import { ErrandChat } from "../../chat/ErrandChat";
 import { errandError, isStale } from "./messages";
 import {
   creditText,
@@ -28,6 +29,8 @@ import {
 interface Props {
   errandId: string;
   getToken: () => Promise<string>;
+  // A chat-service token; the chat is shown to the requester and the courier.
+  getChatToken: () => Promise<string>;
   onBack: () => void;
   onEdit: (errand: RequesterErrandView) => void;
   onOrderAgain: (errand: RequesterErrandView) => void;
@@ -49,6 +52,7 @@ const REJECTION_TEXT: Record<string, string> = {
 export function ErrandDetail({
   errandId,
   getToken,
+  getChatToken,
   onBack,
   onEdit,
   onOrderAgain,
@@ -166,6 +170,7 @@ export function ErrandDetail({
   const status = isPublic ? "OPEN" : errand.status;
   const requester = errand.viewerRole === "REQUESTER" ? errand : null;
   const courier = errand.viewerRole === "COURIER" ? errand : null;
+  const participant = requester ?? courier;
 
   return (
     <>
@@ -274,6 +279,10 @@ export function ErrandDetail({
           })
         }
       />
+
+      {participant && (
+        <ErrandChat errandId={errandId} errandStatus={participant.status} getToken={getChatToken} />
+      )}
 
       <section className="panel">
         <h2>Items</h2>

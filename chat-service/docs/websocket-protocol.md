@@ -1,13 +1,14 @@
 # chat-service WebSocket protocol
 
-This is the contract between a browser and `GET /ws`. The REST routes are in [../openapi.yaml](../openapi.yaml); the frames here use the same room and message shapes and the same error codes. The Go definitions are in [internal/protocol](../internal/protocol/protocol.go).
+This is the contract between a browser and `GET /ws`. The browser client is [useChatSocket.ts](../../user-frontend/src/chat/useChatSocket.ts) in user-frontend. The REST routes are in [../openapi.yaml](../openapi.yaml); the frames here use the same room and message shapes and the same error codes. The Go definitions are in [internal/protocol](../internal/protocol/protocol.go).
 
 ## Connecting
 
 | Where | URL |
 |---|---|
 | Production | `wss://app.bestfoc.app/chat-service/ws` |
-| Local, through nginx (phase 6) | `ws://localhost:8081/chat-service/ws` |
+| Local, through nginx | `ws://localhost:8081/chat-service/ws` |
+| Local, through the Vite dev server | `ws://localhost:5173/chat-service/ws` |
 | Local, direct | `ws://localhost:3005/ws` |
 
 The page's origin must be in `WS_ALLOWED_ORIGINS`; otherwise the handshake is refused with HTTP `403`. Tools that send no `Origin` header (such as `websocat`) may connect, but still need a token.

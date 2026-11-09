@@ -2,7 +2,7 @@
 
 Lets the **requester** and the **assigned courier** of an errand message each other in real time. A room opens when a courier accepts an errand, becomes read-only 24 hours after the errand ends, and is kept for admin export. The design, decisions and build order are in [implementation-plan.md](implementation-plan.md).
 
-**Status:** phases 1 to 5 are done. When a courier accepts an errand, order-service announces it on RabbitMQ and chat-service creates the chat room. Participants chat **live** over a WebSocket ([docs/websocket-protocol.md](docs/websocket-protocol.md)), and can also list rooms, read history and send over REST ([openapi.yaml](openapi.yaml)). Coming next: the chat panel in the frontend (phase 6) and closing rooms when errands end (phase 7).
+**Status:** phases 1 to 6 are done. When a courier accepts an errand, order-service announces it on RabbitMQ and chat-service creates the chat room. The requester and courier chat **live** in a panel on the errand's page in the app, over a WebSocket ([docs/websocket-protocol.md](docs/websocket-protocol.md)), with history and a fallback send over REST ([openapi.yaml](openapi.yaml)). Coming next: closing rooms when errands end (phase 7).
 
 ## Contents
 
@@ -172,7 +172,7 @@ The package is **copied from order-service** (the plan asks for this) and only t
 | `GET /chats/{roomId}/messages?after=&before=&limit=` | A page of messages, oldest first |
 | `POST /chats/{roomId}/messages` with `{"clientMsgId": "...", "body": "..."}` | `201` with the new message, or `200` for a retry |
 
-In the browser these sit under `/chat-service/...` (nginx strips the prefix in phase 6).
+In the browser these sit under `/chat-service/...` (nginx and the Vite dev server strip the prefix).
 
 **Why the pieces matter.**
 
@@ -336,6 +336,44 @@ Today one copy of chat-service runs, so the `Local` broadcaster hands frames str
 | WebSocket ([ws_test.go](internal/ws/ws_test.go), real WebSocket clients) | the plan's four cases (A sends: B gets `message`, A gets `ack`, a third user gets nothing; a resend stores one row; no `auth` in time closes with `4401`; a closed room returns `ROOM_CLOSED`), plus bad and expired tokens, missing permission, foreign origins, connection limit, rate limit, malformed frames, heartbeat, `room_opened` and shutdown with `1012` |
 | end to end ([live_e2e_test.go](internal/app/live_e2e_test.go)) | the whole app with real PostgreSQL, RabbitMQ and signed tokens: both people are connected when the courier accepts, both get `room_opened`, they chat live over WebSocket and REST, and both get `1012` on shutdown |
 
+### Phase 6: the chat panel in the app
+
+Phase 6 puts chat where people need it: on the errand's page in `user-frontend`, for its requester and its courier. Nothing in chat-service changed; this phase is the browser side of the contracts from phases 3 and 5.
+
+#### 1. Getting there: one route for REST and the WebSocket
+
+The browser only ever talks to its own origin. Requests to `/chat-service/...` are forwarded to chat-service with the prefix removed, so `GET /chat-service/me/chats` reaches `GET /me/chats`:
+
+| Where | Who forwards | Extra for the WebSocket |
+|---|---|---|
+| Docker Compose (`http://localhost:8081`) | nginx in `user-frontend` ([nginx.conf](../user-frontend/nginx.conf)) | passes the `Upgrade` and `Connection` headers on (nginx drops them otherwise), and allows an hour of silence (the server pings every 25 s anyway) |
+| `npm run dev` (`http://localhost:5173`) | the Vite proxy ([vite.config.ts](../user-frontend/vite.config.ts)) | `ws: true` |
+
+The page's own origin (`localhost:8081` or `localhost:5173`) reaches chat-service unchanged, and both are in the default `WS_ALLOWED_ORIGINS`.
+
+#### 2. The pieces
+
+| File | Job |
+|---|---|
+| [api/chat.ts](../user-frontend/src/api/chat.ts) | REST calls (`getMyChats`, `getChatsForErrand`, `getMessages`, `postMessage`), the room/message/frame types, and the error codes turned into sentences |
+| [chat/useChatSocket.ts](../user-frontend/src/chat/useChatSocket.ts) | A React hook that opens the socket, sends the `auth` frame with a fresh token on every connect, and reconnects after 1 s, 2 s, 5 s … up to 30 s (with some randomness). It follows the close codes: `1012` comes back at once, `4429` waits the longest, `4403` stops for good |
+| [chat/ErrandChat.tsx](../user-frontend/src/chat/ErrandChat.tsx) | The errand's chat section. Loads the errand's rooms, owns the one socket, and shows one room at a time; a requester whose first courier withdrew can switch between couriers' rooms |
+| [chat/ChatPanel.tsx](../user-frontend/src/chat/ChatPanel.tsx) | One conversation: history, live messages, the message box |
+
+#### 3. Rules the panel follows, and why
+
+| Rule | Why |
+|---|---|
+| **After every `ready`, fetch `?after=<last id>`** | The socket never replays what was missed while disconnected (laptop asleep, a deploy). The database has it, so the panel asks for it |
+| **Merge by message `id`** | The same message can arrive three ways: the `ack` to your send, the `message` frame, and a catch-up. Keyed by `id`, it is shown once |
+| **Show your message at once as "Sending…"**, then swap in the stored one | Typing feels instant. The stored copy is matched by `clientMsgId` and replaces the placeholder |
+| **No answer in 10 s, or an `error` frame → "Retry"**, reusing the same `clientMsgId` | The server stores a message once per `clientMsgId`, so a retry after a lost `ack` never posts it twice |
+| **No live connection → send over REST** | `POST /chats/{id}/messages` has the same rules and still pushes the message live to the other person. While reconnecting, the panel also checks for new messages every 15 s |
+| **"Connecting chat…" right after accepting** | The room appears when chat-service processes the accept event, usually within a second. The section picks it up from the `room_opened` frame, a re-read after `ready`, or a short poll, and offers "Try again" after 15 s |
+| **Message text is rendered as text**, never as HTML | It is typed by another user. React escapes `{message.body}`; `white-space: pre-wrap` keeps their line breaks |
+
+The panel handles OPEN rooms. A send to a room that has closed is refused by the server and shown as a failed message; the closing banner and the read-only state come in phase 7.
+
 ## Technology
 
 Go, `net/http`, `pgx/v5` (PostgreSQL driver), `goose` (migrations), `sqlc` (typed SQL), Auth0 JWTs (`go-jwt-middleware`, `jwx`), RabbitMQ (`amqp091-go`), WebSockets (`github.com/coder/websocket`), `log/slog` JSON logs. Planned: Redis (phase 10).
@@ -471,6 +509,10 @@ docker compose logs chat-service | grep "errand.accepted applied"
 Publish it twice and there is still one room. Publish `{not json` and it lands in the dead-letter queue.
 
 ## Trying live chat
+
+**In the app.** With the stack running (`docker compose up --build` from the repository root), sign in at <http://localhost:8081> as one user in one browser and as another user in a second browser (or a private window). Request an errand as the first, accept it as the second, and open the errand on both sides: a **Chat** section appears under the action buttons. Messages appear on the other side straight away, and survive a refresh. For `npm run dev` (port 5173), run chat-service in Compose as well; Vite forwards `/chat-service` to `localhost:3005`. The SPA asks Auth0 for a token for `https://api.foc.local/chat-service` with `chats:use`, so the [Auth0 set-up](#auth0-set-up) must be done first.
+
+**From the browser console**, without the panel:
 
 You need two user tokens for the chat API (see [Trying the API by hand](#trying-the-api-by-hand), step 2) and a room the two users share (accept an errand in the app, or insert one by hand).
 

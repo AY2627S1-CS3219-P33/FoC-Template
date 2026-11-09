@@ -147,6 +147,7 @@ the frontend never hard-codes a backend host:
 | `/supplier-service` | supplier-service | `http://localhost:3002` |
 | `/order-service` | order-service | `http://localhost:3003` |
 | `/credit-service` | credit-service | `http://localhost:3004` |
+| `/chat-service` (REST and the `/chat-service/ws` WebSocket) | chat-service | `http://localhost:3005` |
 
 The gateway-route prefix is stripped before forwarding, because each Go service
 serves its routes without it. Only the user-service is needed to sign in; the
@@ -168,6 +169,7 @@ permissions, overridable through the environment (see `.env.example`):
 | Errands | `VITE_ORDER_AUDIENCE` | `errands:use` |
 | Errand admin | `VITE_ORDER_AUDIENCE` | `errands:review` |
 | Credits | `VITE_CREDIT_AUDIENCE` | `credits:read` |
+| Errand chat | `VITE_CHAT_AUDIENCE` | `chats:use` |
 
 ### credit-service is not implemented
 

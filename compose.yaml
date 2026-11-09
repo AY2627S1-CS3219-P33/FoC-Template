@@ -190,6 +190,7 @@ services:
       - supplier-service
       - order-service
       - credit-service
+      - chat-service
 
   queue-service:
     build:

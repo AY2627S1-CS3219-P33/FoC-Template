@@ -28,6 +28,8 @@ const ORDER_AUDIENCE =
   import.meta.env.VITE_ORDER_AUDIENCE || "https://api.foc.local/order-service";
 const SUPPLIER_AUDIENCE =
   import.meta.env.VITE_SUPPLIER_AUDIENCE || "https://api.foc.local/supplier-service";
+const CHAT_AUDIENCE =
+  import.meta.env.VITE_CHAT_AUDIENCE || "https://api.foc.local/chat-service";
 
 const TABS: { key: Tab; label: string }[] = [
   { key: "browse", label: "Browse" },
@@ -56,6 +58,16 @@ export function ErrandsPage() {
       getAccessToken({
         audience: SUPPLIER_AUDIENCE,
         scope: "openid profile email suppliers:read",
+      }),
+    [getAccessToken],
+  );
+
+  // The errand chat (requester and courier) is its own API.
+  const getChatToken = useCallback(
+    () =>
+      getAccessToken({
+        audience: CHAT_AUDIENCE,
+        scope: "openid profile email chats:use",
       }),
     [getAccessToken],
   );
@@ -166,6 +178,7 @@ export function ErrandsPage() {
       <ErrandDetail
         errandId={view.errandId}
         getToken={getOrderToken}
+        getChatToken={getChatToken}
         onBack={() => setView({ kind: "list" })}
         onEdit={(errand) => setView({ kind: "edit", errand })}
         onOrderAgain={(source) => setView({ kind: "reorder", source })}
