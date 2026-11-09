@@ -171,11 +171,10 @@ Rows are never deleted.
      ▲  ▲                                    │                              │  │
      │  └──── Reschedule (backoff) ◀─────────┤ publish failed               │  └─ credit.operation_failed ─▶ FAILED
      │                                       │                              │
-     │                                       └─ attempts exhausted, or ─────┼──────────────────────────────▶ FAILED
-     │                                          ErrUnpublishable            │
-     ├──── unconfirmed sweep: SENT credit row with no result after ◀────────┘
-     │     the confirm timeout (same key, re-sent)
-     └──── admin requeue of a FAILED row (same key, attempts reset, audited)
+     │                                       └─ ErrUnpublishable ───────────┼──────────────────────────────▶ FAILED
+     │                                                                      │
+     └──── admin requeue of a FAILED row, or of a SENT credit row ◀─────────┘
+           that is overdue (same key, attempts reset, audited)
 ```
 
 - **Claim.** One statement selects `status = 'PENDING' AND next_attempt_at
@@ -190,21 +189,31 @@ Rows are never deleted.
   leaves the lease to expire, and the row is published again with the same
   `messageId`.
 - **Retries.** A failed publish reschedules with exponential backoff and full
-  jitter (`internal/resilience`, base 2 s, cap 5 min). After the configured
-  maximum attempts the row becomes `FAILED` with `last_failure_code`
-  (NFR7.3.1, NFR7.4.1). Attempts count claims, i.e. publish attempts, not
-  credit-service answers.
+  jitter (`internal/resilience`, base 2 s, cap 5 min) and is retried for as
+  long as it takes: the broker being down, a timeout and an unroutable
+  message (the consumer has not declared its queue yet) all pass. Only an
+  unpublishable row (`errand.ErrUnpublishable`, a malformed payload) becomes
+  `FAILED` with `last_failure_code` (NFR7.3.1, NFR7.4.1). `attempts` counts
+  claims, i.e. publish attempts, and does not limit them.
 - **Event rows** end at `SENT`. Delivery to consumers is at-least-once.
 - **Credit rows** go on from `SENT`. The matching result moves them to
   `CONFIRMED` (`MarkConfirmedByKey`; a repeat is a no-op).
-  `credit.operation_failed` moves them to `FAILED` for an admin and they are
-  not retried. A `SENT` credit row with no result after
-  `outboxConfirmTimeout` (default 10 min) goes back to `PENDING` and is sent
-  again with the same key; credit-service answers it idempotently. This is
-  how release and transfer are retried until confirmed.
-- **Replay.** `POST /admin/outbox/{id}/requeue` resets a `FAILED` row to
-  `PENDING` with `attempts = 0`, keeping its key, so the replay cannot apply
-  an effect twice (NFR7.4.2). It writes an `admin_audit` row.
+  `credit.operation_failed` moves them to `FAILED` and they are not retried.
+  A `SENT` credit row is never resent automatically: the broker holds the
+  command until credit-service consumes it, and a resend would only queue a
+  duplicate. A command whose message was lost after the broker confirmed it
+  (dead-lettered by credit-service, or its result dead-lettered by
+  order-service) stays `SENT`. It is *overdue* once it has waited
+  `outboxConfirmTimeout` (default 90 min, longer than the
+  hour for which credit-service retries a command, so only rows that will
+  not recover by themselves are listed), and `GET /admin/outbox/overdue`
+  lists it, together with `PENDING` rows older than that, for an admin to
+  requeue. `event.*` rows end at `SENT` by design and are never overdue.
+- **Replay.** `POST /admin/outbox/{id}/requeue` resets a `FAILED` row, or a
+  `SENT` credit row, to `PENDING` with `attempts = 0`, keeping its key, so the
+  replay cannot apply an effect twice: credit-service answers a repeat with
+  the stored result (NFR7.4.2). A `PENDING`, `CONFIRMED` or `SENT` event row is
+  refused. Every attempt, accepted or refused, writes an `admin_audit` row.
 - **Payloads.** A credit row's payload is an `errand.CreditCommand`; an event
   row's payload is the envelope's `data` (below). Payloads are never returned
   by the admin API because they hold user IDs.

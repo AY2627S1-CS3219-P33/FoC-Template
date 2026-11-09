@@ -216,61 +216,57 @@ func TestMarkFailedByKey(t *testing.T) {
 	require.Equal(t, msgrepo.StatusFailed, status(t, pool, id))
 }
 
-func TestResendUnconfirmedOnlyTouchesOldSentCreditRows(t *testing.T) {
+func TestListOverdueOnlyListsOldSentCreditAndPendingRows(t *testing.T) {
 	pool, repo := testDatabase(t)
 	ctx := context.Background()
-	send := func(kind string) (int64, string) {
-		id, key := insertRow(t, pool, kind)
+	send := func(kind string) int64 {
+		id, _ := insertRow(t, pool, kind)
 		rows, err := repo.Claim(ctx, "w", strings.HasPrefix(kind, "credit."), 1, time.Minute)
 		require.NoError(t, err)
 		require.Len(t, rows, 1)
 		require.NoError(t, repo.MarkSent(ctx, rows[0]))
-		return id, key
+		return id
 	}
-	oldID, oldKey := send(errand.KindCreditRelease)
-	recentID, _ := send(errand.KindCreditTransfer)
-	eventID, _ := send(errand.ErrandPlaced.Kind())
-	confirmedID, confirmedKey := send(errand.KindCreditReserve)
-	_, err := repo.ConfirmByKey(ctx, confirmedKey)
+	oldSent := send(errand.KindCreditRelease)
+	send(errand.KindCreditTransfer) // recent, so not overdue
+	oldEvent := send(errand.ErrandPlaced.Kind())
+	confirmed := send(errand.KindCreditReserve)
+	_, err := repo.ConfirmByKey(ctx, mustKey(t, repo, confirmed, pool))
 	require.NoError(t, err)
-	pendingID, pendingKey := insertRow(t, pool, errand.KindCreditAdjust)
-	exec(t, pool, "UPDATE outbox SET sent_at=clock_timestamp()-interval '2 hours' WHERE id = ANY($1)", []int64{oldID, eventID, confirmedID})
+	oldPending, _ := insertRow(t, pool, errand.KindCreditAdjust)
+	insertRow(t, pool, errand.KindCreditAdjust) // recent, so not overdue
+	failed, _ := insertRow(t, pool, errand.KindCreditRelease)
+	exec(t, pool, "UPDATE outbox SET status='FAILED' WHERE id=$1", failed)
+	exec(t, pool, "UPDATE outbox SET sent_at=clock_timestamp()-interval '2 hours' WHERE id = ANY($1)", []int64{oldSent, oldEvent, confirmed})
+	exec(t, pool, "UPDATE outbox SET created_at=clock_timestamp()-interval '2 hours' WHERE id = ANY($1)", []int64{oldPending, failed})
 
-	resent, err := repo.ResendUnconfirmed(ctx, time.Hour, 10)
-	require.NoError(t, err)
-	require.Len(t, resent, 1)
-	require.Equal(t, oldID, resent[0].ID)
-	require.Equal(t, oldKey, resent[0].IdempotencyKey)
-	require.Equal(t, msgrepo.StatusPending, status(t, pool, oldID))
-	require.Equal(t, msgrepo.StatusSent, status(t, pool, recentID))
-	require.Equal(t, msgrepo.StatusSent, status(t, pool, eventID))
-	require.Equal(t, msgrepo.StatusConfirmed, status(t, pool, confirmedID))
-	require.Equal(t, msgrepo.StatusPending, status(t, pool, pendingID))
-
-	rows, err := repo.Claim(ctx, "w", true, 5, time.Minute)
-	require.NoError(t, err)
-	var keys []string
-	for _, row := range rows {
-		keys = append(keys, row.IdempotencyKey)
+	ids := func(status string, after int64, limit int) []int64 {
+		t.Helper()
+		rows, err := repo.ListOverdue(ctx, time.Hour, status, limit, after)
+		require.NoError(t, err)
+		var out []int64
+		for _, r := range rows {
+			out = append(out, r.ID)
+		}
+		return out
 	}
-	require.ElementsMatch(t, []string{oldKey, pendingKey}, keys, "re-sent with the same key")
+	require.Equal(t, []int64{oldSent, oldPending}, ids("", 0, 10),
+		"an old SENT credit command and an old PENDING row; not a recent row, an event, a CONFIRMED row or a FAILED row")
+	require.Equal(t, []int64{oldSent}, ids(msgrepo.StatusSent, 0, 10))
+	require.Equal(t, []int64{oldPending}, ids(msgrepo.StatusPending, 0, 10))
+	require.Equal(t, []int64{oldPending}, ids("", oldSent, 10), "after the cursor")
+	require.Equal(t, []int64{oldSent}, ids("", 0, 1), "limit")
+
+	// Listing changes nothing.
+	require.Equal(t, msgrepo.StatusSent, status(t, pool, oldSent))
+	require.Equal(t, msgrepo.StatusPending, status(t, pool, oldPending))
 }
 
-func TestResendUnconfirmedRespectsLimit(t *testing.T) {
-	pool, repo := testDatabase(t)
-	ctx := context.Background()
-	for range 3 {
-		insertRow(t, pool, errand.KindCreditRelease)
-	}
-	rows, err := repo.Claim(ctx, "w", true, 3, time.Minute)
-	require.NoError(t, err)
-	for _, row := range rows {
-		require.NoError(t, repo.MarkSent(ctx, row))
-	}
-	exec(t, pool, "UPDATE outbox SET sent_at=clock_timestamp()-interval '2 hours'")
-	resent, err := repo.ResendUnconfirmed(ctx, time.Hour, 2)
-	require.NoError(t, err)
-	require.Len(t, resent, 2)
+func mustKey(t *testing.T, repo *msgrepo.Repository, id int64, pool *pgxpool.Pool) string {
+	t.Helper()
+	var key string
+	require.NoError(t, pool.QueryRow(context.Background(), "SELECT idempotency_key FROM outbox WHERE id=$1", id).Scan(&key))
+	return key
 }
 
 func TestGetByKeyNotFound(t *testing.T) {
@@ -330,9 +326,39 @@ func TestRequeueKeepsKeyResetsAttemptsAndAudits(t *testing.T) {
 	require.Equal(t, []string{"auth0|admin", "OUTBOX_REQUEUE", "OUTBOX", strconv.FormatInt(id, 10), "credit-service fixed", msgrepo.AuditSucceeded}, []string{actor, action, targetType, targetID, reason, outcome})
 
 	_, err = repo.Requeue(ctx, id)
-	require.ErrorIs(t, err, msgrepo.ErrNotFailed)
+	require.ErrorIs(t, err, msgrepo.ErrNotRequeueable, "a PENDING row is the dispatcher's")
 	_, err = repo.Requeue(ctx, id+1000)
 	require.ErrorIs(t, err, msgrepo.ErrNotFound)
+}
+
+func TestRequeueAcceptsASentCreditCommandButNotASentEvent(t *testing.T) {
+	pool, repo := testDatabase(t)
+	ctx := context.Background()
+	send := func(kind string) (int64, string) {
+		id, key := insertRow(t, pool, kind)
+		rows, err := repo.Claim(ctx, "w", strings.HasPrefix(kind, "credit."), 1, time.Minute)
+		require.NoError(t, err)
+		require.NoError(t, repo.MarkSent(ctx, rows[0]))
+		return id, key
+	}
+	creditID, creditKey := send(errand.KindCreditTransfer)
+	eventID, _ := send(errand.ErrandPlaced.Kind())
+	confirmedID, confirmedKey := send(errand.KindCreditRelease)
+	_, err := repo.ConfirmByKey(ctx, confirmedKey)
+	require.NoError(t, err)
+
+	record, err := repo.Requeue(ctx, creditID)
+	require.NoError(t, err)
+	require.Equal(t, msgrepo.StatusPending, record.Status)
+	require.Equal(t, creditKey, record.IdempotencyKey, "same key, so credit-service applies it once")
+	require.Zero(t, record.Attempts)
+
+	_, err = repo.Requeue(ctx, eventID)
+	require.ErrorIs(t, err, msgrepo.ErrNotRequeueable, "a SENT event is delivered already")
+	_, err = repo.Requeue(ctx, confirmedID)
+	require.ErrorIs(t, err, msgrepo.ErrNotRequeueable)
+	require.Equal(t, msgrepo.StatusSent, status(t, pool, eventID))
+	require.Equal(t, msgrepo.StatusConfirmed, status(t, pool, confirmedID))
 }
 
 func TestInvalidParametersAreRejected(t *testing.T) {
@@ -342,7 +368,11 @@ func TestInvalidParametersAreRejected(t *testing.T) {
 	require.Error(t, err)
 	_, err = repo.Claim(ctx, "w", true, 501, time.Minute)
 	require.Error(t, err)
-	_, err = repo.ResendUnconfirmed(ctx, 0, 10)
+	_, err = repo.ListOverdue(ctx, 0, "", 10, 0)
+	require.Error(t, err)
+	_, err = repo.ListOverdue(ctx, time.Hour, "FAILED", 10, 0)
+	require.Error(t, err)
+	_, err = repo.ListOverdue(ctx, time.Hour, "", 0, 0)
 	require.Error(t, err)
 	_, err = repo.ListFailed(ctx, 0, 0)
 	require.Error(t, err)

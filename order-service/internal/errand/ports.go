@@ -489,8 +489,11 @@ type SystemSettings struct {
 	// wait for a credit result before the reconcilers act (M5).
 	ReservationTimeout time.Duration
 	EditTimeout        time.Duration
-	// OutboxConfirmTimeout is how long a SENT credit row may wait for its
-	// result before the dispatcher re-sends it (M3).
+	// OutboxConfirmTimeout is how long a SENT credit row, or a PENDING row,
+	// may wait before the admin API lists it as overdue (M3). Nothing resends
+	// it: the broker holds a SENT command until credit-service consumes it.
+	// The default is longer than the hour for which credit-service retries a
+	// command, so a listed row is one that will not recover by itself.
 	OutboxConfirmTimeout time.Duration
 }
 
@@ -523,7 +526,7 @@ func DefaultSystemSettings() SystemSettings {
 		},
 		ReservationTimeout:   5 * time.Minute,
 		EditTimeout:          5 * time.Minute,
-		OutboxConfirmTimeout: 10 * time.Minute,
+		OutboxConfirmTimeout: 90 * time.Minute,
 	}
 }
 

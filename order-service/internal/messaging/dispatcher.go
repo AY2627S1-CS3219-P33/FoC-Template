@@ -26,8 +26,6 @@ type Outbox interface {
 	MarkSent(context.Context, msgrepo.Row) error
 	Reschedule(context.Context, msgrepo.Row, time.Duration, string) error
 	MarkFailed(context.Context, msgrepo.Row, string) error
-	ResendUnconfirmed(context.Context, time.Duration, int) ([]msgrepo.Resent, error)
-	CountDue(context.Context, bool) (int64, error)
 }
 
 // Failure codes stored in outbox.last_failure_code.
@@ -37,14 +35,18 @@ const (
 	CodeBrokerUnavailable = "BROKER_UNAVAILABLE"
 	CodeUnroutable        = "UNROUTABLE"
 	CodeUnpublishable     = "UNPUBLISHABLE"
-	CodeAttemptsExhausted = "ATTEMPTS_EXHAUSTED"
 	// CodeWorkerStopped marks a claimed row handed back unpublished at shutdown.
 	CodeWorkerStopped = "WORKER_STOPPED"
 )
 
 // DispatcherConfig tunes the dispatcher. Zero fields take the defaults in
-// DefaultDispatcherConfig. The confirm timeout for the unconfirmed sweep is
-// the admin setting outboxConfirmTimeout, read on every sweep.
+// DefaultDispatcherConfig.
+//
+// There is no attempt limit. Once the broker confirms a row, the broker owns
+// the message and the dispatcher never resends it; before that, a publish that
+// fails for a reason that can pass (broker down, no consumer queue yet, a
+// timeout) is retried with capped backoff for as long as it takes. Only a row
+// that can never be published (errand.ErrUnpublishable) is FAILED.
 type DispatcherConfig struct {
 	// WorkerID is the lease owner; empty means NewWorkerID().
 	WorkerID string
@@ -56,12 +58,6 @@ type DispatcherConfig struct {
 	// in a batch is still leased when its turn comes.
 	Lease          time.Duration
 	PublishTimeout time.Duration
-	// MaxAttempts is how many publishes a row gets before it is FAILED.
-	MaxAttempts int
-	// SweepInterval is how often SENT credit rows are checked for a missing
-	// result, and the backlog is measured. SweepLimit caps one query.
-	SweepInterval time.Duration
-	SweepLimit    int
 	// Backoff spaces out publish retries of one row.
 	Backoff resilience.BackoffPolicy
 	// Metrics receives counters; nil means a fresh Counters.
@@ -69,17 +65,14 @@ type DispatcherConfig struct {
 }
 
 // DefaultDispatcherConfig returns the defaults: poll 1 s, batch 10, lease
-// 2 min, publish timeout 10 s, 10 attempts, sweep every minute (100 rows per
-// query) and backoff base 2 s, cap 5 min.
+// 2 min, publish timeout 10 s, backlog measured every minute and backoff base
+// 2 s, cap 5 min.
 func DefaultDispatcherConfig() DispatcherConfig {
 	return DispatcherConfig{
 		PollInterval:   time.Second,
 		BatchSize:      10,
 		Lease:          2 * time.Minute,
 		PublishTimeout: 10 * time.Second,
-		MaxAttempts:    10,
-		SweepInterval:  time.Minute,
-		SweepLimit:     100,
 		Backoff:        resilience.DefaultBackoffPolicy(),
 	}
 }
@@ -101,15 +94,6 @@ func (c DispatcherConfig) withDefaults() (DispatcherConfig, error) {
 	if c.PublishTimeout == 0 {
 		c.PublishTimeout = def.PublishTimeout
 	}
-	if c.MaxAttempts == 0 {
-		c.MaxAttempts = def.MaxAttempts
-	}
-	if c.SweepInterval == 0 {
-		c.SweepInterval = def.SweepInterval
-	}
-	if c.SweepLimit == 0 {
-		c.SweepLimit = def.SweepLimit
-	}
 	if c.Backoff.Base == 0 && c.Backoff.Cap == 0 {
 		c.Backoff.Base, c.Backoff.Cap = def.Backoff.Base, def.Backoff.Cap
 	}
@@ -117,12 +101,10 @@ func (c DispatcherConfig) withDefaults() (DispatcherConfig, error) {
 		c.Metrics = NewCounters()
 	}
 	switch {
-	case c.PollInterval < 0 || c.SweepInterval < 0 || c.PublishTimeout < 0:
+	case c.PollInterval < 0 || c.PublishTimeout < 0:
 		return c, errors.New("messaging: dispatcher intervals must be positive")
-	case c.BatchSize < 1 || c.BatchSize > 500 || c.SweepLimit < 1 || c.SweepLimit > 500:
-		return c, errors.New("messaging: batch size and sweep limit must be between 1 and 500")
-	case c.MaxAttempts < 1:
-		return c, errors.New("messaging: max attempts must be positive")
+	case c.BatchSize < 1 || c.BatchSize > 500:
+		return c, errors.New("messaging: batch size must be between 1 and 500")
 	case c.Lease <= time.Duration(c.BatchSize)*c.PublishTimeout:
 		return c, errors.New("messaging: lease must exceed batch size times publish timeout")
 	}
@@ -145,20 +127,19 @@ func NewWorkerID() string {
 type Dispatcher struct {
 	outbox    Outbox
 	publisher errand.Publisher
-	settings  errand.Settings
 	logger    *slog.Logger
 	cfg       DispatcherConfig
 }
 
-func NewDispatcher(outbox Outbox, publisher errand.Publisher, settings errand.Settings, logger *slog.Logger, cfg DispatcherConfig) (*Dispatcher, error) {
-	if outbox == nil || publisher == nil || settings == nil || logger == nil {
+func NewDispatcher(outbox Outbox, publisher errand.Publisher, logger *slog.Logger, cfg DispatcherConfig) (*Dispatcher, error) {
+	if outbox == nil || publisher == nil || logger == nil {
 		return nil, errors.New("messaging: dispatcher dependencies are required")
 	}
 	cfg, err := cfg.withDefaults()
 	if err != nil {
 		return nil, err
 	}
-	return &Dispatcher{outbox: outbox, publisher: publisher, settings: settings, logger: logger.With(slog.String("worker", cfg.WorkerID)), cfg: cfg}, nil
+	return &Dispatcher{outbox: outbox, publisher: publisher, logger: logger.With(slog.String("worker", cfg.WorkerID)), cfg: cfg}, nil
 }
 
 // WorkerID is the lease owner this dispatcher writes.
@@ -169,7 +150,7 @@ func (d *Dispatcher) Metrics() Metrics { return d.cfg.Metrics }
 
 // Run dispatches until ctx is cancelled, then returns ctx's error. Credit and
 // event rows have separate loops so an event backlog never delays credit
-// commands; a third loop runs the unconfirmed sweep.
+// commands.
 //
 // On cancellation a loop finishes the row it is publishing, hands the rest of
 // its batch back unpublished, and claims nothing new. A crash instead leaves
@@ -179,7 +160,6 @@ func (d *Dispatcher) Run(ctx context.Context) error {
 	group, ctx := errgroup.WithContext(ctx)
 	group.Go(func() error { return d.loop(ctx, true) })
 	group.Go(func() error { return d.loop(ctx, false) })
-	group.Go(func() error { return d.sweepLoop(ctx) })
 	return group.Wait()
 }
 
@@ -227,10 +207,6 @@ func (d *Dispatcher) dispatch(ctx context.Context, credit bool) (bool, error) {
 }
 
 func (d *Dispatcher) handle(ctx context.Context, row msgrepo.Row) error {
-	if int(row.Attempts) > d.cfg.MaxAttempts {
-		// A worker died during the last allowed attempt.
-		return d.fail(ctx, row, CodeAttemptsExhausted)
-	}
 	message, err := MessageFromOutbox(row)
 	if err == nil {
 		publishCtx, cancel := context.WithTimeout(ctx, d.cfg.PublishTimeout)
@@ -245,7 +221,7 @@ func (d *Dispatcher) handle(ctx context.Context, row msgrepo.Row) error {
 	}
 	code := failureCode(err)
 	d.logger.WarnContext(ctx, "outbox publication failed", append(rowAttrs(row), slog.String("code", code))...)
-	if errors.Is(err, errand.ErrUnpublishable) || int(row.Attempts) >= d.cfg.MaxAttempts {
+	if errors.Is(err, errand.ErrUnpublishable) {
 		return d.fail(ctx, row, code)
 	}
 	delay := d.cfg.Backoff.Backoff(int(row.Attempts))
@@ -282,49 +258,6 @@ func (d *Dispatcher) handBack(ctx context.Context, rows []msgrepo.Row) {
 			d.logger.WarnContext(ctx, "outbox row not handed back; lease will expire", append(rowAttrs(row), slog.Any("error", err))...)
 		}
 	}
-}
-
-func (d *Dispatcher) sweepLoop(ctx context.Context) error {
-	for {
-		if err := d.sweep(ctx); err != nil && ctx.Err() == nil {
-			d.logger.ErrorContext(ctx, "outbox sweep failed", slog.Any("error", err))
-		}
-		if err := sleep(ctx, jitter(d.cfg.SweepInterval)); err != nil {
-			return err
-		}
-	}
-}
-
-// sweep re-sends SENT credit rows whose result is overdue (F4.6.2, F4.6.3)
-// and records the backlog of each family.
-func (d *Dispatcher) sweep(ctx context.Context) error {
-	settings, err := d.settings.Get(ctx)
-	if err != nil {
-		return err
-	}
-	for {
-		resent, err := d.outbox.ResendUnconfirmed(ctx, settings.OutboxConfirmTimeout, d.cfg.SweepLimit)
-		if err != nil {
-			return err
-		}
-		for _, r := range resent {
-			d.cfg.Metrics.Resent(r.Kind)
-			d.logger.WarnContext(ctx, "credit command unconfirmed; re-sending with the same key",
-				slog.Int64("outbox_id", r.ID), slog.String("kind", r.Kind), slog.String("errand_id", r.ErrandID),
-				slog.Int("attempts", int(r.Attempts)), slog.Time("sent_at", r.SentAt))
-		}
-		if len(resent) < d.cfg.SweepLimit {
-			break
-		}
-	}
-	for _, credit := range []bool{true, false} {
-		n, err := d.outbox.CountDue(ctx, credit)
-		if err != nil {
-			return err
-		}
-		d.cfg.Metrics.Backlog(family(credit), n)
-	}
-	return nil
 }
 
 func failureCode(err error) string {

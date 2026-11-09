@@ -134,16 +134,20 @@ root `compose.yaml`.
 | Exchange | Type | Durable | Credit-service uses it to |
 | --- | --- | --- | --- |
 | `foc.commands` | direct | yes | receive commands |
+| `foc.commands.retry` | direct | yes | park a command that failed for a temporary reason |
 | `foc.events` | topic | yes | publish results |
 
 | Queue | Owner | Binding | Notes |
 | --- | --- | --- | --- |
 | `credit-service.commands` | credit-service | `foc.commands`: `credit.reserve`, `credit.adjust`, `credit.release`, `credit.transfer` | quorum, durable; dead-letters to `credit-service.commands.dlq` |
 | `credit-service.commands.dlq` | credit-service | the default exchange | quorum; holds commands that cannot be processed |
+| `credit-service.commands.retry` | credit-service | `foc.commands.retry`: the same four routing keys | quorum, durable; no consumer. Messages expire after 30 seconds (`x-message-ttl`) and are dead-lettered to `foc.commands` with the routing key they had, which puts them back on `credit-service.commands` |
 
-Credit-service declares both exchanges (declaring is safe to repeat), its own
-queue, its binding and its dead-letter queue when it starts. It never
-declares `order-service.credit-results`.
+Credit-service declares its exchanges (declaring is safe to repeat), its own
+queues, their bindings and its dead-letter queue when it starts. It never
+declares `order-service.credit-results`. The retry delay is a queue argument,
+and RabbitMQ refuses to redeclare a queue with another value, so changing it
+means deleting the retry queue first.
 
 Publishing results: persistent messages (`delivery_mode` 2) on a channel in
 confirm mode, with the `mandatory` flag. Publishing returns only after the
@@ -336,19 +340,34 @@ For each message from `credit-service.commands`, `creditmsg.Consumer` calls
 | --- | --- |
 | Command applied, or a stored result replayed; result row is in the outbox | `ack` |
 | Unknown routing key or `type`, body that is not valid JSON, `ErrInvalid`, or `ErrConflict` | `nack` without requeue, so it goes to the dead-letter queue |
-| Database or other temporary error | wait with backoff, then `nack` with requeue |
-| Temporary error on the 5th attempt | `nack` without requeue (dead-letter) |
+| Database or other temporary error | publish a copy to `foc.commands.retry` (confirmed), then `ack` the original. The copy comes back after 30 seconds |
+| Temporary error and the copy cannot be published | wait with backoff, then `nack` with requeue, and reconnect if the retry channel was closed |
+| Temporary error on the 120th attempt | `nack` without requeue (dead-letter) |
 
 The consumer acks only after the transaction has committed. It handles one
 message at a time (prefetch 16 only buffers). A panic in the handler counts as
 a temporary error. Credit-service does not rely on the order of messages: the
 tombstone and `seq` rules make late and repeated messages safe.
 
+**Retry queue.** A command that fails for a temporary reason is not slept on
+and requeued. The consumer publishes a copy to `foc.commands.retry`, with the
+same routing key, body and `message_id`, waits for the broker to confirm it,
+and acks the original. The copy sits on `credit-service.commands.retry` for 30
+seconds, then returns to `credit-service.commands`. So a failing command waits
+in the broker and the commands behind it are handled meanwhile. A crash after
+the confirm but before the ack leaves a duplicate, and a repeat gets the
+stored result.
+
 **Attempt limit.** RabbitMQ 4.4 does not count a message that is requeued with
-`basic.nack` against the queue's `x-delivery-limit`; such a message is
-delivered again for ever. So the consumer counts attempts itself, from the
-`x-acquired-count` header that the broker sets on a redelivery, and
-dead-letters on the 5th. The header is kept by the broker, so the count
-survives a restart and is shared by replicas. A dead-lettered command is not
-lost: order-service sends a command again if it gets no result in 10 minutes,
-and a repeat gets the stored result.
+`basic.nack` against the queue's `x-delivery-limit`, and a copy parked on the
+retry queue is a new message with a new count anyway. So the consumer counts
+attempts itself: the `retry-count` header that it sets on each copy, plus the
+`x-acquired-count` header that the broker sets on a redelivery of one copy.
+Both are kept by the broker, so the count survives a restart and is shared by
+replicas. The limit is 120 attempts, about an hour at the 30 second delay, which
+covers a database failover or a maintenance window. On the last failed attempt
+the command is dead-lettered. It was not applied, and it is not resent by
+itself: an admin requeues the outbox row in order-service, which sends the same
+command again, and credit-service applies it once. The queue's own
+`x-delivery-limit` of 5 stays as a backstop for a delivery that is lost with
+its channel.
