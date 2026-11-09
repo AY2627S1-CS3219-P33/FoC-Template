@@ -1,21 +1,34 @@
+import { lazy, Suspense } from "react";
+import { Route, Routes } from "react-router-dom";
 import { AuthProvider, useAuth } from "./auth/AuthContext";
 import { AuthScreen } from "./pages/AuthScreen";
 import { AppShell } from "./components/AppShell";
-import { AdminUsersPage } from "./pages/admin/AdminUsersPage";
+
+// The admin area is its own chunk, so ordinary users never download it.
+const AdminRoutes = lazy(() => import("./pages/admin/AdminRoutes"));
+
+function Loading() {
+  return (
+    <main className="auth-shell">
+      <p className="muted">Loading…</p>
+    </main>
+  );
+}
 
 function Routed() {
   const { status } = useAuth();
 
-  if (status === "loading") {
-    return (
-      <main className="auth-shell">
-        <p className="muted">Loading…</p>
-      </main>
-    );
-  }
-
+  if (status === "loading") return <Loading />;
   if (status !== "signedIn") return <AuthScreen />;
-  return window.location.pathname === "/admin" ? <AdminUsersPage /> : <AppShell />;
+
+  return (
+    <Suspense fallback={<Loading />}>
+      <Routes>
+        <Route path="/admin/*" element={<AdminRoutes />} />
+        <Route path="*" element={<AppShell />} />
+      </Routes>
+    </Suspense>
+  );
 }
 
 export function App() {
