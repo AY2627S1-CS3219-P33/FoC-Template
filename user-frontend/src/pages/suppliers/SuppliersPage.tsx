@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useAuth } from "../../auth/AuthContext";
+import { useNavigate } from "react-router-dom";
+import { useSupplierToken } from "./useSupplierToken";
 import {
   SupplierError,
   createSupplier,
@@ -15,38 +16,27 @@ import {
   type SupplierWrite,
   type SupplierPatch,
 } from "../../api/supplier";
-import type { Profile } from "../../api/types";
 import { SupplierList } from "./SupplierList";
 import { SupplierDetail } from "./SupplierDetail";
 import { SupplierForm } from "./SupplierForm";
-import { LookupsPage } from "../admin/LookupsPage";
 
 type View =
   | { kind: "list" }
   | { kind: "detail"; supplier: Supplier }
   | { kind: "create" }
-  | { kind: "edit"; supplier: Supplier }
-  | { kind: "lookups" };
+  | { kind: "edit"; supplier: Supplier };
 
 const PAGE_SIZE = 12;
-const SUPPLIER_AUDIENCE =
-  import.meta.env.VITE_SUPPLIER_AUDIENCE || "https://api.foc.local/supplier-service";
+interface Props {
+  // Supplier management (create, edit, delete, lookups) lives under /admin.
+  // The normal Suppliers page is read-only for everyone, administrators included.
+  adminMode?: boolean;
+}
 
-export function SuppliersPage() {
-  const { profile, getAccessToken } = useAuth();
-  const account = profile as Profile;
-  const isAdmin = account.role === "ADMIN" || account.role === "SUPER_ADMIN";
-
-  const getSupplierToken = useCallback(
-    (manage = false) =>
-      getAccessToken({
-        audience: SUPPLIER_AUDIENCE,
-        scope: manage
-          ? "openid profile email suppliers:read suppliers:manage"
-          : "openid profile email suppliers:read",
-      }),
-    [getAccessToken],
-  );
+export function SuppliersPage({ adminMode = false }: Props) {
+  const isAdmin = adminMode;
+  const navigate = useNavigate();
+  const getSupplierToken = useSupplierToken();
 
   const [view, setView] = useState<View>({ kind: "list" });
 
@@ -160,21 +150,6 @@ export function SuppliersPage() {
     await reload();
   }
 
-  if (view.kind === "lookups") {
-    return (
-      <>
-        <button type="button" className="link-btn" onClick={() => {
-          setView({ kind: "list" });
-          void loadLookups();
-          void reload();
-        }}>
-          ← Back to suppliers
-        </button>
-        <LookupsPage getToken={getSupplierToken} />
-      </>
-    );
-  }
-
   if (view.kind === "create") {
     return (
       <SupplierForm
@@ -238,7 +213,7 @@ export function SuppliersPage() {
         onOpen={(supplier) => setView({ kind: "detail", supplier })}
         onNew={() => setView({ kind: "create" })}
         onLoadMore={() => load(query, type, building, sort, nextCursor)}
-        onManageLookups={isAdmin ? () => setView({ kind: "lookups" }) : undefined}
+        onManageLookups={isAdmin ? () => navigate("/admin/lookups") : undefined}
       />
     </>
   );

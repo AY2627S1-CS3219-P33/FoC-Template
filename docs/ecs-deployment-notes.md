@@ -117,6 +117,8 @@ CloudFront distribution: `E39SHVSD0FXUB9` (`d8d2ig90yjarp.cloudfront.net`), with
 
 API behaviors use `AllViewerExceptHostHeader`. ALB rules perform the prefix rewrites. No distribution-wide SPA error mapping was configured; such mappings can hide API/image errors.
 
+**SPA deep links (not yet applied).** The admin area is served from client-side routes under `/admin/*` (for example `/admin/reviews`). The default behavior has no SPA fallback, so a refresh or direct link to one of these paths will make S3 answer 403/404 instead of returning the app. Do not add a distribution-wide custom error response (it would mask API and image errors). Instead, attach a CloudFront Function to the **default behavior only** (viewer request) that rewrites any URI whose last segment has no file extension to `/frontend/index.html`. API behaviors are separate and unaffected, and images and `/assets/*` have extensions. Not yet created or tested; this needs a change in the AWS console because no infrastructure-as-code exists. The same problem applies to the older `/admin` path.
+
 Browser-to-CloudFront HTTPS works on the distribution domain; the user also confirmed HTTPS on `app.bestfoc.app` after attaching the issued ACM certificate from `us-east-1`. CloudFront-to-ALB used HTTP port 80 at the last inspection; origin HTTPS remains unverified. The ALB HTTP listener was publicly reachable at the last inspection.
 
 ## S3 frontend and supplier images
