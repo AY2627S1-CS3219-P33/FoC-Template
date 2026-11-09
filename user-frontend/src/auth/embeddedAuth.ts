@@ -100,7 +100,11 @@ export class EmbeddedAuth {
     const next = new Promise<string>((resolve, reject) => {
       this.webAuth.checkSession({ audience, scope }, (error, result) => {
         if (error) {
-          reject(Object.assign(authError(error), { code: error.code || error.error }));
+          // The description is Auth0's own explanation of a silent-token refusal
+          // (for example which audience it could not find). It holds no
+          // submitted values, unlike a sign-in failure, so callers may show it.
+          const description = error.errorDescription || error.error_description || error.description;
+          reject(Object.assign(authError(error), { code: error.code || error.error, description }));
           return;
         }
         try { resolve(this.accept(result, key)); } catch (err) { reject(err); }

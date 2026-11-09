@@ -1,0 +1,5 @@
+# sqlc output, regenerated with `sqlc generate`
+/internal/database/admingen/
+
+# Rendered docs from `redocly build-docs`
+/openapi.html
