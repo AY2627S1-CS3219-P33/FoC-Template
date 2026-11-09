@@ -11,6 +11,7 @@ import (
 	"github.com/CS3219-AY2627S1/FoC-Template/supplier-service/internal/supplier"
 	"github.com/CS3219-AY2627S1/FoC-Template/supplier-service/internal/supplier/create"
 	deletefeature "github.com/CS3219-AY2627S1/FoC-Template/supplier-service/internal/supplier/delete"
+	"github.com/CS3219-AY2627S1/FoC-Template/supplier-service/internal/supplier/imageupload"
 	"github.com/CS3219-AY2627S1/FoC-Template/supplier-service/internal/supplier/lookup"
 	"github.com/CS3219-AY2627S1/FoC-Template/supplier-service/internal/supplier/query"
 	"github.com/CS3219-AY2627S1/FoC-Template/supplier-service/internal/supplier/update"
@@ -19,10 +20,10 @@ import (
 
 // NewHandler composes the same protected feature routes for runtime and tests.
 // The feature handlers additionally check their operation-specific permission.
-func NewHandler(logger *slog.Logger, verifier auth.Port, checker readiness.Checker, reader supplier.Reader, writer supplier.Writer, lookups supplier.LookupStore, deletions supplier.DeletionStore, fence deletefeature.OrderDeletionFence) http.Handler {
+func NewHandler(logger *slog.Logger, verifier auth.Port, checker readiness.Checker, reader supplier.Reader, writer supplier.Writer, lookups supplier.LookupStore, deletions supplier.DeletionStore, fence deletefeature.OrderDeletionFence, images imageupload.Handler) http.Handler {
 	protected := httpapi.NewRouter(httpapi.Dependencies{Logger: logger},
 		query.NewHandler(reader), versioning.NewHandler(reader), create.NewHandler(writer),
-		update.NewHandler(writer), deletefeature.NewHandler(deletions, fence), lookup.NewHandler(lookups))
+		update.NewHandler(writer), deletefeature.NewHandler(deletions, fence), lookup.NewHandler(lookups), images)
 	return httpapi.NewRouter(httpapi.Dependencies{Logger: logger},
 		readiness.NewHandler(checker),
 		protectedRoutes{handler: auth.NewMiddleware(verifier).RequireRead(protected)})

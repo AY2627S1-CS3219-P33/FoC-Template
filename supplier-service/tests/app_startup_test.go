@@ -30,6 +30,7 @@ func startupConfig() config.Config {
 		HTTP:        config.HTTPConfig{Host: "127.0.0.1", Port: 3002},
 		Database:    config.DatabaseConfig{URL: "postgresql://supplier_test@127.0.0.1:5433/supplier_test", MaxConnections: 2},
 		SeedCSVPath: "../../data/csv/supplier-seed-data.csv", SeedNamespace: "template-v1",
+		ImageBaseURL:   "https://images.example.com",
 		StartupTimeout: 10 * time.Second, ShutdownTimeout: time.Second,
 	}
 }

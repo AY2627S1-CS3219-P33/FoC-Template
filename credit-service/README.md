@@ -48,6 +48,12 @@ cp .env.admin.example .env.admin   # fill in master password, APP_DB and role pa
 
 `.env.admin` is gitignored and must never be given to the service.
 
+The Docker image includes the public RDS CA bundle at
+`/etc/ssl/certs/rds-global-bundle.pem`. For RDS deployments, set the runtime
+`DATABASE_URL` to use `sslmode=verify-full&sslrootcert=/etc/ssl/certs/rds-global-bundle.pem`
+so the connection verifies the database certificate and hostname. Use the
+`app_rw` credentials and the database containing the applied credit migrations.
+
 The RDS instance must be reachable from where you run the scripts and the service: its security group needs an inbound PostgreSQL (5432) rule for your IP or the service's security group, and Public access must be Yes for access from a home network.
 
 ## Running the service

@@ -150,6 +150,9 @@ services:
     build:
       context: .
       dockerfile: supplier-service/Dockerfile
+    env_file:
+      - path: ./supplier-service/.env.aws.local
+        required: false
     environment:
       APP_ENV: development
       DATABASE_URL: postgresql://supplier_service:${SUPPLIER_DB_PASSWORD:-supplier-local-dev}@supplier-db:5432/supplier_service?sslmode=disable
@@ -160,6 +163,9 @@ services:
       ORDER_SERVICE_URL: ${SUPPLIER_ORDER_SERVICE_URL:-}
       SUPPLIER_M2M_CLIENT_ID: ${SUPPLIER_M2M_CLIENT_ID:-}
       SUPPLIER_M2M_CLIENT_SECRET: ${SUPPLIER_M2M_CLIENT_SECRET:-}
+      SUPPLIER_IMAGE_BASE_URL: ${SUPPLIER_IMAGE_BASE_URL:-}
+      SUPPLIER_IMAGE_BUCKET: ${SUPPLIER_IMAGE_BUCKET:-}
+      AWS_REGION: ${AWS_REGION:-ap-southeast-1}
       ORDER_AUDIENCE: ${ORDER_AUDIENCE:-https://api.foc.local/order-service}
     depends_on:
       supplier-db:

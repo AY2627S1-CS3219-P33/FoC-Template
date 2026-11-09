@@ -39,6 +39,9 @@ paths:
       $ref: ./openapi/administration.yaml#/operations/updateSupplier
     delete:
       $ref: ./openapi/administration.yaml#/operations/deleteSupplier
+  /suppliers/images:
+    post:
+      $ref: ./openapi/administration.yaml#/operations/uploadSupplierImage
   /supplier-versions/{versionId}:
     get:
       $ref: ./openapi/catalog.yaml#/operations/getSupplierVersion

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -27,6 +28,7 @@ func TestImporterParsesConfiguredRepositorySeedFile(t *testing.T) {
 	importer, err := New(Config{
 		CSVPath:          path,
 		DatasetNamespace: "foc-template-suppliers-v1",
+		ImageBaseURL:     "https://images.example.com",
 	}, store)
 	require.NoError(t, err)
 
@@ -40,7 +42,41 @@ func TestImporterParsesConfiguredRepositorySeedFile(t *testing.T) {
 	require.Equal(t, "Prince George’s Park", store.records[12].Details.Building)
 	require.Equal(t, "Prince George’s Park", store.records[17].Details.Building)
 	require.Equal(t, "02:00", store.records[17].Details.ClosingTime)
-	require.Nil(t, store.records[20].Details.ImageURL)
+	require.Equal(t, stringPointer("https://images.example.com/HE_BY_HE_BREWS.jpeg"), store.records[20].Details.ImageURL)
+	for _, record := range store.records {
+		require.NotNil(t, record.Details.ImageURL)
+		require.Contains(t, *record.Details.ImageURL, "https://images.example.com/")
+	}
+}
+
+func TestSeedImagePathsResolveBeforeValidation(t *testing.T) {
+	for _, tt := range []struct {
+		name, image, base, want string
+		invalid                 bool
+	}{
+		{name: "relative", image: "/ANNA.jpeg", base: "https://images.example.com", want: "https://images.example.com/ANNA.jpeg"},
+		{name: "trailing slash", image: "/suppliers/ANNA.jpeg", base: "https://images.example.com/", want: "https://images.example.com/suppliers/ANNA.jpeg"},
+		{name: "absolute unchanged", image: "https://existing.example.com/photo.png", base: "https://images.example.com", want: "https://existing.example.com/photo.png"},
+		{name: "blank"},
+		{name: "missing base", image: "/ANNA.jpeg", invalid: true},
+		{name: "protocol relative", image: "//other.example.com/photo.jpeg", base: "https://images.example.com", invalid: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			input := "Name,Type,Building,Floor,Location Description,Latitude,Longitude,StartingTime,ClosingTime,ImageURL\n" +
+				"Alpha Cafe,Food,COM3,1,Atrium,1.294,103.773,0900hrs,1800hrs," + tt.image + "\n"
+			records, err := parseCSV(strings.NewReader(input), tt.base)
+			if tt.invalid {
+				require.ErrorContains(t, err, "ImageURL")
+				return
+			}
+			require.NoError(t, err)
+			if tt.want == "" {
+				require.Nil(t, records[0].Details.ImageURL)
+			} else {
+				require.Equal(t, stringPointer(tt.want), records[0].Details.ImageURL)
+			}
+		})
+	}
 }
 
 func TestImporterMapsCSVColumnsAndCanonicalizesTimes(t *testing.T) {

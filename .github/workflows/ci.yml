@@ -1,0 +1,102 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    name: Check ${{ matrix.service }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [user-service, supplier-service, credit-service, order-service]
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U test"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+      rabbitmq:
+        image: rabbitmq:4-alpine
+        env:
+          RABBITMQ_DEFAULT_USER: test
+          RABBITMQ_DEFAULT_PASS: test
+        ports: ['5672:5672']
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q check_port_connectivity"
+          --health-interval 5s --health-timeout 5s --health-retries 24
+      redis:
+        image: redis:7.4-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      TEST_DATABASE_URL: postgres://test:test@localhost:5432/test?sslmode=disable
+      TEST_AMQP_URL: amqp://test:test@localhost:5672/
+      TEST_REDIS_URL: redis://localhost:6379/0
+    defaults:
+      run:
+        working-directory: ${{ matrix.service }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: ${{ matrix.service }}/go.mod
+          cache-dependency-path: ${{ matrix.service }}/go.sum
+      - name: Regenerate SQL queries as the container build does
+        if: matrix.service == 'supplier-service' || matrix.service == 'order-service'
+        run: go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1 generate
+      - name: Check formatting
+        run: test -z "$(gofmt -l .)"
+      - run: go vet ./...
+      - run: go test -count=1 -p 1 ./...
+      - run: go build ./...
+
+  frontend:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: user-frontend
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: user-frontend/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+
+  contracts-and-deployment:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - name: Validate API contracts
+        run: >-
+          npx --yes @redocly/cli@2.54.1 lint
+          user-service/openapi.yaml supplier-service/openapi.yaml
+          credit-service/openapi.yaml order-service/openapi.yaml
+      - name: Test deployment selection and safeguards
+        run: python3 -m unittest discover -s .github/scripts -p 'test_*.py' -v
+      - name: Validate workflows
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7 .github/workflows/ci.yml .github/workflows/deploy.yml

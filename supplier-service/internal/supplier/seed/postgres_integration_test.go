@@ -127,13 +127,13 @@ func TestPostgresImportOfTemplateCSVDeduplicatesLookups(t *testing.T) {
 	_, sourceFile, _, ok := runtime.Caller(0)
 	require.True(t, ok)
 	path := filepath.Join(filepath.Dir(sourceFile), "..", "..", "..", "..", "data", "csv", "supplier-seed-data.csv")
-	importer, err := New(Config{CSVPath: path, DatasetNamespace: "template-v1"}, NewPostgresStore(pool))
+	importer, err := New(Config{CSVPath: path, DatasetNamespace: "template-v1", ImageBaseURL: "https://images.example.com"}, NewPostgresStore(pool))
 	require.NoError(t, err)
 	ctx := context.Background()
 
 	contents, err := os.ReadFile(path)
 	require.NoError(t, err)
-	records, err := parseCSV(bytes.NewReader(contents))
+	records, err := parseCSV(bytes.NewReader(contents), "https://images.example.com")
 	require.NoError(t, err)
 	buildingKeys, typeKeys := map[string]bool{}, map[string]bool{}
 	for _, record := range records {

@@ -33,6 +33,8 @@ type Config struct {
 	// DatasetNamespace is a stable, deployment-owned identifier for this
 	// source dataset. Changing it intentionally creates a different dataset.
 	DatasetNamespace string
+	// ImageBaseURL resolves root-relative image paths in the CSV.
+	ImageBaseURL string
 }
 
 // Record is a fully parsed and domain-validated seed row. SourceKey is the
@@ -126,7 +128,7 @@ func (i *Importer) Import(ctx context.Context) (result Result, err error) {
 	}
 	defer func() { _ = file.Close() }()
 
-	records, err := parseCSV(file)
+	records, err := parseCSV(file, i.config.ImageBaseURL)
 	if err != nil {
 		return Result{}, err
 	}
@@ -156,7 +158,7 @@ var requiredColumns = []string{
 	"ClosingTime",
 }
 
-func parseCSV(input io.Reader) ([]Record, error) {
+func parseCSV(input io.Reader, imageBaseURL string) ([]Record, error) {
 	contents, err := io.ReadAll(input)
 	if err != nil {
 		return nil, newSafeError("seed CSV cannot be read", err)
@@ -192,7 +194,7 @@ func parseCSV(input io.Reader) ([]Record, error) {
 			return nil, csvStructureError(readErr)
 		}
 		csvRow, _ := reader.FieldPos(0)
-		record, parseErr := parseRow(row, columns, csvRow)
+		record, parseErr := parseRow(row, columns, csvRow, imageBaseURL)
 		if parseErr != nil {
 			return nil, parseErr
 		}
@@ -228,7 +230,7 @@ func columnIndexes(header []string) (map[string]int, error) {
 	return columns, nil
 }
 
-func parseRow(row []string, columns map[string]int, csvRow int) (Record, error) {
+func parseRow(row []string, columns map[string]int, csvRow int, imageBaseURL string) (Record, error) {
 	latitude, err := coordinate(rowValue(row, columns, "Latitude"))
 	if err != nil {
 		return Record{}, rowFieldError(csvRow, "Latitude", "must be a number", err)
@@ -248,6 +250,12 @@ func parseRow(row []string, columns map[string]int, csvRow int) (Record, error) 
 
 	var imageURL *string
 	if value := strings.TrimSpace(rowValue(row, columns, "ImageURL")); value != "" {
+		if strings.HasPrefix(value, "/") {
+			if imageBaseURL == "" || strings.HasPrefix(value, "//") {
+				return Record{}, rowFieldError(csvRow, "ImageURL", "requires SUPPLIER_IMAGE_BASE_URL and a single-slash image path", nil)
+			}
+			value = strings.TrimRight(imageBaseURL, "/") + value
+		}
 		imageURL = &value
 	}
 	details := supplier.Details{

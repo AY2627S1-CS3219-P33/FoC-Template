@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { useMemo, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from "react";
 import {
   SupplierError,
   type Lookup,
@@ -20,6 +20,7 @@ interface Props {
   types: Lookup[];
   buildings: Lookup[];
   onSubmit: (body: SupplierWrite) => Promise<void>;
+  onUpload: (file: File) => Promise<string>;
   onCancel: () => void;
 }
 
@@ -67,14 +68,17 @@ function toBody(draft: Draft): SupplierWrite {
   };
 }
 
-export function SupplierForm({ mode, initial, types, buildings, onSubmit, onCancel }: Props) {
+export function SupplierForm({ mode, initial, types, buildings, onSubmit, onUpload, onCancel }: Props) {
   const original = useMemo(() => draftFrom(initial), [initial]);
   const [draft, setDraft] = useState<Draft>(original);
   const [submitted, setSubmitted] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [imageError, setImageError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [serverFieldErrors, setServerFieldErrors] = useState<SupplierFormErrors>({});
   const [confirmCancel, setConfirmCancel] = useState(false);
+  const imageInput = useRef<HTMLInputElement>(null);
 
   const clientErrors = useMemo(() => validateSupplierForm(draft), [draft]);
   const errors: SupplierFormErrors = { ...clientErrors, ...serverFieldErrors };
@@ -93,6 +97,7 @@ export function SupplierForm({ mode, initial, types, buildings, onSubmit, onCanc
 
   async function onFormSubmit(event: FormEvent) {
     event.preventDefault();
+    if (saving || uploading || imageError) return;
     setSubmitted(true);
     setFormError(null);
     if (hasErrors(clientErrors)) return;
@@ -126,8 +131,32 @@ export function SupplierForm({ mode, initial, types, buildings, onSubmit, onCanc
   }
 
   function requestCancel() {
+    if (saving || uploading) return;
     if (dirty) setConfirmCancel(true);
     else onCancel();
+  }
+
+  async function onImageSelected(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = "";
+    if (!file) return;
+    setImageError(null);
+    if (file.size > 5 * 1024 * 1024) {
+      setImageError("Choose an image smaller than or equal to 5 MiB.");
+      return;
+    }
+    if (file.type !== "image/jpeg" && file.type !== "image/png") {
+      setImageError("Choose a JPEG or PNG image.");
+      return;
+    }
+    setUploading(true);
+    try {
+      set("imageUrl", await onUpload(file));
+    } catch (error) {
+      setImageError(error instanceof SupplierError ? error.message : "Could not upload the image. Please try again.");
+    } finally {
+      setUploading(false);
+    }
   }
 
   const show = (field: keyof SupplierFormErrors) =>
@@ -152,7 +181,7 @@ export function SupplierForm({ mode, initial, types, buildings, onSubmit, onCanc
     <>
       <div className="page-head">
         <div>
-          <button type="button" className="link-btn" onClick={requestCancel}>
+          <button type="button" className="link-btn" onClick={requestCancel} disabled={saving || uploading}>
             ← Cancel
           </button>
           <h1 style={{ marginTop: "0.4rem" }}>
@@ -253,18 +282,63 @@ export function SupplierForm({ mode, initial, types, buildings, onSubmit, onCanc
           </Field>
         </div>
 
-        <Field label="Image URL (optional)" error={show("imageUrl")}>
-          <input className="input" value={draft.imageUrl} maxLength={LIMITS.imageUrl}
-            placeholder="https://…" onChange={(e) => set("imageUrl", e.target.value)}
-            aria-invalid={!!show("imageUrl")} />
-        </Field>
+        <fieldset className="supplier-image-field">
+          <legend>Supplier image <span className="muted">(optional)</span></legend>
+          <div className="supplier-image-card">
+            <div className="supplier-image-preview">
+              {draft.imageUrl && !errors.imageUrl ? (
+                <img src={draft.imageUrl} alt="Supplier image preview" />
+              ) : (
+                <>
+                  <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                    strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <rect x="3" y="3" width="18" height="18" rx="3" />
+                    <circle cx="8.5" cy="8.5" r="1.5" />
+                    <path d="m21 15-5-5L5 21" />
+                  </svg>
+                  <span>No image selected</span>
+                </>
+              )}
+            </div>
+            <div className="supplier-image-content">
+              <p className="supplier-image-title">Add a photo or logo</p>
+              <p id="supplier-image-help" className="hint muted">JPEG or PNG · Up to 5 MiB · 16 million pixels</p>
+              <input ref={imageInput} id="supplier-image" type="file" accept="image/jpeg,image/png" hidden
+                onChange={onImageSelected} disabled={saving || uploading} />
+              <div className="supplier-image-actions">
+                <button type="button" className="btn outline slim" disabled={saving || uploading}
+                  aria-describedby="supplier-image-help supplier-image-error"
+                  onClick={() => imageInput.current?.click()}>
+                  {uploading ? "Uploading…" : draft.imageUrl ? "Replace image" : "Choose image"}
+                </button>
+                {(draft.imageUrl || imageError) && (
+                  <button type="button" className="btn outline slim supplier-image-remove" disabled={saving || uploading}
+                    onClick={() => { set("imageUrl", ""); setImageError(null); }}>Remove image</button>
+                )}
+              </div>
+              <p className="supplier-image-status hint muted" role="status">
+                {uploading ? "Uploading your image. Please wait…" : "Save the supplier to apply image changes."}
+              </p>
+              {uploading && <progress className="supplier-image-progress" aria-label="Image upload in progress" />}
+            </div>
+          </div>
+          <p id="supplier-image-error" className="hint error" role="alert">{imageError || show("imageUrl")}</p>
+          <details className="supplier-image-url">
+            <summary>Use an image URL instead</summary>
+            <label htmlFor="supplier-image-url" className="sr-only">Image URL</label>
+            <input id="supplier-image-url" className="input" value={draft.imageUrl} maxLength={LIMITS.imageUrl}
+              placeholder="https://…" disabled={saving || uploading}
+              onChange={(e) => { set("imageUrl", e.target.value); setImageError(null); }}
+              aria-describedby="supplier-image-error" aria-invalid={!!show("imageUrl")} />
+          </details>
+        </fieldset>
 
         <div className="actions">
           <button type="submit" className="btn slim"
-            disabled={saving || missingLookups || (mode === "edit" && !dirty)}>
+            disabled={saving || uploading || !!imageError || missingLookups || (mode === "edit" && !dirty)}>
             {saving ? "Saving…" : mode === "create" ? "Create supplier" : "Save changes"}
           </button>
-          <button type="button" className="btn outline slim" onClick={requestCancel} disabled={saving}>
+          <button type="button" className="btn outline slim" onClick={requestCancel} disabled={saving || uploading}>
             Cancel
           </button>
         </div>
