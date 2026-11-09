@@ -965,6 +965,41 @@ components:
             $ref: "#/components/schemas/Flag"
       additionalProperties: false
 
+    AdminOverview:
+      type: object
+      required: [asOf, ongoing, waitingForCourier, openReviews]
+      properties:
+        asOf:
+          type: string
+          format: date-time
+          description: When the response was produced.
+        ongoing:
+          type: integer
+          minimum: 0
+          description: Errands in ASSIGNED, PICKED_UP or DELIVERED.
+        waitingForCourier:
+          type: integer
+          minimum: 0
+          description: Errands in OPEN.
+        openReviews:
+          type: object
+          required: [count, oldestCreatedAt, oldestAgeSeconds]
+          properties:
+            count:
+              type: integer
+              minimum: 0
+              description: Open reviews of errands that are REVIEW_REQUIRED.
+            oldestCreatedAt:
+              type: [string, "null"]
+              format: date-time
+              description: Creation time of the oldest open review; null when count is 0.
+            oldestAgeSeconds:
+              type: [integer, "null"]
+              minimum: 0
+              description: Age of the oldest open review at asOf, whole seconds; null when count is 0.
+          additionalProperties: false
+      additionalProperties: false
+
     OutboxRow:
       type: object
       description: >-

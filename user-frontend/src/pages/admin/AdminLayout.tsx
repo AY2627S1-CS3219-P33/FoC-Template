@@ -10,6 +10,7 @@ export interface AdminNavItem {
 
 // Only screens whose backend exists belong here.
 export const ADMIN_NAV: AdminNavItem[] = [
+  { to: "/admin/overview", label: "Overview", icon: "◧" },
   { to: "/admin/reviews", label: "Reviews", icon: "⚖" },
   { to: "/admin/events", label: "Events", icon: "☰" },
   { to: "/admin/flags", label: "Flags", icon: "⚑" },

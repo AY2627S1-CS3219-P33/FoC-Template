@@ -227,6 +227,37 @@ operations:
       "503":
         $ref: ./common.yaml#/components/responses/DependencyUnavailable
 
+  getOverview:
+    operationId: getOverview
+    tags: [Administration]
+    summary: Live operational overview
+    description: >-
+      Current counts for the admin Overview tab, read live when requested.
+      `ongoing` counts ASSIGNED, PICKED_UP and DELIVERED errands;
+      `waitingForCourier` counts OPEN errands. `openReviews` counts open
+      reviews (`errand_reviews.resolution IS NULL`) whose errand is
+      REVIEW_REQUIRED; `oldestCreatedAt` is the earliest of their creation
+      times and `oldestAgeSeconds` is its age at `asOf`. Both are null when
+      there are no open reviews. The counts are not one database snapshot.
+    x-required-permissions: [errands:review]
+    security:
+      - bearerAuth: []
+    responses:
+      "200":
+        description: The current overview.
+        content:
+          application/json:
+            schema:
+              $ref: ./common.yaml#/components/schemas/AdminOverview
+      "401":
+        $ref: ./common.yaml#/components/responses/Unauthenticated
+      "403":
+        $ref: ./common.yaml#/components/responses/Forbidden
+      "500":
+        $ref: ./common.yaml#/components/responses/Internal
+      "503":
+        $ref: ./common.yaml#/components/responses/DependencyUnavailable
+
   listFailedOutboxRows:
     operationId: listFailedOutboxRows
     tags: [Administration]

@@ -10,6 +10,7 @@ import { ActivityFlags } from "./ActivityFlags";
 import { ErrandEvents } from "./ErrandEvents";
 import { FailedOutbox } from "./FailedOutbox";
 import { LookupsPage } from "./LookupsPage";
+import { OverviewPage } from "./OverviewPage";
 import { OrderSettingsForm } from "./OrderSettingsForm";
 import { ReviewQueue } from "./ReviewQueue";
 
@@ -63,7 +64,15 @@ export default function AdminRoutes() {
   return (
     <Routes>
       <Route element={<AdminLayout />}>
-        <Route index element={<Navigate to="reviews" replace />} />
+        <Route index element={<Navigate to="overview" replace />} />
+        <Route
+          path="overview"
+          element={
+            <Section title="Overview" blurb="What needs attention right now.">
+              <OverviewPage getToken={getOrderToken} />
+            </Section>
+          }
+        />
         <Route
           path="reviews"
           element={
@@ -116,7 +125,7 @@ export default function AdminRoutes() {
         <Route path="users" element={<AdminUsersPage />} />
         <Route path="suppliers" element={<SuppliersPage adminMode />} />
         <Route path="lookups" element={<LookupsRoute />} />
-        <Route path="*" element={<Navigate to="/admin/reviews" replace />} />
+        <Route path="*" element={<Navigate to="/admin/overview" replace />} />
       </Route>
     </Routes>
   );

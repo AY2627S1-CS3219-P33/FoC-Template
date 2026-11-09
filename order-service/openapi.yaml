@@ -107,6 +107,9 @@ paths:
   /admin/flags:
     get:
       $ref: ./openapi/admin.yaml#/operations/listFlags
+  /admin/overview:
+    get:
+      $ref: ./openapi/admin.yaml#/operations/getOverview
   /admin/outbox/failed:
     get:
       $ref: ./openapi/admin.yaml#/operations/listFailedOutboxRows
