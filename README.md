@@ -34,6 +34,7 @@ microservice (`user-service/`, `supplier-service/`, `order-service/`,
 ├── supplier-service/
 ├── order-service/
 ├── credit-service/
+├── chat-service/
 ├── <n2h-service>/
 └── README.md
 ```

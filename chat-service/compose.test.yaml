@@ -1,0 +1,24 @@
+# Test dependencies for integration tests. Tests skip unless the matching
+# variable is set, for example with the default ports:
+#   TEST_DATABASE_URL=postgres://chat_test@127.0.0.1:5435/chat_test?sslmode=disable
+# A throwaway RabbitMQ is added here with the event consumer.
+services:
+  chat-test-db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: chat_test
+      POSTGRES_USER: chat_test
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      # 5435 avoids supplier-service's 5433 and order/credit's 5434.
+      - "127.0.0.1:${CHAT_TEST_DB_PORT:-5435}:5432"
+    volumes:
+      - chat-test-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chat_test -d chat_test"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
+volumes:
+  chat-test-data:

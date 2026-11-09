@@ -1,5 +1,6 @@
 include:
   - order-service/compose.yaml
+  - chat-service/compose.yaml
 
 services:
   credit-db:

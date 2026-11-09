@@ -17,7 +17,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service: [user-service, supplier-service, credit-service, order-service]
+        service: [user-service, supplier-service, credit-service, order-service, chat-service]
     services:
       postgres:
         image: postgres:18-alpine

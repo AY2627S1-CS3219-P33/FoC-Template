@@ -1,0 +1,14 @@
+.git
+.gitignore
+.env
+.env.*
+docs
+openapi.yaml
+compose*.yaml
+README.md
+AGENTS.md
+implementation-plan.md
+*.log
+coverage.out
+# sqlc output is regenerated inside the image.
+internal/database/chatgen
