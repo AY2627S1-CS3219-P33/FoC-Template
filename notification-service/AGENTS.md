@@ -29,6 +29,15 @@ Auth0-protected HTTP API. It publishes nothing.
 ## Conventions
 
 - Run `gofmt -w`, `go vet ./...` and `go test ./...` before committing.
+- Integration tests skip unless their URL is set. Start a throwaway Postgres
+  and RabbitMQ with `docker compose -f compose.test.yaml up -d`, then run them
+  in one process (they share the DB and the broker queues):
+
+  ```sh
+  TEST_DATABASE_URL=postgres://notification_test@127.0.0.1:5435/notification_test?sslmode=disable \
+  TEST_AMQP_URL=amqp://guest:guest@127.0.0.1:5673/ \
+  go test -p 1 ./...
+  ```
 - The service applies no migrations (the runtime role has no DDL rights); add
   goose migrations under `migrations/` and let the migrate job apply them.
 - Errors returned to callers use the stable codes in
