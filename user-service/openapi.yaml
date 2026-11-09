@@ -24,6 +24,41 @@ paths:
         '204':
           description: Service is running.
 
+  /readyz:
+    get:
+      tags: [Health]
+      summary: Check service readiness
+      description: >-
+        Unlike /health, which only says the process answers, this says whether
+        the service can reach its database. It never contains connection
+        strings or error text.
+      security: []
+      responses:
+        '200':
+          description: The database is reachable.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    enum: [ready]
+                additionalProperties: false
+        '503':
+          description: The database is not reachable.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    enum: [not_ready]
+                additionalProperties: false
+
   /api/auth/config:
     get:
       tags: [Authentication]
