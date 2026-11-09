@@ -35,7 +35,7 @@ order-service/
 │   ├── readiness/          # /readyz
 │   ├── reconciler/         # Stuck reservations and edits
 │   ├── resilience/         # Retry, backoff and circuit breaker
-│   ├── review/             # Admin reviews, settings, event log, flags
+│   ├── review/             # Admin reviews, settings, event log, flags, overview
 │   ├── scheduler/          # Deadline and reminder jobs
 │   ├── serviceauth/        # Service tokens, in and out
 │   ├── supplierclient/     # supplier-service adapter

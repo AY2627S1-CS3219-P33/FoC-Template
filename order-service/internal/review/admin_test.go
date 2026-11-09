@@ -553,6 +553,96 @@ func TestFlagsEmptyList(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// GET /admin/overview
+// ---------------------------------------------------------------------------
+
+// fakeOverview returns canned counts; the SQL is tested against Postgres in
+// opsrepo.
+type fakeOverview struct {
+	counts opsrepo.OverviewCounts
+	err    error
+	calls  int
+}
+
+func (f *fakeOverview) Overview(context.Context) (opsrepo.OverviewCounts, error) {
+	f.calls++
+	return f.counts, f.err
+}
+
+func TestOverviewEmptyDatabase(t *testing.T) {
+	h := newHarness(t)
+
+	recorder := h.do(t, http.MethodGet, "/admin/overview", h.admin, "")
+
+	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+	require.JSONEq(t, `{
+		"asOf": "2026-03-02T09:00:00Z",
+		"ongoing": 0,
+		"waitingForCourier": 0,
+		"openReviews": {"count": 0, "oldestCreatedAt": null, "oldestAgeSeconds": null}
+	}`, recorder.Body.String(), "no open review gives null oldest fields")
+}
+
+func TestOverviewReportsCountsAndOldestReviewAge(t *testing.T) {
+	h := newHarness(t)
+	oldest := t0.Add(-90*time.Minute - 30*time.Second)
+	h.overview.counts = opsrepo.OverviewCounts{
+		Ongoing: 7, WaitingForCourier: 3, OpenReviews: 2, OldestReviewAt: &oldest,
+	}
+
+	recorder := h.do(t, http.MethodGet, "/admin/overview", h.admin, "")
+
+	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+	require.JSONEq(t, `{
+		"asOf": "2026-03-02T09:00:00Z",
+		"ongoing": 7,
+		"waitingForCourier": 3,
+		"openReviews": {"count": 2, "oldestCreatedAt": "2026-03-02T07:29:30Z", "oldestAgeSeconds": 5430}
+	}`, recorder.Body.String())
+}
+
+func TestOverviewAsOfFollowsTheClock(t *testing.T) {
+	h := newHarness(t)
+	oldest := t0.Add(-time.Hour)
+	h.overview.counts = opsrepo.OverviewCounts{OpenReviews: 1, OldestReviewAt: &oldest}
+	h.clock.Advance(10 * time.Minute)
+
+	recorder := h.do(t, http.MethodGet, "/admin/overview", h.admin, "")
+
+	var body struct {
+		AsOf       time.Time `json:"asOf"`
+		OpenReview struct {
+			AgeSeconds int64 `json:"oldestAgeSeconds"`
+		} `json:"openReviews"`
+	}
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &body))
+	require.Equal(t, t0.Add(10*time.Minute), body.AsOf)
+	require.Equal(t, int64(70*60), body.OpenReview.AgeSeconds)
+}
+
+func TestOverviewAgeIsNeverNegative(t *testing.T) {
+	h := newHarness(t)
+	created := t0.Add(2 * time.Second) // created while the counts were read
+	h.overview.counts = opsrepo.OverviewCounts{OpenReviews: 1, OldestReviewAt: &created}
+
+	recorder := h.do(t, http.MethodGet, "/admin/overview", h.admin, "")
+
+	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+	require.Contains(t, recorder.Body.String(), `"oldestAgeSeconds":0`)
+}
+
+func TestOverviewFailureIsInternalError(t *testing.T) {
+	h := newHarness(t)
+	h.overview.err = errors.New("connection reset")
+
+	recorder := h.do(t, http.MethodGet, "/admin/overview", h.admin, "")
+
+	require.Equal(t, http.StatusInternalServerError, recorder.Code)
+	require.Equal(t, apperror.Internal, decodeError(t, recorder).Code)
+	require.NotContains(t, recorder.Body.String(), "connection reset")
+}
+
+// ---------------------------------------------------------------------------
 // Authorization
 // ---------------------------------------------------------------------------
 
@@ -567,6 +657,7 @@ func TestAdminRoutesRequireReviewPermission_F1_6_2_NFR3_3(t *testing.T) {
 		{http.MethodPut, "/admin/settings", defaultSettingsJSON},
 		{http.MethodGet, "/admin/errand-events", ""},
 		{http.MethodGet, "/admin/flags", ""},
+		{http.MethodGet, "/admin/overview", ""},
 	} {
 		for _, tc := range []struct {
 			name, token string
@@ -583,5 +674,6 @@ func TestAdminRoutesRequireReviewPermission_F1_6_2_NFR3_3(t *testing.T) {
 	require.Empty(t, h.settingsStore.updatedBy)
 	require.Empty(t, h.transitions.filters)
 	require.Empty(t, h.activity.calls)
+	require.Zero(t, h.overview.calls)
 	require.Empty(t, h.audit.all())
 }

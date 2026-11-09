@@ -35,7 +35,7 @@ fields in a request are ignored (NFR3.3.1).
 | Route group | Token kind | Permission (gate C3) |
 | --- | --- | --- |
 | `/errands/**`, `/me/errands/**` | user | `errands:use` |
-| `/admin/**` | user | `errands:review` |
+| `/admin/**` (including `GET /admin/overview`) | user | `errands:review` |
 | `/internal/**` | service (`gty: client-credentials`) | `orders:internal` |
 | `/readyz` | none | none |
 
@@ -240,6 +240,27 @@ allows at most one per errand, because an errand is in `REVIEW_REQUIRED` at
 most once at a time. Resolving an errand with no open review is a bug and
 rolls the transaction back. The admin audit row for a resolution (F6.5) is
 still B's, written after `Apply` commits.
+
+### `GET /admin/overview`
+
+The admin Overview tab reads this live; nothing is stored. All counts come
+from `errands` and `errand_reviews` at request time, as separate statements,
+so they are each current but not one snapshot.
+
+| Field | Definition |
+| --- | --- |
+| `asOf` | Server time taken before the counts were read |
+| `ongoing` | Errands with status `ASSIGNED`, `PICKED_UP` or `DELIVERED` |
+| `waitingForCourier` | Errands with status `OPEN` |
+| `openReviews.count` | Open reviews (`resolution IS NULL`) joined to an errand that is `REVIEW_REQUIRED` |
+| `openReviews.oldestCreatedAt` | `min(errand_reviews.created_at)` of those reviews; `null` when there are none |
+| `openReviews.oldestAgeSeconds` | `asOf` minus `oldestCreatedAt`, whole seconds, never negative; `null` when there are none |
+
+The join skips an open review row whose errand has already left
+`REVIEW_REQUIRED`, which `GET /admin/reviews` also skips. There is no index
+on `errands.status` alone, so the counts scan `errands`. Measured on about
+100,000 errands (28% live, 7,000 open reviews) they take about 14 ms and
+9 ms, so no index was added.
 
 ## Fence and creation locking
 

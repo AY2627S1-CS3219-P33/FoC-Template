@@ -171,6 +171,7 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger, authOption
 		Settings: review.NewSettingsService(review.NewRepositorySettings(ops), ops, logger),
 		Events:   review.NewEventService(ops),
 		Flags:    review.NewFlagService(ops, ops, clock),
+		Overview: review.NewOverviewService(ops, clock),
 	}
 	ready := readiness.NewHandler(
 		readiness.Postgres(pool.Ping),
