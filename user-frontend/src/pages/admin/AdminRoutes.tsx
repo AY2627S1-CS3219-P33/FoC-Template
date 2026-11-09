@@ -95,7 +95,6 @@ export default function AdminRoutes() {
               blurb="How the service is being used: errands, couriers, suppliers and what they earn."
             >
               <MetricsPage getToken={getAdminToken} />
-              <OverviewPage getToken={getOrderToken} />
             </Section>
           }
         />
