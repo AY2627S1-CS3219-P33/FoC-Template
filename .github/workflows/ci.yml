@@ -17,7 +17,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service: [user-service, supplier-service, credit-service, order-service]
+        service: [user-service, supplier-service, credit-service, order-service, admin-service]
     services:
       postgres:
         image: postgres:18-alpine
@@ -58,7 +58,7 @@ jobs:
           go-version-file: ${{ matrix.service }}/go.mod
           cache-dependency-path: ${{ matrix.service }}/go.sum
       - name: Regenerate SQL queries as the container build does
-        if: matrix.service == 'supplier-service' || matrix.service == 'order-service'
+        if: matrix.service == 'supplier-service' || matrix.service == 'order-service' || matrix.service == 'admin-service'
         run: go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1 generate
       - name: Check formatting
         run: test -z "$(gofmt -l .)"
@@ -96,6 +96,7 @@ jobs:
           npx --yes @redocly/cli@2.54.1 lint
           user-service/openapi.yaml supplier-service/openapi.yaml
           credit-service/openapi.yaml order-service/openapi.yaml
+          admin-service/openapi.yaml
       - name: Test deployment selection and safeguards
         run: python3 -m unittest discover -s .github/scripts -p 'test_*.py' -v
       - name: Validate workflows

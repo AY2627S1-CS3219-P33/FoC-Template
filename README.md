@@ -26,7 +26,7 @@ withdrawn, or exchanged for money, and only circulate within the platform.
 
 This repository follows a **one-service-per-folder** structure: each
 microservice (`user-service/`, `supplier-service/`, `order-service/`,
-`credit-service/`) lives in its own top-level folder.
+`credit-service/`, `admin-service/`) lives in its own top-level folder.
 
 ```text
 .
@@ -34,6 +34,7 @@ microservice (`user-service/`, `supplier-service/`, `order-service/`,
 ├── supplier-service/
 ├── order-service/
 ├── credit-service/
+├── admin-service/
 ├── <n2h-service>/
 └── README.md
 ```
@@ -64,5 +65,16 @@ migration README before starting the stack; do not baseline a fresh database.
 
 Order and credit are not included because their service folders do not yet
 contain runnable implementations.
+
+### Admin dashboard
+
+The admin area (`/admin`) has an **Overview** tab and a **Metrics** tab. The
+Overview counters (open reviews, ongoing errands, errands waiting for a
+courier) are live reads from order-service (`GET /admin/overview`, permission
+`errands:review`). The Metrics tab and the readiness section of Overview come
+from `admin-service/`, which builds a read model from order-service's events
+and needs the Auth0 permission `dashboard:read`. See
+[admin-service/README.md](admin-service/README.md) and, for the AWS and Auth0
+steps that are not yet done, [docs/ecs-deployment-notes.md](docs/ecs-deployment-notes.md).
 
 ---
