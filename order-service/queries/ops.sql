@@ -340,3 +340,42 @@ GROUP BY t.actor_id
 HAVING count(*) >= @min_count::bigint
 ORDER BY event_count DESC, user_id
 LIMIT @row_limit;
+
+-- Export for admin-service (R2-1). Read-only; never selects contact details,
+-- items or notes.
+
+-- name: ExportTransitionEvents :many
+-- ExportTransitionEvents pages the transition events order-service
+-- published, oldest first by outbox id (after_id is the last id of the
+-- previous page, 0 for the first). The outbox keeps every row, and an
+-- event row's idempotency key is its messageId, so a backfill from here
+-- deduplicates against the live stream. kinds are the outbox kinds of the
+-- transition events ("event.accepted", ...).
+SELECT id, idempotency_key, kind, errand_id, payload
+FROM outbox
+WHERE id > @after_id::bigint
+  AND kind = ANY (@kinds::text[])
+ORDER BY id
+LIMIT @row_limit;
+
+-- name: ExportErrandsPage :many
+-- ExportErrandsPage pages errands by id. after_id is the last id of the
+-- previous page, or NULL for the first.
+SELECT id, status, version, courier_id, reward, supplier_id, supplier_version_id,
+       delivery_building_id,
+       COALESCE(delivery_building_snapshot ->> 'name', '')::text AS delivery_building_name,
+       created_at, updated_at
+FROM errands
+WHERE sqlc.narg(after_id)::uuid IS NULL OR id > sqlc.narg(after_id)::uuid
+ORDER BY id
+LIMIT @row_limit;
+
+-- name: ExportErrandsByID :many
+-- ExportErrandsByID returns the listed errands that exist, by id.
+SELECT id, status, version, courier_id, reward, supplier_id, supplier_version_id,
+       delivery_building_id,
+       COALESCE(delivery_building_snapshot ->> 'name', '')::text AS delivery_building_name,
+       created_at, updated_at
+FROM errands
+WHERE id = ANY (@ids::uuid[])
+ORDER BY id;

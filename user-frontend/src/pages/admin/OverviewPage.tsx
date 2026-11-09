@@ -3,9 +3,12 @@ import { Link } from "react-router-dom";
 import { getOverview, type AdminOverview } from "../../api/order";
 import { errandError } from "../errands/messages";
 import { formatDateTime } from "../errands/format";
+import { ReadinessPanel } from "./ReadinessPanel";
 
 interface Props {
   getToken: () => Promise<string>;
+  /** A token for the admin-service audience, for the readiness section. */
+  getAdminToken: () => Promise<string>;
 }
 
 // A coarse age: "3 d 4 h", "1 h 30 min", "12 min", "40 s".
@@ -61,7 +64,7 @@ function Counter({ label, value, detail, to, error, loading }: CounterProps) {
 
 // The live numbers behind GET /admin/overview. They are read when the page
 // opens and when Refresh is pressed; nothing polls.
-export function OverviewPage({ getToken }: Props) {
+export function OverviewPage({ getToken, getAdminToken }: Props) {
   const [overview, setOverview] = useState<AdminOverview | undefined>();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -125,6 +128,10 @@ export function OverviewPage({ getToken }: Props) {
           error={error}
           loading={loading}
         />
+      </div>
+
+      <div className="viz-layout overview-readiness">
+        <ReadinessPanel getToken={getAdminToken} />
       </div>
     </>
   );

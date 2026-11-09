@@ -27,6 +27,7 @@ order-service/
 │   ├── creditmsg/          # Credit-result consumer
 │   ├── database/           # Repositories and generated sqlc packages
 │   ├── errand/             # Domain, state machine, ports, errand routes
+│   ├── exportapi/          # Read-only export routes for admin-service
 │   ├── fence/              # Supplier deletion fence routes
 │   ├── httpapi/            # Router
 │   ├── internalapi/        # Service-to-service read routes

@@ -122,7 +122,7 @@ Set the API's **Token Expiration** to `600` seconds. Logout clears the SPA's in-
 
 The local endpoints are:
 
-- `GET /health` and `GET /api/auth/config` — public service/configuration endpoints.
+- `GET /health`, `GET /readyz` and `GET /api/auth/config` — public service/configuration endpoints. `/health` only says the process answers (204). `/readyz` says whether the database answers: 200 `{"status":"ready"}`, or 503 `{"status":"not_ready"}` with no error text. The admin dashboard's readiness section reads it.
 - `POST /api/auth/provision` — requires an access token and creates an active local USER from a matching, verified NUS Auth0 profile.
 - `POST /api/auth/logout` — validates the current access token before the SPA ends its Auth0 browser session; returns `204 No Content`.
 - `GET /api/private` — requires a valid Auth0 access token and a provisioned, active local account.
