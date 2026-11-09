@@ -5,9 +5,6 @@
 # Values are interpolated from chat-service/.env (copy .env.example), with
 # local-development defaults, so the stack starts without that file. Secrets
 # reach the container only at run time and are never built into the image.
-#
-# chat-migrate (goose, like order-migrate) is added together with the first
-# migration: goose fails on an empty migrations folder.
 services:
   chat-db:
     image: postgres:17-alpine
@@ -25,6 +22,28 @@ services:
       start_period: 10s
     networks:
       - chat-internal
+
+  # One-shot job: applies new migrations, then exits. The service never runs
+  # DDL itself, and /readyz stays 503 until the schema is current.
+  chat-migrate:
+    # Its own tag: building the shared foc-goose-migrator tag from an
+    # included file races the root file's identical build.
+    image: foc-chat-migrator:local
+    build:
+      context: ../supplier-service
+      dockerfile: migrate.Dockerfile
+    command: ["-dir", "/migrations", "up"]
+    environment:
+      GOOSE_DRIVER: postgres
+      GOOSE_DBSTRING: postgresql://chat_service:${CHAT_DB_PASSWORD:-chat-local-dev}@chat-db:5432/chat_service?sslmode=disable
+    volumes:
+      - ./migrations:/migrations:ro
+    depends_on:
+      chat-db:
+        condition: service_healthy
+    networks:
+      - chat-internal
+    restart: "no"
 
   chat-service:
     build: .
@@ -48,6 +67,8 @@ services:
     depends_on:
       chat-db:
         condition: service_healthy
+      chat-migrate:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3005/readyz"]
       interval: 10s

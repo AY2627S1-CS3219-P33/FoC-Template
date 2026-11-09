@@ -4,9 +4,17 @@ WORKDIR /src
 
 COPY go.mod go.sum ./
 RUN go mod download
+RUN go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1
 
+COPY sqlc.yaml ./
+COPY migrations ./migrations
+COPY queries ./queries
 COPY cmd ./cmd
 COPY internal ./internal
+
+# internal/database/chatgen is git-ignored; generate it from the schema and
+# queries so the image never builds against stale code.
+RUN sqlc generate
 
 RUN CGO_ENABLED=0 GOOS=linux go build \
     -trimpath \

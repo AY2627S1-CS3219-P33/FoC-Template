@@ -18,6 +18,7 @@ import (
 	"github.com/CS3219-AY2627S1/FoC-Template/chat-service/internal/httpapi"
 	"github.com/CS3219-AY2627S1/FoC-Template/chat-service/internal/readiness"
 	"github.com/CS3219-AY2627S1/FoC-Template/chat-service/internal/store"
+	"github.com/CS3219-AY2627S1/FoC-Template/chat-service/migrations"
 )
 
 type Application struct {
@@ -46,8 +47,14 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Applicat
 		return nil, errors.New("could not connect to PostgreSQL")
 	}
 
+	schemaVersion, err := migrations.LatestVersion()
+	if err != nil {
+		pool.Close()
+		return nil, fmt.Errorf("read embedded migrations: %w", err)
+	}
+
 	router := httpapi.NewRouter(
-		readiness.NewHandler(readiness.Postgres(pool.Ping)),
+		readiness.NewHandler(readiness.Postgres(store.SchemaCheck(pool, schemaVersion))),
 	)
 
 	return &Application{

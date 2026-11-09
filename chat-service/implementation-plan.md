@@ -1,6 +1,6 @@
 # Chat service implementation plan
 
-Status: phase 1 (skeleton) implemented; phases 2 to 10 not started. Last updated 9 November 2026.
+Status: phases 1 (skeleton) and 2 (database) implemented; phases 3 to 10 not started. Last updated 9 November 2026.
 
 This plan describes a new Go service, `chat-service`, that lets the **requester** and the
 **assigned courier** of an errand message each other in real time. It follows the same
@@ -192,9 +192,12 @@ CREATE TABLE chat_rooms (
     created_at      timestamptz NOT NULL DEFAULT now(),
     CONSTRAINT chat_rooms_end_reason CHECK (
         end_reason IS NULL OR end_reason IN ('WITHDRAWN', 'COMPLETED', 'REFUNDED')),
+    -- closes_at IS NOT NULL is needed: with closes_at NULL, closes_at >= ended_at
+    -- is unknown, and a CHECK only rejects false.
     CONSTRAINT chat_rooms_end_fields CHECK (
         (ended_at IS NULL     AND end_reason IS NULL     AND closes_at IS NULL)
-     OR (ended_at IS NOT NULL AND end_reason IS NOT NULL AND closes_at >= ended_at)),
+     OR (ended_at IS NOT NULL AND end_reason IS NOT NULL
+         AND closes_at IS NOT NULL AND closes_at >= ended_at)),
     CONSTRAINT chat_rooms_distinct_people CHECK (requester_id <> courier_id),
     -- Also makes a repeated errand.accepted harmless (see section 11).
     CONSTRAINT chat_rooms_one_per_assignment UNIQUE (errand_id, courier_id)
@@ -246,12 +249,12 @@ DROP TABLE chat_rooms;
 |---|---|
 | `LockErrand` (`SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))`) | events: one errand's events are applied one at a time, even across copies |
 | `UpsertRoomOnAccept` (`INSERT ... ON CONFLICT (errand_id, courier_id) DO UPDATE SET opened_version = COALESCE(chat_rooms.opened_version, EXCLUDED.opened_version) RETURNING *, (xmax = 0) AS inserted`) | events (`errand.accepted`) |
-| `EnsureRoom` (`INSERT ... ON CONFLICT DO NOTHING`, `opened_version` NULL) | events (`errand.withdrawn` arriving before `errand.accepted`) |
+| `EnsureRoom` (`INSERT ... ON CONFLICT DO NOTHING`, `opened_version` NULL), then `GetRoomByAssignment` | events (`errand.withdrawn` arriving before `errand.accepted`) |
 | `EndRoom` / `EndRoomsForErrand` (see below) | events |
-| `GetErrandEnding`, `InsertErrandEnding` (`ON CONFLICT DO NOTHING`) | events |
+| `GetErrandEnding`, `InsertErrandEnding` (`ON CONFLICT ... DO UPDATE` keeping the earliest ending, like `EndRoom`) | events |
 | `GetRoom` | chat |
 | `ListRoomsForErrandAndUser` | chat (`GET /errands/{errandId}/chats`) |
-| `ListRoomsForUser` | chat (`GET /me/chats`) |
+| `ListRoomsForUser`, then `ListLastMessages` (`DISTINCT ON (room_id)`) for the last message of each | chat (`GET /me/chats`) |
 | `InsertMessage` (`ON CONFLICT (room_id, client_msg_id) DO NOTHING RETURNING ...`), `GetMessageByClientID` | chat (send) |
 | `ListMessagesAfter`, `ListMessagesBefore` (by `id`, with `LIMIT`) | chat (history, catch-up) |
 | `ListRoomsForErrand`, `ListAllMessages` | chat (admin export) |
@@ -411,13 +414,15 @@ including:
 ## 8. store
 
 **Purpose:** the only package that runs SQL. It wraps the sqlc code, adds transaction
-helpers (`WithTx(ctx, func(q *chatgen.Queries) error)`) and converts database rows into
-`chat` types.
+helpers (`WithTx(ctx, func(q *store.Queries) error)`, where `store.Queries` has the same
+chat-typed methods as `Store`) and converts database rows into `chat` types.
 
 **Build:**
 - `sqlc.yaml` with one target (`queries/chat.sql` → `internal/database/chatgen`, `pgx/v5`,
   `emit_interface: true`, `emit_json_tags: true`, `emit_empty_slices: true`), the same
-  settings as order-service.
+  settings as order-service, plus `emit_pointers_for_null_types` and overrides mapping
+  `uuid` to `github.com/google/uuid.UUID` and `timestamptz` to `time.Time`, so rows hold
+  plain Go types.
 - `pgxpool` set-up with min/max connections from config.
 - Map unique-violation and check-violation errors into `chat` errors. Never return raw
   database errors to callers.

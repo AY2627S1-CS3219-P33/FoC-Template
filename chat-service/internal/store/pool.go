@@ -1,6 +1,3 @@
-// Package store is the only package that runs SQL. For now it only opens
-// the connection pool; the repository over the sqlc code arrives with the
-// first migration.
 package store
 
 import (

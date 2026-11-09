@@ -7,7 +7,6 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strconv"
 	"testing"
 	"time"
@@ -15,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/CS3219-AY2627S1/FoC-Template/chat-service/internal/config"
+	"github.com/CS3219-AY2627S1/FoC-Template/chat-service/internal/testdb"
 )
 
 func testConfig(databaseURL string) config.Config {
@@ -44,18 +44,11 @@ func TestNewRejectsAnUnparsableDatabaseURL(t *testing.T) {
 	require.EqualError(t, err, "invalid PostgreSQL connection configuration")
 }
 
-// The tests below need a reachable PostgreSQL; see compose.test.yaml.
-func testDatabaseURL(t *testing.T) string {
-	t.Helper()
-	url := os.Getenv("TEST_DATABASE_URL")
-	if url == "" {
-		t.Skip("TEST_DATABASE_URL is not set; skipping PostgreSQL test")
-	}
-	return url
-}
+// The tests below need a reachable PostgreSQL (see compose.test.yaml); they
+// skip without TEST_DATABASE_URL.
 
 func TestReadyzReportsPostgres(t *testing.T) {
-	application, err := New(context.Background(), testConfig(testDatabaseURL(t)), discardLogger())
+	application, err := New(context.Background(), testConfig(testdb.Migrated(t).URL), discardLogger())
 	require.NoError(t, err)
 	t.Cleanup(application.Close)
 
@@ -70,8 +63,20 @@ func TestReadyzReportsPostgres(t *testing.T) {
 	require.JSONEq(t, `{"status":"ready","dependencies":{"postgres":"ok"}}`, string(body))
 }
 
+// The service never migrates: without the migrate job it reports not ready.
+func TestReadyzIsNotReadyWithoutMigrations(t *testing.T) {
+	application, err := New(context.Background(), testConfig(testdb.Empty(t).URL), discardLogger())
+	require.NoError(t, err)
+	t.Cleanup(application.Close)
+
+	recorder := httptest.NewRecorder()
+	application.Handler().ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	require.Equal(t, http.StatusServiceUnavailable, recorder.Code)
+	require.JSONEq(t, `{"status":"not_ready"}`, recorder.Body.String())
+}
+
 func TestRunServesUntilCancelled(t *testing.T) {
-	cfg := testConfig(testDatabaseURL(t))
+	cfg := testConfig(testdb.Migrated(t).URL)
 	cfg.HTTP.Port = freePort(t)
 	application, err := New(context.Background(), cfg, discardLogger())
 	require.NoError(t, err)

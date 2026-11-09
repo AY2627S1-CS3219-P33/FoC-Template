@@ -1,7 +1,8 @@
 # Test dependencies for integration tests. Tests skip unless the matching
 # variable is set, for example with the default ports:
 #   TEST_DATABASE_URL=postgres://chat_test@127.0.0.1:5435/chat_test?sslmode=disable
-# A throwaway RabbitMQ is added here with the event consumer.
+# Each test creates its own schema in this database, migrates it and drops it
+# afterwards. A throwaway RabbitMQ is added here with the event consumer.
 services:
   chat-test-db:
     image: postgres:17-alpine

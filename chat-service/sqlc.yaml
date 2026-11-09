@@ -1,0 +1,29 @@
+version: "2"
+# One target: queries/chat.sql against the full migrations/ schema. Run
+# `go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1 generate` after changing
+# either; the output is git-ignored and regenerated in the Docker build and CI.
+sql:
+  - engine: postgresql
+    schema: migrations
+    queries: queries/chat.sql
+    gen:
+      go:
+        package: chatgen
+        out: internal/database/chatgen
+        sql_package: pgx/v5
+        emit_interface: true
+        emit_json_tags: true
+        emit_empty_slices: true
+        # Plain Go types instead of pgtype wrappers: NULL becomes a nil
+        # pointer, so the store's row conversion stays short.
+        emit_pointers_for_null_types: true
+        overrides:
+          - db_type: uuid
+            go_type: github.com/google/uuid.UUID
+          - db_type: timestamptz
+            go_type: time.Time
+          - db_type: timestamptz
+            nullable: true
+            go_type:
+              type: time.Time
+              pointer: true
