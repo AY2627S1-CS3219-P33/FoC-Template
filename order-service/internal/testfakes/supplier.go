@@ -11,8 +11,9 @@ import (
 )
 
 // FakeSupplierGate is an errand.SupplierGate over in-memory suppliers. A
-// supplier added with AddSupplier is available until SetUnavailable; opening
-// hours are not checked, so tests choose availability directly.
+// supplier added with AddSupplier is available until SetUnavailable (deleted)
+// or SetClosed; opening hours are not checked, so tests choose availability
+// directly.
 type FakeSupplierGate struct {
 	Faults
 	CallLog
@@ -20,6 +21,7 @@ type FakeSupplierGate struct {
 	mu          sync.Mutex
 	current     map[string]string // supplierID → current versionID
 	unavailable map[string]bool
+	closed      map[string]bool
 	versions    map[string]errand.SupplierVersion
 	buildings   []errand.Building
 }
@@ -30,6 +32,7 @@ func NewFakeSupplierGate() *FakeSupplierGate {
 	return &FakeSupplierGate{
 		current:     map[string]string{},
 		unavailable: map[string]bool{},
+		closed:      map[string]bool{},
 		versions:    map[string]errand.SupplierVersion{},
 	}
 }
@@ -47,14 +50,23 @@ func (g *FakeSupplierGate) AddSupplier(v errand.SupplierVersion) {
 	g.versions[v.VersionID] = v
 	g.current[v.SupplierID] = v.VersionID
 	delete(g.unavailable, v.SupplierID)
+	delete(g.closed, v.SupplierID)
 }
 
-// SetUnavailable makes ResolveForCreate refuse supplierID (deleted or
-// closed). Its versions stay readable.
+// SetUnavailable makes ResolveForCreate and GetCurrent refuse supplierID, as
+// for a deleted supplier. Its versions stay readable.
 func (g *FakeSupplierGate) SetUnavailable(supplierID string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.unavailable[supplierID] = true
+}
+
+// SetClosed makes ResolveForCreate refuse supplierID, as outside its opening
+// hours. GetCurrent still returns it.
+func (g *FakeSupplierGate) SetClosed(supplierID string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.closed[supplierID] = true
 }
 
 // SetBuildings replaces the building list.
@@ -67,6 +79,20 @@ func (g *FakeSupplierGate) SetBuildings(buildings ...errand.Building) {
 func (g *FakeSupplierGate) ResolveForCreate(_ context.Context, supplierID string, now time.Time) (errand.SupplierVersion, error) {
 	g.record("ResolveForCreate", supplierID, now)
 	if err := g.fault("ResolveForCreate"); err != nil {
+		return errand.SupplierVersion{}, err
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	versionID, ok := g.current[supplierID]
+	if !ok || g.unavailable[supplierID] || g.closed[supplierID] {
+		return errand.SupplierVersion{}, appErr(apperror.SupplierUnavailable, "supplier %q is unavailable", supplierID)
+	}
+	return g.versions[versionID], nil
+}
+
+func (g *FakeSupplierGate) GetCurrent(_ context.Context, supplierID string) (errand.SupplierVersion, error) {
+	g.record("GetCurrent", supplierID)
+	if err := g.fault("GetCurrent"); err != nil {
 		return errand.SupplierVersion{}, err
 	}
 	g.mu.Lock()
