@@ -33,6 +33,14 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/credit-service/, ""),
       },
+      // Notification service (documented gateway route /notification-service),
+      // same prefix-stripping arrangement. Forwards nowhere until the service
+      // is running on :3005, when the notification screens light up.
+      "/notification-service": {
+        target: "http://localhost:3005",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/notification-service/, ""),
+      },
     },
     allowedHosts: ["russell-unjumbled-unputatively.ngrok-free.dev"],
   },

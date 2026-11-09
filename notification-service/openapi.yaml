@@ -1,0 +1,273 @@
+openapi: 3.1.0
+
+info:
+  title: Friend on Campus Notification Service API
+  version: 1.0.0
+  description: >-
+    Per-user notifications about errands. The service consumes errand events
+    from RabbitMQ (docs/asyncapi.yaml), derives recipients from the event's
+    requesterId, courierId and actorId, stores one notification per recipient
+    and serves each user their own. There is no way to create a notification
+    over HTTP and no way to read another user's notifications: every route
+    resolves the caller from the verified token. x-required-permissions names
+    the token permission an operation needs; x-caller names the kind of token.
+  license:
+    name: MIT
+    identifier: MIT
+
+servers:
+  - url: /notification-service
+    description: API gateway route
+
+tags:
+  - name: Notifications
+    description: The caller's own notifications.
+  - name: Operations
+    description: Service health.
+
+paths:
+  /v1/notifications:
+    get:
+      operationId: listMyNotifications
+      tags: [Notifications]
+      summary: List the caller's notifications, newest first
+      description: >-
+        Keyset-paginated by (createdAt, id). Pass the nextCursor from a page to
+        get the following one; the cursor is only valid with the same unread
+        filter that produced it.
+      security:
+        - bearerAuth: []
+      x-caller: user
+      x-required-permissions: [notifications:read:own]
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - name: cursor
+          in: query
+          required: false
+          description: Opaque nextCursor from a previous page.
+          schema: { type: string }
+        - name: unread
+          in: query
+          required: false
+          description: When true, only unread notifications are returned.
+          schema: { type: boolean, default: false }
+      responses:
+        "200":
+          description: A page of the caller's notifications.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationPage"
+        "400":
+          $ref: "#/components/responses/InvalidArgument"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/DependencyUnavailable"
+  /v1/notifications/unread-count:
+    get:
+      operationId: countMyUnreadNotifications
+      tags: [Notifications]
+      summary: Count the caller's unread notifications
+      security:
+        - bearerAuth: []
+      x-caller: user
+      x-required-permissions: [notifications:read:own]
+      responses:
+        "200":
+          description: The unread count.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [count]
+                properties:
+                  count: { type: integer, minimum: 0 }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/DependencyUnavailable"
+  /v1/notifications/{id}/read:
+    post:
+      operationId: markNotificationRead
+      tags: [Notifications]
+      summary: Mark one of the caller's notifications read
+      description: Idempotent; marking an already-read notification read again succeeds.
+      security:
+        - bearerAuth: []
+      x-caller: user
+      x-required-permissions: [notifications:write:own]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "204":
+          description: The notification is read.
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotificationNotFound"
+        "503":
+          $ref: "#/components/responses/DependencyUnavailable"
+  /v1/notifications/read-all:
+    post:
+      operationId: markAllNotificationsRead
+      tags: [Notifications]
+      summary: Mark all of the caller's notifications read
+      security:
+        - bearerAuth: []
+      x-caller: user
+      x-required-permissions: [notifications:write:own]
+      responses:
+        "200":
+          description: How many notifications were changed.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [updated]
+                properties:
+                  updated: { type: integer, minimum: 0 }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/DependencyUnavailable"
+  /readyz:
+    get:
+      operationId: readiness
+      tags: [Operations]
+      summary: Readiness probe
+      description: No token needed. Ready only when the schema is current and the event consumer is subscribed.
+      security: []
+      responses:
+        "200":
+          description: Ready.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Readiness" }
+              example: { status: ready }
+        "503":
+          description: Not ready.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Readiness" }
+              example: { status: not_ready }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >-
+        Auth0 RS256 access token for https://api.foc.local/notification-service,
+        validated locally using cached JWKS. Permissions are read from the
+        permissions claim only. These routes need a user (login flow) token.
+
+  schemas:
+    Notification:
+      type: object
+      required: [id, errandId, type, title, body, createdAt, read]
+      properties:
+        id:
+          type: string
+          format: uuid
+        errandId:
+          type: string
+          format: uuid
+        type:
+          type: string
+          description: The source errand event routing key, e.g. errand.delivered.
+          examples: ["errand.delivered"]
+        title:
+          type: string
+        body:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+          description: The event's occurredAt, so the order matches when things happened.
+        read:
+          type: boolean
+        readAt:
+          type: string
+          format: date-time
+          description: Present only once the notification has been read.
+    NotificationPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Notification"
+        nextCursor:
+          type: string
+          description: Present when more notifications remain. Omitted on the last page.
+    Readiness:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ready, not_ready]
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          enum:
+            - INVALID_ARGUMENT
+            - UNAUTHENTICATED
+            - FORBIDDEN
+            - NOTIFICATION_NOT_FOUND
+            - DEPENDENCY_UNAVAILABLE
+            - INTERNAL
+        message:
+          type: string
+
+  responses:
+    InvalidArgument:
+      description: A query parameter or cursor is malformed.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { code: INVALID_ARGUMENT, message: limit must be a positive integer }
+    Unauthenticated:
+      description: The token is missing or invalid.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { code: UNAUTHENTICATED, message: invalid or expired credentials }
+    Forbidden:
+      description: Wrong kind of token for this route, or a missing permission.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { code: FORBIDDEN, message: insufficient permissions for this operation }
+    NotificationNotFound:
+      description: No notification with that id belongs to the caller.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { code: NOTIFICATION_NOT_FOUND, message: notification not found }
+    DependencyUnavailable:
+      description: The token could not be verified because Auth0 is not reachable.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { code: DEPENDENCY_UNAVAILABLE, message: authentication service unavailable }
