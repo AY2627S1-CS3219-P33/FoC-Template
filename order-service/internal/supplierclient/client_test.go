@@ -149,6 +149,111 @@ func TestResolveForCreateRejectsUnavailableBody(t *testing.T) {
 	requireCode(t, err, apperror.SupplierUnavailable)
 }
 
+func TestGetCurrentIgnoresOpeningHours(t *testing.T) {
+	s := newStub(t)
+	s.addHistorical(version(supplierID, oldVersionID, "09:00", "18:00", false))
+	s.addCurrent(version(supplierID, versionID, "09:00", "18:00", true))
+	c, _ := newTestClient(t, s)
+	ctx := context.Background()
+
+	// Closed at 20:00, so creation is refused, but the supplier still exists.
+	_, err := c.ResolveForCreate(ctx, supplierID, sgt(20, 0, 0))
+	requireCode(t, err, apperror.SupplierUnavailable)
+
+	v, err := c.GetCurrent(ctx, supplierID)
+	require.NoError(t, err)
+	assert.Equal(t, versionID, v.VersionID)
+	assert.Equal(t, supplierID, v.SupplierID)
+	assert.Equal(t, "Frontier Canteen", v.Name)
+	assert.True(t, v.Available)
+}
+
+func TestGetCurrentRefusesMissingAndDeleted(t *testing.T) {
+	s := newStub(t)
+	s.addHistorical(version(deletedID, deletedVerID, "00:00", "00:00", false))
+	c, _ := newTestClient(t, s)
+	ctx := context.Background()
+
+	_, err := c.GetCurrent(ctx, deletedID)
+	requireCode(t, err, apperror.SupplierUnavailable)
+	_, err = c.GetCurrent(ctx, unknownID)
+	requireCode(t, err, apperror.SupplierUnavailable)
+
+	// Empty IDs are refused without a call.
+	before := s.hits.Load()
+	_, err = c.GetCurrent(ctx, "")
+	requireCode(t, err, apperror.SupplierUnavailable)
+	assert.Equal(t, before, s.hits.Load())
+
+	// Not-found answers do not count against the breaker.
+	for range 10 {
+		_, _ = c.GetCurrent(ctx, deletedID)
+	}
+	assert.Equal(t, resilience.StateClosed, c.Breaker().State())
+}
+
+func TestGetCurrentRejectsUnavailableBody(t *testing.T) {
+	s := newStub(t)
+	s.addCurrent(version(supplierID, versionID, "00:00", "00:00", true))
+	s.mu.Lock()
+	v := s.current[supplierID]
+	v.Available = false
+	s.current[supplierID] = v
+	s.mu.Unlock()
+	c, _ := newTestClient(t, s)
+
+	_, err := c.GetCurrent(context.Background(), supplierID)
+	requireCode(t, err, apperror.SupplierUnavailable)
+}
+
+func TestGetCurrentDependencyFailures(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("500", func(t *testing.T) {
+		s := newStub(t)
+		s.addCurrent(version(supplierID, versionID, "00:00", "00:00", true))
+		s.setFailure(http.StatusInternalServerError)
+		c, _ := newTestClient(t, s)
+		_, err := c.GetCurrent(ctx, supplierID)
+		requireCode(t, err, apperror.DependencyUnavailable)
+	})
+
+	t.Run("timeout", func(t *testing.T) {
+		s := newStub(t)
+		s.addCurrent(version(supplierID, versionID, "00:00", "00:00", true))
+		s.delay = time.Second
+		c, _ := newTestClient(t, s, func(cfg *Config) { cfg.Timeout = 20 * time.Millisecond })
+		_, err := c.GetCurrent(ctx, supplierID)
+		requireCode(t, err, apperror.DependencyUnavailable)
+	})
+
+	t.Run("body for another supplier", func(t *testing.T) {
+		s := newStub(t)
+		s.mu.Lock()
+		s.current[supplierID] = version(deletedID, versionID, "00:00", "00:00", true)
+		s.mu.Unlock()
+		c, _ := newTestClient(t, s)
+		_, err := c.GetCurrent(ctx, supplierID)
+		requireCode(t, err, apperror.DependencyUnavailable)
+	})
+
+	t.Run("open breaker fails fast", func(t *testing.T) {
+		s := newStub(t)
+		s.addCurrent(version(supplierID, versionID, "00:00", "00:00", true))
+		s.setFailure(http.StatusServiceUnavailable)
+		c, _ := newTestClient(t, s)
+		for range 3 {
+			_, err := c.GetCurrent(ctx, supplierID)
+			requireCode(t, err, apperror.DependencyUnavailable)
+		}
+		require.Equal(t, resilience.StateOpen, c.Breaker().State())
+		hits := s.hits.Load()
+		_, err := c.GetCurrent(ctx, supplierID)
+		requireCode(t, err, apperror.DependencyUnavailable)
+		assert.Equal(t, hits, s.hits.Load())
+	})
+}
+
 func TestUnknownIDs(t *testing.T) {
 	s := newStub(t)
 	c, _ := newTestClient(t, s)
