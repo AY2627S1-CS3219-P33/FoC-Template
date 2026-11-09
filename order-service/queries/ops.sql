@@ -142,6 +142,32 @@ WHERE r.resolution IS NULL
 ORDER BY r.id
 LIMIT @row_limit;
 
+-- Admin overview (R1-1). Both queries are live reads of the current state.
+
+-- name: CountOverviewErrands :one
+-- CountOverviewErrands counts the errands in progress (ASSIGNED, PICKED_UP
+-- or DELIVERED) and those waiting for a courier (OPEN). Each errand has one
+-- status, so it is counted once. errands has no index on status alone; the
+-- status filter keeps the scan to the live rows.
+SELECT
+    count(*) FILTER (WHERE status IN ('ASSIGNED', 'PICKED_UP', 'DELIVERED')) AS ongoing,
+    count(*) FILTER (WHERE status = 'OPEN') AS waiting_for_courier
+FROM errands
+WHERE status IN ('OPEN', 'ASSIGNED', 'PICKED_UP', 'DELIVERED');
+
+-- name: SummarizeOpenReviews :one
+-- SummarizeOpenReviews counts the open reviews whose errand is still
+-- REVIEW_REQUIRED and returns the oldest review's creation time (NULL when
+-- there are none). Joining to errands skips a review whose errand has left
+-- review, as ListOpenReviews' callers do. It reads errand_reviews_open_idx.
+SELECT
+    count(*) AS open_count,
+    min(r.created_at)::timestamptz AS oldest_created_at
+FROM errand_reviews r
+JOIN errands e ON e.id = r.errand_id
+WHERE r.resolution IS NULL
+  AND e.status = 'REVIEW_REQUIRED';
+
 -- name: InsertAudit :one
 INSERT INTO admin_audit (actor_id, action, target_type, target_id, reason, outcome)
 VALUES (@actor_id, @action, @target_type, @target_id, @reason, @outcome)

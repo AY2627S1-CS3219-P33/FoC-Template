@@ -137,6 +137,8 @@ type harness struct {
 	settingsStore *fakeSettingsStore
 	transitions   *fakeTransitions
 	activity      *fakeActivity
+	overview      *fakeOverview
+	clock         *testfakes.FakeClock
 	settings      *testfakes.FakeSettings
 	logs          *strings.Builder
 	fixture       *authtest.Fixture
@@ -165,6 +167,7 @@ func newHarness(t *testing.T) harness {
 	settingsStore := newFakeSettingsStore(audit)
 	transitions := &fakeTransitions{}
 	activity := &fakeActivity{}
+	overview := &fakeOverview{}
 	settings := testfakes.NewFakeSettings()
 	services := review.Services{
 		Reviews: review.NewService(review.Dependencies{
@@ -178,13 +181,14 @@ func newHarness(t *testing.T) harness {
 		Settings: review.NewSettingsService(settingsStore, audit, logger),
 		Events:   review.NewEventService(transitions),
 		Flags:    review.NewFlagService(activity, settings, clock),
+		Overview: review.NewOverviewService(overview, clock),
 	}
 	router := httpapi.NewRouter(httpapi.Dependencies{Logger: logger},
 		review.NewHandler(services, auth.NewMiddleware(verifier), logger))
 	admin := f.Token(t, f.Claims(auth.OrderAudience, []string{string(auth.ReviewErrands)}), "one")
 	return harness{
 		router: router, store: store, suppliers: suppliers, audit: audit,
-		settingsStore: settingsStore, transitions: transitions, activity: activity, settings: settings,
+		settingsStore: settingsStore, transitions: transitions, activity: activity, overview: overview, clock: clock, settings: settings,
 		logs: logs, fixture: f, admin: admin,
 	}
 }

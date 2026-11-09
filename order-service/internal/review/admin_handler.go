@@ -370,3 +370,44 @@ func (h Handler) listFlags(response http.ResponseWriter, request *http.Request) 
 	}
 	writeJSON(response, http.StatusOK, body)
 }
+
+// ---------------------------------------------------------------------------
+// GET /admin/overview
+// ---------------------------------------------------------------------------
+
+type overviewResponse struct {
+	AsOf              time.Time           `json:"asOf"`
+	Ongoing           int                 `json:"ongoing"`
+	WaitingForCourier int                 `json:"waitingForCourier"`
+	OpenReviews       openReviewsResponse `json:"openReviews"`
+}
+
+// openReviewsResponse has null oldestCreatedAt and oldestAgeSeconds when
+// there are no open reviews.
+type openReviewsResponse struct {
+	Count            int        `json:"count"`
+	OldestCreatedAt  *time.Time `json:"oldestCreatedAt"`
+	OldestAgeSeconds *int64     `json:"oldestAgeSeconds"`
+}
+
+func (h Handler) getOverview(response http.ResponseWriter, request *http.Request) {
+	if _, ok := adminID(response, request); !ok {
+		return
+	}
+	overview, err := h.overview.Get(request.Context())
+	if err != nil {
+		h.fail(response, request, "get overview", "", err)
+		return
+	}
+	body := overviewResponse{
+		AsOf:              overview.AsOf,
+		Ongoing:           overview.Ongoing,
+		WaitingForCourier: overview.WaitingForCourier,
+		OpenReviews:       openReviewsResponse{Count: overview.OpenReviews, OldestCreatedAt: overview.OldestReviewAt},
+	}
+	if overview.OldestReviewAt != nil {
+		age := int64(overview.OldestReviewAge / time.Second)
+		body.OpenReviews.OldestAgeSeconds = &age
+	}
+	writeJSON(response, http.StatusOK, body)
+}
