@@ -10,12 +10,15 @@ import { ActivityFlags } from "./ActivityFlags";
 import { ErrandEvents } from "./ErrandEvents";
 import { FailedOutbox } from "./FailedOutbox";
 import { LookupsPage } from "./LookupsPage";
+import { MetricsPage } from "./MetricsPage";
 import { OverviewPage } from "./OverviewPage";
 import { OrderSettingsForm } from "./OrderSettingsForm";
 import { ReviewQueue } from "./ReviewQueue";
 
 const ORDER_AUDIENCE =
   import.meta.env.VITE_ORDER_AUDIENCE || "https://api.foc.local/order-service";
+const ADMIN_AUDIENCE =
+  import.meta.env.VITE_ADMIN_AUDIENCE || "https://api.foc.local/admin-service";
 
 function Section({ title, blurb, children }: { title: string; blurb: string; children: ReactNode }) {
   return (
@@ -58,6 +61,17 @@ export default function AdminRoutes() {
     [getAccessToken],
   );
 
+  // The dashboard's metrics and readiness come from admin-service, a separate
+  // API with its own permission, dashboard:read.
+  const getAdminToken = useCallback(
+    () =>
+      getAccessToken({
+        audience: ADMIN_AUDIENCE,
+        scope: "openid profile email dashboard:read",
+      }),
+    [getAccessToken],
+  );
+
   // UX only: each API still enforces its own permission.
   if (!isAdmin) return <Navigate to="/" replace />;
 
@@ -69,7 +83,18 @@ export default function AdminRoutes() {
           path="overview"
           element={
             <Section title="Overview" blurb="What needs attention right now.">
-              <OverviewPage getToken={getOrderToken} />
+              <OverviewPage getToken={getOrderToken} getAdminToken={getAdminToken} />
+            </Section>
+          }
+        />
+        <Route
+          path="metrics"
+          element={
+            <Section
+              title="Metrics"
+              blurb="How the service is being used: errands, couriers, suppliers and what they earn."
+            >
+              <MetricsPage getToken={getAdminToken} />
             </Section>
           }
         />
