@@ -1301,6 +1301,56 @@ button.credit-chip:focus-visible {
   outline-offset: 2px;
 }
 
+/* ---------- Admin overview ---------- */
+.overview-toolbar {
+  align-items: center;
+}
+.overview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: 1rem;
+}
+.overview-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 1.2rem 1.3rem;
+  border: 1px solid var(--line-soft);
+  border-radius: 1rem;
+  background: var(--surface);
+  color: var(--ink);
+  text-decoration: none;
+}
+.overview-link:hover {
+  border-color: var(--line);
+}
+.overview-link:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+.overview-label {
+  color: var(--ink-2);
+  font-size: 0.85rem;
+  font-weight: 650;
+}
+.overview-value {
+  font-size: 2.4rem;
+  font-weight: 750;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+.overview-value.is-stale {
+  opacity: 0.45;
+}
+.overview-detail {
+  color: var(--ink-3);
+  font-size: 0.85rem;
+}
+.overview-error {
+  color: var(--err);
+  font-size: 0.85rem;
+}
+
 /* ---------- Admin area ---------- */
 .content-wide {
   max-width: 76rem;

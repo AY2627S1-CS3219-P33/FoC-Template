@@ -310,6 +310,18 @@ export interface FlagList {
   items: Flag[];
 }
 
+// openReviews.oldestCreatedAt and oldestAgeSeconds are null when count is 0.
+export interface AdminOverview {
+  asOf: string;
+  ongoing: number;
+  waitingForCourier: number;
+  openReviews: {
+    count: number;
+    oldestCreatedAt: string | null;
+    oldestAgeSeconds: number | null;
+  };
+}
+
 export interface OutboxRow {
   id: number;
   kind: string;
@@ -606,6 +618,10 @@ export async function listErrandEvents(
 
 export async function listFlags(token: string): Promise<FlagList> {
   return parse<FlagList>(await fetch(`${BASE}/admin/flags`, { headers: headers(token) }));
+}
+
+export async function getOverview(token: string): Promise<AdminOverview> {
+  return parse<AdminOverview>(await fetch(`${BASE}/admin/overview`, { headers: headers(token) }));
 }
 
 export async function listFailedOutboxRows(
