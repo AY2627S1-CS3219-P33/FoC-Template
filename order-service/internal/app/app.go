@@ -31,6 +31,7 @@ import (
 	"github.com/CS3219-AY2627S1/FoC-Template/order-service/internal/errand/create"
 	"github.com/CS3219-AY2627S1/FoC-Template/order-service/internal/errand/mine"
 	"github.com/CS3219-AY2627S1/FoC-Template/order-service/internal/errand/requester"
+	"github.com/CS3219-AY2627S1/FoC-Template/order-service/internal/exportapi"
 	"github.com/CS3219-AY2627S1/FoC-Template/order-service/internal/fence"
 	"github.com/CS3219-AY2627S1/FoC-Template/order-service/internal/httpapi"
 	"github.com/CS3219-AY2627S1/FoC-Template/order-service/internal/internalapi"
@@ -189,6 +190,7 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger, authOption
 		outboxadmin.NewHandler(outboxadmin.NewStore(pool), guard, logger),
 		fence.NewHandler(fence.NewService(ops, logger), serviceGuard, logger),
 		internalapi.NewHandler(ops, serviceGuard, logger),
+		exportapi.NewHandler(ops, suppliers, serviceGuard, logger),
 		ready,
 	)
 

@@ -29,7 +29,7 @@ tags:
   - name: Administration
     description: Review, settings, logs, flags and failed outbox rows (errands:review).
   - name: Internal
-    description: Service-to-service routes (service tokens with orders:internal only).
+    description: Service-to-service routes (service tokens with orders:internal, or orders:admin-read for the export routes).
   - name: Operations
     description: Service health.
 
@@ -119,6 +119,12 @@ paths:
   /internal/users/{userId}/active-errands:
     get:
       $ref: ./openapi/internal.yaml#/operations/getUserActiveErrands
+  /internal/export/transitions:
+    get:
+      $ref: ./openapi/internal.yaml#/operations/exportTransitions
+  /internal/export/errands:
+    get:
+      $ref: ./openapi/internal.yaml#/operations/exportErrands
   /readyz:
     get:
       $ref: ./openapi/common.yaml#/operations/readiness
