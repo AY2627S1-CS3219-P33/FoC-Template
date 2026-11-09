@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/CS3219-AY2627S1/FoC-Template/order-service/internal/database/msgrepo"
-	"github.com/CS3219-AY2627S1/FoC-Template/order-service/internal/database/opsrepo"
 	"github.com/CS3219-AY2627S1/FoC-Template/order-service/internal/messaging"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -57,7 +56,7 @@ func run(logger *slog.Logger) error {
 	if err != nil {
 		return errors.New("database connection failed")
 	}
-	dispatcher, err := messaging.NewDispatcher(msgrepo.New(pool), publisher, opsrepo.New(pool), logger, messaging.DispatcherConfig{})
+	dispatcher, err := messaging.NewDispatcher(msgrepo.New(pool), publisher, logger, messaging.DispatcherConfig{})
 	if err != nil {
 		return err
 	}

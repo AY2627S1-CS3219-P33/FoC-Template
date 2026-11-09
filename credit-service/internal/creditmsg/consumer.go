@@ -14,6 +14,9 @@ import (
 
 var errConnectionLost = errors.New("creditmsg: broker connection lost")
 
+// retryPublishTimeout bounds parking one command on the retry queue.
+const retryPublishTimeout = 10 * time.Second
+
 // MessageHandler processes one command message. Handler implements it.
 type MessageHandler interface {
 	Handle(ctx context.Context, routingKey string, body []byte) error
@@ -45,23 +48,24 @@ type Config struct {
 	// ReconnectBackoff spaces out reconnects after a lost or failed session.
 	ReconnectBackoff Backoff
 	// RetryBackoff is the wait before a message is requeued after a temporary
-	// failure. It grows with consecutive failures.
+	// failure, when it could not be parked on the retry queue. It grows with
+	// consecutive failures.
 	RetryBackoff Backoff
 	// MaxAttempts is how often a message is tried before it is dead-lettered
-	// after temporary failures.
+	// after temporary failures. Each retry waits retryDelay on the retry queue.
 	MaxAttempts int
 	// HandleTimeout bounds the work for one delivery.
 	HandleTimeout time.Duration
 }
 
-// DefaultConfig returns 5 attempts, prefetch 16, reconnect backoff 500 ms to 30 s, retry
-// backoff 1 s to 30 s and a 30 s handle timeout.
+// DefaultConfig returns 120 attempts, prefetch 16, reconnect backoff 500 ms to
+// 30 s, requeue backoff 1 s to 30 s and a 30 s handle timeout.
 func DefaultConfig() Config {
 	return Config{
 		Prefetch:         16,
 		ReconnectBackoff: Backoff{Base: 500 * time.Millisecond, Cap: 30 * time.Second},
 		RetryBackoff:     Backoff{Base: time.Second, Cap: 30 * time.Second},
-		MaxAttempts:      DeliveryLimit,
+		MaxAttempts:      DefaultMaxAttempts,
 		HandleTimeout:    30 * time.Second,
 	}
 }
@@ -98,8 +102,9 @@ func (c Config) withDefaults() (Config, error) {
 }
 
 // Consumer reads credit-service.commands and settles each delivery as the
-// handler's result says: ack after the work has committed, requeue after a
-// temporary failure, reject (dead-letter) a message that can never succeed.
+// handler's result says: ack after the work has committed, park the command on
+// the retry queue after a temporary failure, reject (dead-letter) a message
+// that can never succeed or has failed too often.
 //
 // Deliveries are handled one at a time. The topology is declared on every
 // (re)connect.
@@ -177,6 +182,10 @@ func (c *Consumer) session(ctx context.Context) (bool, error) {
 	if err == nil {
 		err = ch.Qos(c.cfg.Prefetch, 0, false)
 	}
+	var retry *retryPublisher
+	if err == nil {
+		retry, err = newRetryPublisher(conn)
+	}
 	var deliveries <-chan amqp.Delivery
 	if err == nil {
 		deliveries, err = ch.Consume(QueueCommands, "", false, false, false, false, nil)
@@ -194,18 +203,22 @@ func (c *Consumer) session(ctx context.Context) (bool, error) {
 		select {
 		case <-ctx.Done():
 			return true, ctx.Err()
+		case err := <-retry.closing:
+			// The broker closed the retry channel, for example because its
+			// exchange was deleted. Reconnect to declare the topology again.
+			return true, fmt.Errorf("retry channel closed: %v", err)
 		case d, ok := <-deliveries:
 			if !ok {
 				return true, errConnectionLost
 			}
-			c.settle(ctx, d, &retries)
+			c.settle(ctx, d, &retries, retry)
 		}
 	}
 }
 
-// settle handles one delivery and acks, requeues or rejects it. retries counts
-// consecutive temporary failures, for the retry backoff.
-func (c *Consumer) settle(ctx context.Context, d amqp.Delivery, retries *int) {
+// settle handles one delivery and acks, parks or rejects it. retries counts
+// consecutive failures to park a command, for the requeue backoff.
+func (c *Consumer) settle(ctx context.Context, d amqp.Delivery, retries *int, retry *retryPublisher) {
 	err := c.handle(ctx, d)
 	disposition := DispositionOf(err)
 	var settleErr error
@@ -219,21 +232,15 @@ func (c *Consumer) settle(ctx context.Context, d amqp.Delivery, retries *int) {
 			slog.String("routing_key", d.RoutingKey), slog.String("message_id", d.MessageId), slog.Any("error", err))
 		settleErr = d.Nack(false, false)
 	case attempt(d) >= c.cfg.MaxAttempts:
-		// Order-service sends a command again if it gets no result, and
-		// credit-service answers a repeat, so giving up here loses nothing.
+		// The command was never applied. Requeueing the outbox row in
+		// order-service sends it again with the same key.
 		*retries = 0
 		c.logger.ErrorContext(ctx, "credit command failed too often; dead-lettering",
 			slog.String("routing_key", d.RoutingKey), slog.String("message_id", d.MessageId),
 			slog.Int("attempts", attempt(d)), slog.Any("error", err))
 		settleErr = d.Nack(false, false)
 	default:
-		*retries++
-		c.logger.WarnContext(ctx, "credit command failed; requeueing",
-			slog.String("routing_key", d.RoutingKey), slog.String("message_id", d.MessageId),
-			slog.Int("consecutive_failures", *retries), slog.Any("error", err))
-		// A cancelled wait still requeues at once, for another replica.
-		_ = sleep(ctx, c.cfg.RetryBackoff.delay(*retries))
-		settleErr = d.Nack(false, true)
+		settleErr = c.retryLater(ctx, d, err, retries, retry)
 	}
 	if settleErr != nil {
 		c.logger.WarnContext(ctx, "credit command not settled; the broker will redeliver it",
@@ -241,25 +248,38 @@ func (c *Consumer) settle(ctx context.Context, d amqp.Delivery, retries *int) {
 	}
 }
 
-// attempt returns which attempt this delivery is, counting from 1. The broker
-// counts the earlier deliveries in the x-acquired-count header, which survives
-// a restart and is the same for every replica.
-func attempt(d amqp.Delivery) int {
-	switch n := d.Headers["x-acquired-count"].(type) {
-	case int64:
-		return int(n) + 1
-	case int32:
-		return int(n) + 1
-	case int:
-		return n + 1
+// retryLater handles a temporary failure. It parks a copy of the command on
+// the retry queue, where it waits retryDelay without holding up the consumer,
+// and acks the original once the broker has confirmed the copy. If the copy
+// cannot be published it falls back to waiting out a backoff here and
+// requeueing the original, which keeps the command but blocks the consumer.
+func (c *Consumer) retryLater(ctx context.Context, d amqp.Delivery, cause error, retries *int, retry *retryPublisher) error {
+	// A shutdown must not cut the publish off between handling and settling.
+	publishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), retryPublishTimeout)
+	defer cancel()
+	n := attempt(d)
+	err := retry.publish(publishCtx, d, retryCount(d)+1)
+	if err == nil {
+		*retries = 0
+		c.logger.WarnContext(ctx, "credit command failed; retrying later",
+			slog.String("routing_key", d.RoutingKey), slog.String("message_id", d.MessageId),
+			slog.Int("attempt", n), slog.Duration("retry_in", retryDelay), slog.Any("error", cause))
+		return d.Ack(false)
 	}
-	return 1
+	*retries++
+	c.logger.WarnContext(ctx, "credit command failed and could not be parked; requeueing",
+		slog.String("routing_key", d.RoutingKey), slog.String("message_id", d.MessageId),
+		slog.Int("attempt", n), slog.Int("consecutive_failures", *retries),
+		slog.Any("error", cause), slog.Any("retry_error", err))
+	// A cancelled wait still requeues at once, for another replica.
+	_ = sleep(ctx, c.cfg.RetryBackoff.delay(*retries))
+	return d.Nack(false, true)
 }
 
 // handle runs the handler with its own timeout. The work is not cancelled by
 // shutdown, so a delivery that started is finished and settled. A panic counts
-// as a temporary failure; the delivery limit dead-letters a message that
-// always panics.
+// as a temporary failure; the attempt limit dead-letters a message that always
+// panics.
 func (c *Consumer) handle(ctx context.Context, d amqp.Delivery) (err error) {
 	defer func() {
 		if p := recover(); p != nil {

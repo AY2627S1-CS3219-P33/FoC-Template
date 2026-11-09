@@ -63,23 +63,6 @@ SET status = 'FAILED', lease_owner = NULL, lease_expires_at = NULL,
 WHERE idempotency_key = sqlc.arg(idempotency_key) AND kind LIKE 'credit.%'
   AND status IN ('PENDING', 'SENT');
 
--- name: ResendUnconfirmedOutbox :many
--- Uses outbox_unconfirmed_credit_idx. The row keeps its idempotency key, so
--- credit-service answers the re-sent command idempotently.
-WITH stale AS (
-    SELECT id FROM outbox
-    WHERE status = 'SENT' AND kind LIKE 'credit.%'
-      AND sent_at <= clock_timestamp() - sqlc.arg(timeout_microseconds)::bigint * interval '1 microsecond'
-    ORDER BY sent_at
-    LIMIT sqlc.arg(row_limit)
-    FOR UPDATE SKIP LOCKED
-)
-UPDATE outbox AS o
-SET status = 'PENDING', next_attempt_at = clock_timestamp(),
-    lease_owner = NULL, lease_expires_at = NULL
-FROM stale WHERE o.id = stale.id
-RETURNING o.id, o.kind, o.idempotency_key, o.errand_id, o.attempts, o.sent_at;
-
 -- name: GetOutboxByKey :one
 SELECT * FROM outbox WHERE idempotency_key = sqlc.arg(idempotency_key);
 
@@ -94,22 +77,35 @@ ORDER BY id
 LIMIT sqlc.arg(row_limit);
 
 -- name: RequeueOutbox :one
--- Admin replay (NFR7.4.2): same key, attempts reset, due now.
+-- Admin replay (NFR7.4.2): same key, attempts reset, due now. Only a FAILED
+-- row or a SENT credit command can be replayed; a SENT event is delivered
+-- already, and a PENDING row is still being retried by the dispatcher.
 UPDATE outbox
 SET status = 'PENDING', attempts = 0, next_attempt_at = clock_timestamp(),
     lease_owner = NULL, lease_expires_at = NULL
-WHERE id = sqlc.arg(id) AND status = 'FAILED'
+WHERE id = sqlc.arg(id)
+  AND (status = 'FAILED' OR (status = 'SENT' AND kind LIKE 'credit.%'))
 RETURNING *;
+
+-- name: ListOverdueOutbox :many
+-- Rows that have waited longer than the threshold: SENT credit commands with
+-- no result yet (outbox_unconfirmed_credit_idx) and PENDING rows the
+-- dispatcher has not managed to publish. Event rows end at SENT by design, so
+-- they are never overdue. status_filter is empty for both. Oldest ID first;
+-- after_id is the last ID of the previous page.
+SELECT * FROM outbox
+WHERE id > sqlc.arg(after_id)
+  AND (sqlc.arg(status_filter)::text = '' OR status = sqlc.arg(status_filter)::text)
+  AND (
+    (status = 'SENT' AND kind LIKE 'credit.%'
+      AND sent_at <= clock_timestamp() - sqlc.arg(threshold_microseconds)::bigint * interval '1 microsecond')
+    OR (status = 'PENDING'
+      AND created_at <= clock_timestamp() - sqlc.arg(threshold_microseconds)::bigint * interval '1 microsecond')
+  )
+ORDER BY id
+LIMIT sqlc.arg(row_limit);
 
 -- name: InsertRequeueAudit :one
 INSERT INTO admin_audit (actor_id, action, target_type, target_id, reason, outcome)
 VALUES (sqlc.arg(actor_id), 'OUTBOX_REQUEUE', 'OUTBOX', sqlc.arg(target_id), sqlc.arg(reason), sqlc.arg(outcome))
 RETURNING id;
-
--- name: CountDueOutbox :one
--- The dispatcher's backlog: rows of one family due now. Uses outbox_due_idx.
-SELECT count(*) FROM outbox
-WHERE status = 'PENDING'
-  AND next_attempt_at <= clock_timestamp()
-  AND ((sqlc.arg(credit)::boolean AND kind LIKE 'credit.%')
-    OR (NOT sqlc.arg(credit)::boolean AND kind LIKE 'event.%'));

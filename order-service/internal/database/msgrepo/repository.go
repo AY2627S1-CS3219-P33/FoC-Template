@@ -19,8 +19,9 @@ var (
 	ErrLeaseLost = errors.New("msgrepo: outbox lease lost")
 	// ErrNotFound means no outbox row has the given ID or idempotency key.
 	ErrNotFound = errors.New("msgrepo: outbox row not found")
-	// ErrNotFailed means a requeue targeted a row that is not FAILED.
-	ErrNotFailed = errors.New("msgrepo: outbox row is not FAILED")
+	// ErrNotRequeueable means a requeue targeted a row that is neither FAILED
+	// nor a SENT credit command.
+	ErrNotRequeueable = errors.New("msgrepo: outbox row is neither FAILED nor a SENT credit command")
 )
 
 // Row statuses.
@@ -68,17 +69,6 @@ type Record struct {
 	NextAttemptAt   time.Time
 	SentAt          time.Time
 	ConfirmedAt     time.Time
-}
-
-// Resent is a SENT credit row that the unconfirmed sweep moved back to
-// PENDING.
-type Resent struct {
-	ID             int64
-	Kind           string
-	IdempotencyKey string
-	ErrandID       string
-	Attempts       int32
-	SentAt         time.Time
 }
 
 type Repository struct{ queries *msggen.Queries }
@@ -154,29 +144,6 @@ func (r *Repository) MarkFailedByKey(ctx context.Context, key, code string) (boo
 	return n > 0, err
 }
 
-// ResendUnconfirmed moves up to limit SENT credit rows whose result is older
-// than timeout back to PENDING with the same key, oldest first.
-func (r *Repository) ResendUnconfirmed(ctx context.Context, timeout time.Duration, limit int) ([]Resent, error) {
-	if timeout < time.Microsecond || limit < 1 || limit > maxBatch {
-		return nil, fmt.Errorf("msgrepo: invalid resend parameters")
-	}
-	rows, err := r.queries.ResendUnconfirmedOutbox(ctx, msggen.ResendUnconfirmedOutboxParams{TimeoutMicroseconds: timeout.Microseconds(), RowLimit: int32(limit)})
-	if err != nil {
-		return nil, err
-	}
-	result := make([]Resent, 0, len(rows))
-	for _, row := range rows {
-		result = append(result, Resent{ID: row.ID, Kind: row.Kind, IdempotencyKey: row.IdempotencyKey, ErrandID: row.ErrandID.String(), Attempts: row.Attempts, SentAt: row.SentAt.Time})
-	}
-	return result, nil
-}
-
-// CountDue returns how many rows of one family are due now: the
-// dispatcher's backlog.
-func (r *Repository) CountDue(ctx context.Context, credit bool) (int64, error) {
-	return r.queries.CountDueOutbox(ctx, credit)
-}
-
 // GetByKey returns the row with key, or ErrNotFound.
 func (r *Repository) GetByKey(ctx context.Context, key string) (Record, error) {
 	row, err := r.queries.GetOutboxByKey(ctx, key)
@@ -206,9 +173,34 @@ func (r *Repository) ListFailed(ctx context.Context, limit int, afterID int64) (
 	return result, nil
 }
 
-// Requeue resets a FAILED row to PENDING with attempts cleared and its
-// idempotency key unchanged (NFR7.4.2). It returns ErrNotFound or
-// ErrNotFailed when there is nothing to requeue. Run it in the same
+// ListOverdue returns up to limit rows that have waited longer than
+// threshold: SENT credit commands with no result, and PENDING rows the
+// dispatcher has not published. status narrows it to StatusSent or
+// StatusPending; empty means both. Oldest ID first, after afterID (0 for the
+// first page).
+func (r *Repository) ListOverdue(ctx context.Context, threshold time.Duration, status string, limit int, afterID int64) ([]Record, error) {
+	switch {
+	case threshold < time.Microsecond:
+		return nil, fmt.Errorf("msgrepo: overdue threshold must be positive")
+	case status != "" && status != StatusSent && status != StatusPending:
+		return nil, fmt.Errorf("msgrepo: overdue status must be SENT or PENDING")
+	case limit < 1 || limit > maxBatch || afterID < 0:
+		return nil, fmt.Errorf("msgrepo: invalid page parameters")
+	}
+	rows, err := r.queries.ListOverdueOutbox(ctx, msggen.ListOverdueOutboxParams{AfterID: afterID, StatusFilter: status, ThresholdMicroseconds: threshold.Microseconds(), RowLimit: int32(limit)})
+	if err != nil {
+		return nil, err
+	}
+	result := make([]Record, 0, len(rows))
+	for _, row := range rows {
+		result = append(result, record(row))
+	}
+	return result, nil
+}
+
+// Requeue resets a FAILED row, or a SENT credit command, to PENDING with
+// attempts cleared and its idempotency key unchanged (NFR7.4.2). It returns
+// ErrNotFound or ErrNotRequeueable when there is nothing to requeue. Run it in the same
 // transaction as InsertRequeueAudit.
 func (r *Repository) Requeue(ctx context.Context, id int64) (Record, error) {
 	row, err := r.queries.RequeueOutbox(ctx, id)
@@ -223,7 +215,7 @@ func (r *Repository) Requeue(ctx context.Context, id int64) (Record, error) {
 	} else if err != nil {
 		return Record{}, err
 	}
-	return Record{}, ErrNotFailed
+	return Record{}, ErrNotRequeueable
 }
 
 // InsertRequeueAudit records an admin requeue of outbox row id (F6.5). It is

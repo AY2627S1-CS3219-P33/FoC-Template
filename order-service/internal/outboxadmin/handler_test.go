@@ -2,8 +2,10 @@ package outboxadmin
 
 import (
 	"context"
+	"errors"
 	"github.com/CS3219-AY2627S1/FoC-Template/order-service/internal/auth"
 	"github.com/CS3219-AY2627S1/FoC-Template/order-service/internal/database/msgrepo"
+	"github.com/CS3219-AY2627S1/FoC-Template/order-service/internal/errand"
 	"github.com/stretchr/testify/require"
 	"io"
 	"log/slog"
@@ -11,6 +13,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 type authPort bool
@@ -29,6 +32,35 @@ type fakeStore struct {
 	actor, reason string
 	id            int64
 	after         int64
+
+	overdueThreshold time.Duration
+	overdueStatus    string
+	overdueLimit     int
+}
+
+type fakeSettings struct{ timeout time.Duration }
+
+func (f fakeSettings) Get(context.Context) (errand.SystemSettings, error) {
+	s := errand.DefaultSystemSettings()
+	s.OutboxConfirmTimeout = f.timeout
+	return s, nil
+}
+
+// now is the fixed clock the handler reads in these tests.
+var now = time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC)
+
+func (s *fakeStore) ListOverdue(_ context.Context, threshold time.Duration, status string, limit int, after int64) ([]msgrepo.Record, error) {
+	s.overdueThreshold, s.overdueStatus, s.overdueLimit, s.after = threshold, status, limit, after
+	rows := []msgrepo.Record{}
+	for _, r := range s.rows {
+		if r.ID > after && (status == "" || r.Status == status) {
+			rows = append(rows, r)
+		}
+	}
+	if len(rows) > limit {
+		rows = rows[:limit]
+	}
+	return rows, s.err
 }
 
 func (s *fakeStore) ListFailed(_ context.Context, limit int, after int64) ([]msgrepo.Record, error) {
@@ -52,7 +84,8 @@ func (s *fakeStore) Requeue(_ context.Context, actor string, id int64, reason st
 }
 func request(t *testing.T, s Store, admin bool, method, path, body string) *httptest.ResponseRecorder {
 	t.Helper()
-	h := NewHandler(s, auth.NewMiddleware(authPort(admin)), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	h := NewHandler(s, fakeSettings{timeout: 30 * time.Minute}, auth.NewMiddleware(authPort(admin)), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	h.now = func() time.Time { return now }
 	mux := http.NewServeMux()
 	h.RegisterRoutes(mux)
 	r := httptest.NewRequest(method, path, strings.NewReader(body))
@@ -96,11 +129,48 @@ func TestRequeue(t *testing.T) {
 		err    error
 		status int
 		code   string
-	}{{msgrepo.ErrNotFailed, 409, "INVALID_TRANSITION"}, {msgrepo.ErrNotFound, 404, "OUTBOX_ROW_NOT_FOUND"}} {
+	}{{msgrepo.ErrNotRequeueable, 409, "INVALID_TRANSITION"}, {msgrepo.ErrNotFound, 404, "OUTBOX_ROW_NOT_FOUND"}} {
 		s.err = tc.err
 		w = request(t, s, true, "POST", "/admin/outbox/3/requeue", `{"reason":"recover"}`)
 		require.Equal(t, tc.status, w.Code)
 		require.Contains(t, w.Body.String(), tc.code)
 	}
 	require.Equal(t, 403, request(t, s, false, "POST", "/admin/outbox/3/requeue", `{"reason":"recover"}`).Code)
+}
+
+func TestOverdue(t *testing.T) {
+	s := &fakeStore{rows: []msgrepo.Record{
+		{ID: 1, Kind: "credit.transfer", Status: msgrepo.StatusSent, IdempotencyKey: "secret", CreatedAt: now.Add(-3 * time.Hour), SentAt: now.Add(-90 * time.Minute)},
+		{ID: 2, Kind: "event.errand.placed", Status: msgrepo.StatusPending, LastFailureCode: "BROKER_UNAVAILABLE", CreatedAt: now.Add(-45 * time.Minute)},
+		{ID: 3, Kind: "credit.release", Status: msgrepo.StatusSent, SentAt: now.Add(-time.Hour)},
+	}}
+
+	w := request(t, s, true, "GET", "/admin/outbox/overdue?limit=2", "")
+	require.Equal(t, 200, w.Code)
+	require.Equal(t, 30*time.Minute, s.overdueThreshold, "defaults to the outboxConfirmTimeout setting")
+	require.Empty(t, s.overdueStatus)
+	require.Equal(t, 3, s.overdueLimit, "asks for one more row to know if there is a next page")
+	require.Contains(t, w.Body.String(), `"thresholdSeconds":1800`)
+	require.Contains(t, w.Body.String(), `"nextCursor":"2"`)
+	require.Contains(t, w.Body.String(), `"ageSeconds":5400`, "a SENT row ages from sentAt, not createdAt")
+	require.Contains(t, w.Body.String(), `"ageSeconds":2700`, "a PENDING row ages from createdAt")
+	require.Contains(t, w.Body.String(), `"lastFailureCode":"BROKER_UNAVAILABLE"`)
+	require.NotContains(t, w.Body.String(), "secret")
+	require.NotContains(t, w.Body.String(), "payload")
+
+	w = request(t, s, true, "GET", "/admin/outbox/overdue?status=SENT&olderThan=60&cursor=1", "")
+	require.Equal(t, 200, w.Code)
+	require.Equal(t, time.Minute, s.overdueThreshold, "olderThan overrides the setting")
+	require.Equal(t, "SENT", s.overdueStatus)
+	require.EqualValues(t, 1, s.after)
+	require.Contains(t, w.Body.String(), `"thresholdSeconds":60`)
+	require.NotContains(t, w.Body.String(), "nextCursor")
+
+	for _, q := range []string{"limit=0", "cursor=oops", "status=FAILED", "status=CONFIRMED", "status=sent", "olderThan=0", "olderThan=-5", "olderThan=abc", "olderThan=99999999999"} {
+		require.Equal(t, 400, request(t, s, true, "GET", "/admin/outbox/overdue?"+q, "").Code, q)
+	}
+	require.Equal(t, 403, request(t, s, false, "GET", "/admin/outbox/overdue", "").Code)
+
+	s.err = errors.New("db down")
+	require.Equal(t, 500, request(t, s, true, "GET", "/admin/outbox/overdue", "").Code)
 }

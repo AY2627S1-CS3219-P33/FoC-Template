@@ -45,8 +45,8 @@ const DURATIONS: { key: keyof Settings & string; label: string; hint: string }[]
   },
   {
     key: "outboxConfirmTimeout",
-    label: "Outbox confirm timeout",
-    hint: "A sent credit command with no result is re-sent after this long.",
+    label: "Outbox overdue after",
+    hint: "A sent credit command with no result, or an unpublished message, is listed as overdue after this long.",
   },
 ];
 

@@ -141,7 +141,7 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger, authOption
 		return nil, err
 	}
 
-	dispatcher, err := messaging.NewDispatcher(outbox, publisher, ops, logger, messaging.DispatcherConfig{})
+	dispatcher, err := messaging.NewDispatcher(outbox, publisher, logger, messaging.DispatcherConfig{})
 	if err != nil {
 		return fail(err)
 	}
@@ -191,7 +191,7 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger, authOption
 		mine.NewHandler(mine.Dependencies{Store: store, Suppliers: suppliers, Logger: logger}, guard),
 		places.NewHandler(places.Dependencies{Store: saved, Suppliers: suppliers, Clock: clock, Logger: logger}, guard),
 		review.NewHandler(reviews, guard, logger),
-		outboxadmin.NewHandler(outboxadmin.NewStore(pool), guard, logger),
+		outboxadmin.NewHandler(outboxadmin.NewStore(pool), ops, guard, logger),
 		fence.NewHandler(fence.NewService(ops, logger), serviceGuard, logger),
 		internalapi.NewHandler(ops, serviceGuard, logger),
 		exportapi.NewHandler(ops, suppliers, serviceGuard, logger),

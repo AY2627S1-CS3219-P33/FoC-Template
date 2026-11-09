@@ -167,7 +167,7 @@ const defaultSettingsJSON = `{
 	"completionFlag": {"count": 10, "window": 900},
 	"reservationTimeout": 300,
 	"editTimeout": 300,
-	"outboxConfirmTimeout": 600
+	"outboxConfirmTimeout": 5400
 }`
 
 func settingsJSON(edit func(map[string]any)) string {
