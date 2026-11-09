@@ -476,6 +476,9 @@ type SystemSettings struct {
 	// CancellationFlag is F3.5.3 and F6.3.2: more than Count cancellations
 	// within Window flag the requester.
 	CancellationFlag CancellationFlag
+	// CompletionFlag is F6.3: Count or more completed errands within Window
+	// flag the courier. Flagging does not block them.
+	CompletionFlag CompletionFlag
 	// ReservationTimeout and EditTimeout are how long a reserve or adjust may
 	// wait for a credit result before the reconcilers act (M5).
 	ReservationTimeout time.Duration
@@ -498,6 +501,14 @@ type CancellationFlag struct {
 	Window time.Duration
 }
 
+// CompletionFlag is the courier flag rule for completing errands unusually
+// fast. Only completions by confirm or auto-verification count, not an
+// admin's override.
+type CompletionFlag struct {
+	Count  int
+	Window time.Duration
+}
+
 // DefaultSystemSettings are the defaults in order-requirements.md and
 // commit-plan-b.md B1.
 func DefaultSystemSettings() SystemSettings {
@@ -511,6 +522,10 @@ func DefaultSystemSettings() SystemSettings {
 		CancellationFlag: CancellationFlag{
 			Count:  20,
 			Window: time.Hour,
+		},
+		CompletionFlag: CompletionFlag{
+			Count:  10,
+			Window: 15 * time.Minute,
 		},
 		ReservationTimeout:   5 * time.Minute,
 		EditTimeout:          5 * time.Minute,
@@ -538,6 +553,8 @@ func (s SystemSettings) Validate() error {
 	positive("withdrawalRestriction.duration", s.WithdrawalRestriction.Duration > 0)
 	positive("cancellationFlag.count", s.CancellationFlag.Count > 0)
 	positive("cancellationFlag.window", s.CancellationFlag.Window > 0)
+	positive("completionFlag.count", s.CompletionFlag.Count > 0)
+	positive("completionFlag.window", s.CompletionFlag.Window > 0)
 	positive("reservationTimeout", s.ReservationTimeout > 0)
 	positive("editTimeout", s.EditTimeout > 0)
 	positive("outboxConfirmTimeout", s.OutboxConfirmTimeout > 0)

@@ -24,6 +24,8 @@ const (
 	KeyWithdrawalRestrictionDuration = "withdrawalRestriction.duration"
 	KeyCancellationFlagCount         = "cancellationFlag.count"
 	KeyCancellationFlagWindow        = "cancellationFlag.window"
+	KeyCompletionFlagCount           = "completionFlag.count"
+	KeyCompletionFlagWindow          = "completionFlag.window"
 	KeyReservationTimeout            = "reservationTimeout"
 	KeyEditTimeout                   = "editTimeout"
 	KeyOutboxConfirmTimeout          = "outboxConfirmTimeout"
@@ -43,6 +45,8 @@ var settingFields = []struct {
 	{KeyWithdrawalRestrictionDuration, func(s *errand.SystemSettings) any { return &s.WithdrawalRestriction.Duration }},
 	{KeyCancellationFlagCount, func(s *errand.SystemSettings) any { return &s.CancellationFlag.Count }},
 	{KeyCancellationFlagWindow, func(s *errand.SystemSettings) any { return &s.CancellationFlag.Window }},
+	{KeyCompletionFlagCount, func(s *errand.SystemSettings) any { return &s.CompletionFlag.Count }},
+	{KeyCompletionFlagWindow, func(s *errand.SystemSettings) any { return &s.CompletionFlag.Window }},
 	{KeyReservationTimeout, func(s *errand.SystemSettings) any { return &s.ReservationTimeout }},
 	{KeyEditTimeout, func(s *errand.SystemSettings) any { return &s.EditTimeout }},
 	{KeyOutboxConfirmTimeout, func(s *errand.SystemSettings) any { return &s.OutboxConfirmTimeout }},

@@ -229,6 +229,51 @@ func TestActivityCountsAtBelowAndAboveThreshold_F6_3_1_F6_3_2(t *testing.T) {
 	require.ErrorIs(t, err, ErrInvalidArgument)
 }
 
+func TestCompletionCountsCountConfirmAndAutoVerifyNotAdminComplete(t *testing.T) {
+	repo, conn := migratedRepository(t)
+	ctx := context.Background()
+	since := at(10)
+
+	complete := func(courier, event, actorType, actor string, minute int) {
+		e := insertErrandFor(t, conn, "req-a", "COMPLETED")
+		from := "DELIVERED"
+		if event == "admin_complete" {
+			from = "REVIEW_REQUIRED"
+		}
+		insertTransition(t, conn, e, from, "COMPLETED", event, actorType, actor, courier, at(minute))
+	}
+	// cour-a: a confirm, an auto-verification and an admin completion.
+	complete("cour-a", "confirm", "REQUESTER", "req-a", 11)
+	complete("cour-a", "verification_lapsed", "SYSTEM", "", 12)
+	complete("cour-a", "admin_complete", "ADMIN", "admin-1", 13)
+	// cour-b: two confirms, one before the window.
+	complete("cour-b", "confirm", "REQUESTER", "req-a", 9)
+	complete("cour-b", "confirm", "REQUESTER", "req-a", 14)
+	// A delivery is not a completion.
+	e := insertErrandFor(t, conn, "req-a", "DELIVERED")
+	insertTransition(t, conn, e, "PICKED_UP", "DELIVERED", "deliver", "COURIER", "cour-b", "cour-b", at(15))
+
+	for _, tc := range []struct {
+		minCount int
+		want     []ActivityCount
+	}{
+		{1, []ActivityCount{{"cour-a", 2}, {"cour-b", 1}}},
+		{2, []ActivityCount{{"cour-a", 2}}},
+		{3, []ActivityCount{}},
+	} {
+		counts, err := repo.ListCompletionCounts(ctx, since, tc.minCount, 500)
+		require.NoError(t, err)
+		require.Equal(t, tc.want, counts, "minCount %d", tc.minCount)
+	}
+
+	_, err := repo.ListCompletionCounts(ctx, time.Time{}, 1, 1)
+	require.ErrorIs(t, err, ErrInvalidArgument)
+	_, err = repo.ListCompletionCounts(ctx, since, 0, 1)
+	require.ErrorIs(t, err, ErrInvalidArgument)
+	_, err = repo.ListCompletionCounts(ctx, since, 1, MaxActivityRows+1)
+	require.ErrorIs(t, err, ErrInvalidArgument)
+}
+
 func insertErrandFor(t *testing.T, conn *pgx.Conn, requester, status string) string {
 	t.Helper()
 	var courier *string

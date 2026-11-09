@@ -234,6 +234,7 @@ func TestSettingsUpdate(t *testing.T) {
 
 	bad := changed
 	bad.CancellationFlag.Count = 0
+	bad.CompletionFlag.Window = 0
 	bad.EditTimeout = -time.Minute
 	err = repo.Update(ctx, bad, "auth0|admin1")
 	var appErr *apperror.Error
@@ -243,7 +244,7 @@ func TestSettingsUpdate(t *testing.T) {
 	for _, f := range appErr.Fields {
 		fields = append(fields, f.Field)
 	}
-	require.ElementsMatch(t, []string{KeyCancellationFlagCount, KeyEditTimeout}, fields)
+	require.ElementsMatch(t, []string{KeyCancellationFlagCount, KeyCompletionFlagWindow, KeyEditTimeout}, fields)
 	got, err = repo.Get(ctx)
 	require.NoError(t, err)
 	require.Equal(t, changed, got, "a rejected update stores nothing")

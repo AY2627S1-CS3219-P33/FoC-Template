@@ -36,6 +36,7 @@ type settingsBody struct {
 	VerificationReminderAfter int64                     `json:"verificationReminderAfter"`
 	WithdrawalRestriction     withdrawalRestrictionBody `json:"withdrawalRestriction"`
 	CancellationFlag          cancellationFlagBody      `json:"cancellationFlag"`
+	CompletionFlag            completionFlagBody        `json:"completionFlag"`
 	ReservationTimeout        int64                     `json:"reservationTimeout"`
 	EditTimeout               int64                     `json:"editTimeout"`
 	OutboxConfirmTimeout      int64                     `json:"outboxConfirmTimeout"`
@@ -48,6 +49,11 @@ type withdrawalRestrictionBody struct {
 }
 
 type cancellationFlagBody struct {
+	Count  int64 `json:"count"`
+	Window int64 `json:"window"`
+}
+
+type completionFlagBody struct {
 	Count  int64 `json:"count"`
 	Window int64 `json:"window"`
 }
@@ -67,6 +73,10 @@ func settingsResponse(s errand.SystemSettings) settingsBody {
 		CancellationFlag: cancellationFlagBody{
 			Count:  int64(s.CancellationFlag.Count),
 			Window: seconds(s.CancellationFlag.Window),
+		},
+		CompletionFlag: completionFlagBody{
+			Count:  int64(s.CompletionFlag.Count),
+			Window: seconds(s.CompletionFlag.Window),
 		},
 		ReservationTimeout:   seconds(s.ReservationTimeout),
 		EditTimeout:          seconds(s.EditTimeout),
@@ -114,6 +124,11 @@ type cancellationFlagRequest struct {
 	Window *int64 `json:"window"`
 }
 
+type completionFlagRequest struct {
+	Count  *int64 `json:"count"`
+	Window *int64 `json:"window"`
+}
+
 type settingsRequest struct {
 	PickupAfter               *int64                        `json:"pickupAfter"`
 	DeliveryAfter             *int64                        `json:"deliveryAfter"`
@@ -121,6 +136,7 @@ type settingsRequest struct {
 	VerificationReminderAfter *int64                        `json:"verificationReminderAfter"`
 	WithdrawalRestriction     *withdrawalRestrictionRequest `json:"withdrawalRestriction"`
 	CancellationFlag          *cancellationFlagRequest      `json:"cancellationFlag"`
+	CompletionFlag            *completionFlagRequest        `json:"completionFlag"`
 	ReservationTimeout        *int64                        `json:"reservationTimeout"`
 	EditTimeout               *int64                        `json:"editTimeout"`
 	OutboxConfirmTimeout      *int64                        `json:"outboxConfirmTimeout"`
@@ -145,7 +161,8 @@ func decodeSettings(response http.ResponseWriter, request *http.Request) (errand
 			writeError(response, apperror.InvalidArgument, "request body is too large")
 		case errors.As(err, &typeErr) && typeErr.Field != "":
 			message := "must be an integer"
-			if typeErr.Field == "withdrawalRestriction" || typeErr.Field == "cancellationFlag" {
+			if typeErr.Field == "withdrawalRestriction" || typeErr.Field == "cancellationFlag" ||
+				typeErr.Field == "completionFlag" {
 				message = "must be an object"
 			}
 			writeValidation(response, apperror.Field{Field: typeErr.Field, Message: message})
@@ -203,6 +220,12 @@ func decodeSettings(response http.ResponseWriter, request *http.Request) (errand
 	} else {
 		settings.CancellationFlag.Count = count("cancellationFlag.count", c.Count)
 		settings.CancellationFlag.Window = seconds("cancellationFlag.window", c.Window)
+	}
+	if c := body.CompletionFlag; c == nil {
+		fields = append(fields, apperror.Field{Field: "completionFlag", Message: "is required"})
+	} else {
+		settings.CompletionFlag.Count = count("completionFlag.count", c.Count)
+		settings.CompletionFlag.Window = seconds("completionFlag.window", c.Window)
 	}
 	settings.ReservationTimeout = seconds("reservationTimeout", body.ReservationTimeout)
 	settings.EditTimeout = seconds("editTimeout", body.EditTimeout)

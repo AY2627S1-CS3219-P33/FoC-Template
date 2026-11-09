@@ -124,6 +124,7 @@ type fakeActivity struct {
 	mu            sync.Mutex
 	withdrawals   []opsrepo.ActivityCount
 	cancellations []opsrepo.ActivityCount
+	completions   []opsrepo.ActivityCount
 	calls         []activityCall
 }
 
@@ -133,6 +134,10 @@ func (f *fakeActivity) ListWithdrawalCounts(_ context.Context, since time.Time, 
 
 func (f *fakeActivity) ListCancellationCounts(_ context.Context, since time.Time, minCount, limit int) ([]opsrepo.ActivityCount, error) {
 	return f.list("cancellations", f.cancellations, since, minCount, limit), nil
+}
+
+func (f *fakeActivity) ListCompletionCounts(_ context.Context, since time.Time, minCount, limit int) ([]opsrepo.ActivityCount, error) {
+	return f.list("completions", f.completions, since, minCount, limit), nil
 }
 
 func (f *fakeActivity) list(kind string, counts []opsrepo.ActivityCount, since time.Time, minCount, limit int) []opsrepo.ActivityCount {
@@ -159,6 +164,7 @@ const defaultSettingsJSON = `{
 	"verificationReminderAfter": 300,
 	"withdrawalRestriction": {"count": 3, "window": 900, "duration": 900},
 	"cancellationFlag": {"count": 20, "window": 3600},
+	"completionFlag": {"count": 10, "window": 900},
 	"reservationTimeout": 300,
 	"editTimeout": 300,
 	"outboxConfirmTimeout": 600
@@ -192,6 +198,7 @@ func TestPutSettingsStoresAndAuditsTheChange_F6_3_5_F6_5(t *testing.T) {
 	body := settingsJSON(func(b map[string]any) {
 		b["pickupAfter"] = 3600
 		b["cancellationFlag"] = map[string]any{"count": 10, "window": 1800}
+		b["completionFlag"] = map[string]any{"count": 5, "window": 600}
 	})
 
 	recorder := h.putSettings(t, body)
@@ -201,13 +208,14 @@ func TestPutSettingsStoresAndAuditsTheChange_F6_3_5_F6_5(t *testing.T) {
 	stored := h.settingsStore.current()
 	require.Equal(t, time.Hour, stored.Deadlines.PickupAfter)
 	require.Equal(t, errand.CancellationFlag{Count: 10, Window: 30 * time.Minute}, stored.CancellationFlag)
+	require.Equal(t, errand.CompletionFlag{Count: 5, Window: 10 * time.Minute}, stored.CompletionFlag)
 	require.Equal(t, []string{adminID}, h.settingsStore.updatedBy)
 	require.Equal(t, []opsrepo.AuditRecord{{
 		ActorID:    adminID,
 		Action:     review.AuditActionSettings,
 		TargetType: review.AuditTargetSettings,
 		TargetID:   "settings",
-		Reason:     "changed: pickupAfter, cancellationFlag.count, cancellationFlag.window",
+		Reason:     "changed: pickupAfter, cancellationFlag.count, cancellationFlag.window, completionFlag.count, completionFlag.window",
 		Outcome:    opsrepo.AuditSucceeded,
 	}}, h.audit.all())
 
@@ -282,6 +290,7 @@ func TestPutSettingsRejectsMalformedBody_NFR2_2_1(t *testing.T) {
 			{Field: "withdrawalRestriction.window", Message: "is required"},
 			{Field: "withdrawalRestriction.duration", Message: "is required"},
 			{Field: "cancellationFlag", Message: "is required"},
+			{Field: "completionFlag", Message: "is required"},
 			{Field: "reservationTimeout", Message: "is required"},
 			{Field: "editTimeout", Message: "is required"},
 			{Field: "outboxConfirmTimeout", Message: "is required"},
@@ -296,6 +305,9 @@ func TestPutSettingsRejectsMalformedBody_NFR2_2_1(t *testing.T) {
 		}},
 		{"object expected", settingsJSON(func(b map[string]any) { b["withdrawalRestriction"] = 3 }), []apperror.Field{
 			{Field: "withdrawalRestriction", Message: "must be an object"},
+		}},
+		{"completion object expected", settingsJSON(func(b map[string]any) { b["completionFlag"] = 3 }), []apperror.Field{
+			{Field: "completionFlag", Message: "must be an object"},
 		}},
 		{"too large", settingsJSON(func(b map[string]any) { b["pickupAfter"] = int64(1) << 40 }), []apperror.Field{
 			{Field: "pickupAfter", Message: "is too large"},
@@ -494,9 +506,11 @@ func TestEventsRejectMalformedQuery(t *testing.T) {
 func TestFlagsAtBelowAndAboveThresholds_F6_3_1_F6_3_2(t *testing.T) {
 	h := newHarness(t)
 	// Defaults: a courier is restricted at 3 withdrawals in 15 min; a
-	// requester is flagged above 20 cancellations in 1 h.
+	// requester is flagged above 20 cancellations in 1 h; a courier is flagged
+	// at 10 completions in 15 min.
 	h.activity.withdrawals = []opsrepo.ActivityCount{{UserID: "cour-above", Count: 4}, {UserID: "cour-at", Count: 3}, {UserID: "cour-below", Count: 2}}
 	h.activity.cancellations = []opsrepo.ActivityCount{{UserID: "req-above", Count: 21}, {UserID: "req-at", Count: 20}, {UserID: "req-below", Count: 19}}
+	h.activity.completions = []opsrepo.ActivityCount{{UserID: "cour-fast", Count: 11}, {UserID: "cour-at-ten", Count: 10}, {UserID: "cour-slow", Count: 9}}
 
 	recorder := h.do(t, http.MethodGet, "/admin/flags", h.admin, "")
 
@@ -504,6 +518,10 @@ func TestFlagsAtBelowAndAboveThresholds_F6_3_1_F6_3_2(t *testing.T) {
 	require.JSONEq(t, `{"items":[
 		{"userId":"req-above","kind":"REQUESTER_CANCELLATIONS","count":21,"threshold":20,"window":3600,
 		 "since":"2026-03-02T08:00:00Z","summary":"High cancellation rate, 21 in 1 h"},
+		{"userId":"cour-fast","kind":"COURIER_COMPLETIONS","count":11,"threshold":10,"window":900,
+		 "since":"2026-03-02T08:45:00Z","summary":"High completion rate, 11 in 15 min"},
+		{"userId":"cour-at-ten","kind":"COURIER_COMPLETIONS","count":10,"threshold":10,"window":900,
+		 "since":"2026-03-02T08:45:00Z","summary":"High completion rate, 10 in 15 min"},
 		{"userId":"cour-above","kind":"COURIER_WITHDRAWALS","count":4,"threshold":3,"window":900,
 		 "since":"2026-03-02T08:45:00Z","summary":"High withdrawal rate, 4 in 15 min"},
 		{"userId":"cour-at","kind":"COURIER_WITHDRAWALS","count":3,"threshold":3,"window":900,
@@ -512,6 +530,7 @@ func TestFlagsAtBelowAndAboveThresholds_F6_3_1_F6_3_2(t *testing.T) {
 	require.Equal(t, []activityCall{
 		{"withdrawals", t0.Add(-15 * time.Minute), 3, review.MaxFlags},
 		{"cancellations", t0.Add(-time.Hour), 21, review.MaxFlags},
+		{"completions", t0.Add(-15 * time.Minute), 10, review.MaxFlags},
 	}, h.activity.calls)
 }
 

@@ -284,6 +284,21 @@ HAVING count(*) >= @min_count::bigint
 ORDER BY event_count DESC, user_id
 LIMIT @row_limit;
 
+-- name: ListCompletionCounts :many
+-- ListCompletionCounts counts the errands each courier completed through the
+-- requester's confirm or the verification deadline. An admin_complete is left
+-- out: the admin, not the courier's pace, decided it. It reads
+-- errand_transitions_completions_idx, whose predicate the WHERE repeats.
+SELECT t.courier_id::text AS user_id, count(*) AS event_count
+FROM errand_transitions t
+WHERE t.event IN ('confirm', 'verification_lapsed')
+  AND t.courier_id IS NOT NULL
+  AND t.at >= @since::timestamptz
+GROUP BY t.courier_id
+HAVING count(*) >= @min_count::bigint
+ORDER BY event_count DESC, user_id
+LIMIT @row_limit;
+
 -- name: ListCancellationCounts :many
 -- ListCancellationCounts counts requester cancellations per requester. Only
 -- a requester's cancel enters CANCELLED (Diagram 1), so it reads

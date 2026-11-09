@@ -10,6 +10,7 @@ interface Props {
 const KINDS: Record<Flag["kind"], string> = {
   COURIER_WITHDRAWALS: "Withdrawals as courier",
   REQUESTER_CANCELLATIONS: "Cancellations as requester",
+  COURIER_COMPLETIONS: "Completions as courier",
 };
 
 // Flags are evaluated when the list is built, against the current settings, and
@@ -56,8 +57,8 @@ export function ActivityFlags({ getToken }: Props) {
         <div className="placeholder">
           <p>No suspicious activity right now.</p>
           <p className="muted">
-            Couriers who hit the withdrawal restriction and requesters who exceed the cancellation
-            threshold appear here, most active first.
+            Couriers who hit the withdrawal restriction or complete errands unusually fast, and
+            requesters who exceed the cancellation threshold, appear here, most active first.
           </p>
         </div>
       )}
