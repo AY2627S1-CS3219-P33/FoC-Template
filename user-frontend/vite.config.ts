@@ -25,6 +25,13 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/order-service/, ""),
       },
+      // Admin service (documented gateway route /admin-service): the Metrics
+      // tab and the readiness section of Overview. Same prefix-stripping.
+      "/admin-service": {
+        target: "http://localhost:3005",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/admin-service/, ""),
+      },
       // Credit service. No implementation exists yet, so this forwards nowhere
       // until one is running; the credit screens then show a reachability
       // error rather than failing silently.

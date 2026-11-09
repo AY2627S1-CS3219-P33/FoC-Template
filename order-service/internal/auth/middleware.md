@@ -27,6 +27,7 @@ Status codes come from `apperror.HTTPStatus`, the single code → status mapping
 | `errands:use` | users (F1.6.1) | user | `RequireUse`: errand endpoints for requesters and couriers |
 | `errands:review` | administrators (F1.6.2) | user | `RequireReview`: review, event-log and settings endpoints |
 | `orders:internal` | services that call internal routes | service | `internal/serviceauth` (fence, account-deletion check) |
+| `orders:admin-read` | admin-service | service | `internal/serviceauth` (`internal/exportapi`) |
 
 These names and the audience `https://api.foc.local/order-service` are the current proposal for gate C3 and must be agreed with the Auth0 / user-service owner.
 

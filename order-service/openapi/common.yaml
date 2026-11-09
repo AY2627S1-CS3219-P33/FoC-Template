@@ -60,7 +60,8 @@ components:
       description: >-
         Auth0 client-credentials (M2M) token for
         https://api.foc.local/order-service with the orders:internal
-        permission. Internal routes accept only service tokens; a user token
+        permission (orders:admin-read for the export routes). Internal routes
+        accept only service tokens; a user token
         is refused with 403 even if valid. docs/contracts.md lists which
         service may call which internal route.
 
@@ -93,6 +94,15 @@ components:
         minimum: 1
         maximum: 100
         default: 25
+    ExportLimit:
+      name: limit
+      in: query
+      description: Maximum page size of an export route.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 500
+        default: 100
     Cursor:
       name: cursor
       in: query
@@ -1095,6 +1105,112 @@ components:
             fence is open or committed no errand can be created for or
             edited onto the supplier, so it can only change from true to
             false.
+      additionalProperties: false
+
+    ExportTransitionPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          maxItems: 500
+          items:
+            $ref: "#/components/schemas/ExportTransition"
+        nextCursor:
+          type: string
+          description: The `after` value of the next page. Omitted on the last page.
+      additionalProperties: false
+
+    ExportTransition:
+      type: object
+      description: One published transition event, without actor or free text.
+      required: [id, messageId, type, errandId, errandVersion, event, to, reward, occurredAt]
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: Outbox row ID; the keyset cursor.
+        messageId:
+          type: string
+          description: The event's messageId on the wire.
+        type:
+          type: string
+          description: The routing key, for example errand.accepted.
+        errandId:
+          type: string
+          format: uuid
+        errandVersion:
+          type: integer
+          minimum: 1
+        event:
+          type: string
+          description: The domain event, for example accept.
+        from:
+          $ref: "#/components/schemas/ErrandStatus"
+        to:
+          $ref: "#/components/schemas/ErrandStatus"
+        courierId:
+          type: string
+          description: The courier involved; omitted when none.
+        reward:
+          type: integer
+        occurredAt:
+          type: string
+          format: date-time
+      additionalProperties: false
+
+    ExportErrandPage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          maxItems: 500
+          items:
+            $ref: "#/components/schemas/ExportErrand"
+        nextCursor:
+          type: string
+          description: The `after` value of the next page. Omitted on the last page and with `ids`.
+      additionalProperties: false
+
+    ExportErrand:
+      type: object
+      description: >-
+        An errand without contact details, items or notes. The names are null
+        when unknown.
+      required: [errandId, status, version, courierId, reward, supplierId, supplierName, deliveryBuildingId, deliveryBuildingName, createdAt, updatedAt]
+      properties:
+        errandId:
+          type: string
+          format: uuid
+        status:
+          $ref: "#/components/schemas/ErrandStatus"
+        version:
+          type: integer
+          minimum: 1
+        courierId:
+          type: [string, "null"]
+        reward:
+          type: integer
+        supplierId:
+          type: string
+          format: uuid
+        supplierName:
+          type: [string, "null"]
+          description: >-
+            From the errand's supplier version. Null when supplier-service is
+            unavailable or does not know the version.
+        deliveryBuildingId:
+          type: string
+          format: uuid
+        deliveryBuildingName:
+          type: [string, "null"]
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
       additionalProperties: false
 
     ActiveErrandCounts:

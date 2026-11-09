@@ -1,5 +1,6 @@
 include:
   - order-service/compose.yaml
+  - admin-service/compose.yaml
 
 services:
   credit-db:
@@ -189,6 +190,7 @@ services:
       - supplier-service
       - order-service
       - credit-service
+      - admin-service
 
   queue-service:
     build:

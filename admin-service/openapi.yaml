@@ -1,0 +1,651 @@
+openapi: 3.1.0
+
+info:
+  title: Friend on Campus Admin Service API
+  version: 1.0.0
+  description: >-
+    The admin dashboard's metrics and service readiness. Metrics are computed at
+    query time from a read model that admin-service builds from order-service's
+    errand events (docs/asyncapi.yaml) and its export routes
+    (order-service/docs/contracts.md, "Export routes"). Every route needs a
+    login token (not a machine token) for https://api.foc.local/admin-service
+    with the dashboard:read permission, which administrators hold, and every
+    response carries asOf.
+
+
+    Periods. from and to are dates, YYYY-MM-DD, both included, in the
+    dashboard's time zone (Asia/Singapore unless DASHBOARD_TIMEZONE says
+    otherwise); the response repeats the zone as timezone. The period defaults
+    to the last 30 days ending today and is at most 366 days.
+
+
+    Definitions. An errand's opened time is its errand.opened event, not its
+    creation time. Time to accept is the first accept minus the opened time,
+    for errands whose first accept falls in the period; errands never accepted
+    are left out. Outcomes are over errands that finished (reached a terminal
+    state) in the period, over all five terminal states. Rankings count errands
+    that finished in the period. Active couriers are distinct couriers with at
+    least one accept in the period. Reward volume is the reward of COMPLETED
+    errands, by the day they completed.
+  license:
+    name: MIT
+    identifier: MIT
+
+servers:
+  - url: /admin-service
+    description: API gateway route
+
+tags:
+  - name: Metrics
+    description: Read-model metrics, by period.
+  - name: Readiness
+    description: Whether the other services are up.
+  - name: Operations
+    description: This service's own health.
+
+paths:
+  /v1/metrics/errands-per-day:
+    get:
+      operationId: getErrandsPerDay
+      tags: [Metrics]
+      summary: Errands per day
+      description: >-
+        Errands that opened on each day of the period, by the errand.opened
+        event time. Every day is listed, with zero when none opened.
+      x-required-permissions: [dashboard:read]
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+      responses:
+        "200":
+          description: A count for each day.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrandsPerDay"
+        "400":
+          $ref: "#/components/responses/InvalidArgument"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/Internal"
+        "503":
+          $ref: "#/components/responses/DependencyUnavailable"
+  /v1/metrics/time-to-accept:
+    get:
+      operationId: getTimeToAccept
+      tags: [Metrics]
+      summary: Time to accept
+      description: >-
+        Median and 90th percentile of the first accept minus the opened time,
+        for errands whose first accept falls in the period. A later withdraw
+        and re-accept does not change it. medianSeconds and p90Seconds are
+        null when nothing was accepted.
+      x-required-permissions: [dashboard:read]
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+      responses:
+        "200":
+          description: The distribution's median and p90.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TimeToAccept"
+        "400":
+          $ref: "#/components/responses/InvalidArgument"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/Internal"
+        "503":
+          $ref: "#/components/responses/DependencyUnavailable"
+  /v1/metrics/outcomes:
+    get:
+      operationId: getOutcomes
+      tags: [Metrics]
+      summary: Outcome rates
+      description: >-
+        Errands that finished in the period, by terminal status. All five are
+        always listed (cancelled and refunded are their own segments), so the
+        rates add to 1; they are all 0 when nothing finished.
+      x-required-permissions: [dashboard:read]
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+      responses:
+        "200":
+          description: Counts and rates for the five outcomes.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Outcomes"
+        "400":
+          $ref: "#/components/responses/InvalidArgument"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/Internal"
+        "503":
+          $ref: "#/components/responses/DependencyUnavailable"
+  /v1/metrics/top-suppliers:
+    get:
+      operationId: getTopSuppliers
+      tags: [Metrics]
+      summary: Top pickup suppliers
+      description: >-
+        The suppliers errands are picked up from, ranked by errands that
+        finished in the period (then by how many completed), with the
+        completed count beside it. The name is the one on the supplier's most
+        recent finished errand; it is null when none carried one.
+        `unattributed` counts finished errands left out because their supplier
+        has not been looked up yet.
+      x-required-permissions: [dashboard:read]
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+        - $ref: "#/components/parameters/RankLimit"
+      responses:
+        "200":
+          description: The ranking.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Ranking"
+        "400":
+          $ref: "#/components/responses/InvalidArgument"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/Internal"
+        "503":
+          $ref: "#/components/responses/DependencyUnavailable"
+  /v1/metrics/top-buildings:
+    get:
+      operationId: getTopBuildings
+      tags: [Metrics]
+      summary: Top delivery buildings
+      description: >-
+        The buildings errands are delivered to, ranked like the suppliers.
+      x-required-permissions: [dashboard:read]
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+        - $ref: "#/components/parameters/RankLimit"
+      responses:
+        "200":
+          description: The ranking.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Ranking"
+        "400":
+          $ref: "#/components/responses/InvalidArgument"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/Internal"
+        "503":
+          $ref: "#/components/responses/DependencyUnavailable"
+  /v1/metrics/active-couriers:
+    get:
+      operationId: getActiveCouriers
+      tags: [Metrics]
+      summary: Active couriers
+      description: Distinct couriers with at least one accept in the period.
+      x-required-permissions: [dashboard:read]
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+      responses:
+        "200":
+          description: The number of couriers.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ActiveCouriers"
+        "400":
+          $ref: "#/components/responses/InvalidArgument"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/Internal"
+        "503":
+          $ref: "#/components/responses/DependencyUnavailable"
+  /v1/metrics/reward-volume:
+    get:
+      operationId: getRewardVolume
+      tags: [Metrics]
+      summary: Reward volume completed per day
+      description: >-
+        The sum of the reward of COMPLETED errands, by the day they completed.
+        Every day is listed, with zero when none completed.
+      x-required-permissions: [dashboard:read]
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/From"
+        - $ref: "#/components/parameters/To"
+      responses:
+        "200":
+          description: A reward sum for each day.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RewardVolume"
+        "400":
+          $ref: "#/components/responses/InvalidArgument"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/Internal"
+        "503":
+          $ref: "#/components/responses/DependencyUnavailable"
+  /v1/readiness:
+    get:
+      operationId: getServiceReadiness
+      tags: [Readiness]
+      summary: Service readiness
+      description: >-
+        Reads each service's /readyz over the internal network, all at once,
+        and reports up or down with the dependency detail the service itself
+        reports. A service is up when it answers 200 (ready, or degraded) and
+        down when it does not answer, answers 503 or answers anything else.
+        The services checked are order-service, supplier-service,
+        credit-service, user-service and admin-service. One whose URL is not
+        configured is listed in notChecked with the reason. Only
+        order-service and admin-service report dependency detail;
+        supplier-service, credit-service and user-service say just ready or
+        not ready.
+      x-required-permissions: [dashboard:read]
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Each service's readiness.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServiceReadiness"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/Internal"
+  /readyz:
+    get:
+      operationId: readiness
+      tags: [Operations]
+      summary: This service's readiness
+      description: >-
+        503 {"status":"not_ready"} only when Postgres is unreachable. Otherwise
+        200 with "ready", or "degraded" when the event consumer is stopped,
+        and the status of each dependency. Unauthenticated. The response never
+        contains connection strings or error text.
+      security: []
+      responses:
+        "200":
+          description: Postgres is reachable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Readiness"
+        "503":
+          description: Postgres is unreachable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotReady"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: >-
+        Auth0 RS256 access token for https://api.foc.local/admin-service,
+        validated locally using cached JWKS. Permissions are read from the
+        permissions claim only. These routes need a login token (not a
+        machine-to-machine token) with dashboard:read.
+
+  parameters:
+    From:
+      name: from
+      in: query
+      description: First day of the period, YYYY-MM-DD in the dashboard's time zone. Default 29 days before `to`.
+      schema:
+        type: string
+        format: date
+    To:
+      name: to
+      in: query
+      description: Last day of the period, included. Default today.
+      schema:
+        type: string
+        format: date
+    RankLimit:
+      name: limit
+      in: query
+      description: How many entries the ranking holds.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 50
+        default: 10
+
+  responses:
+    InvalidArgument:
+      description: A parameter is malformed or out of range, for example from after to, or a period over 366 days.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unauthenticated:
+      description: The token is missing, malformed, expired or for another API.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Forbidden:
+      description: The token lacks dashboard:read, or is a machine token.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Internal:
+      description: An unexpected failure. The body never contains its cause.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    DependencyUnavailable:
+      description: The identity provider cannot be reached to verify the token.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+  schemas:
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          enum: [INVALID_ARGUMENT, UNAUTHENTICATED, FORBIDDEN, DEPENDENCY_UNAVAILABLE, INTERNAL]
+        message:
+          type: string
+      additionalProperties: false
+
+    Period:
+      type: object
+      required: [asOf, timezone, from, to]
+      properties:
+        asOf:
+          type: string
+          format: date-time
+          description: When the response was produced, in UTC.
+        timezone:
+          type: string
+          examples: [Asia/Singapore]
+        from:
+          type: string
+          format: date
+        to:
+          type: string
+          format: date
+
+    ErrandsPerDay:
+      allOf:
+        - $ref: "#/components/schemas/Period"
+        - type: object
+          required: [days]
+          properties:
+            days:
+              type: array
+              maxItems: 366
+              items:
+                type: object
+                required: [date, created]
+                properties:
+                  date:
+                    type: string
+                    format: date
+                  created:
+                    type: integer
+                    minimum: 0
+                additionalProperties: false
+
+    TimeToAccept:
+      allOf:
+        - $ref: "#/components/schemas/Period"
+        - type: object
+          required: [accepted, medianSeconds, p90Seconds]
+          properties:
+            accepted:
+              type: integer
+              minimum: 0
+              description: Errands whose first accept falls in the period.
+            medianSeconds:
+              type: [number, "null"]
+            p90Seconds:
+              type: [number, "null"]
+
+    Outcomes:
+      allOf:
+        - $ref: "#/components/schemas/Period"
+        - type: object
+          required: [finished, outcomes]
+          properties:
+            finished:
+              type: integer
+              minimum: 0
+              description: Errands that reached a terminal state in the period.
+            outcomes:
+              type: array
+              minItems: 5
+              maxItems: 5
+              description: COMPLETED, CANCELLED, EXPIRED, REJECTED and REFUNDED, in that order.
+              items:
+                type: object
+                required: [status, count, rate]
+                properties:
+                  status:
+                    type: string
+                    enum: [COMPLETED, CANCELLED, EXPIRED, REJECTED, REFUNDED]
+                  count:
+                    type: integer
+                    minimum: 0
+                  rate:
+                    type: number
+                    minimum: 0
+                    maximum: 1
+                    description: count over finished; 0 when nothing finished.
+                additionalProperties: false
+
+    Ranking:
+      allOf:
+        - $ref: "#/components/schemas/Period"
+        - type: object
+          required: [basis, items, unattributed]
+          properties:
+            basis:
+              type: string
+              enum: [finished]
+              description: Entries are ordered by errands that finished in the period.
+            items:
+              type: array
+              maxItems: 50
+              items:
+                type: object
+                required: [id, name, finished, completed]
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  name:
+                    type: [string, "null"]
+                  finished:
+                    type: integer
+                    minimum: 1
+                  completed:
+                    type: integer
+                    minimum: 0
+                    description: Of the finished errands, how many completed.
+                additionalProperties: false
+            unattributed:
+              type: integer
+              minimum: 0
+              description: Errands finished in the period but not yet attributed, so not in the ranking.
+
+    ActiveCouriers:
+      allOf:
+        - $ref: "#/components/schemas/Period"
+        - type: object
+          required: [couriers]
+          properties:
+            couriers:
+              type: integer
+              minimum: 0
+
+    RewardVolume:
+      allOf:
+        - $ref: "#/components/schemas/Period"
+        - type: object
+          required: [total, completed, days]
+          properties:
+            total:
+              type: integer
+              minimum: 0
+              description: The sum over the period.
+            completed:
+              type: integer
+              minimum: 0
+              description: COMPLETED errands in the period.
+            days:
+              type: array
+              maxItems: 366
+              items:
+                type: object
+                required: [date, reward, completed]
+                properties:
+                  date:
+                    type: string
+                    format: date
+                  reward:
+                    type: integer
+                    minimum: 0
+                  completed:
+                    type: integer
+                    minimum: 0
+                additionalProperties: false
+
+    ServiceReadiness:
+      type: object
+      required: [asOf, services, notChecked]
+      properties:
+        asOf:
+          type: string
+          format: date-time
+        services:
+          type: array
+          items:
+            type: object
+            required: [name, state, latencyMillis]
+            properties:
+              name:
+                type: string
+                enum: [order-service, supplier-service, credit-service, user-service, admin-service]
+              state:
+                type: string
+                enum: [up, down]
+                description: up when the service answered 200, ready or degraded.
+              status:
+                type: string
+                description: The service's own word, ready or degraded. Omitted when down.
+              dependencies:
+                type: object
+                description: >-
+                  What the service reports about its own dependencies, for
+                  example order-service's postgres, rabbitmq and supplier.
+                  Omitted when it reports none. Values are /readyz's fixed
+                  vocabulary (ok, degraded, disabled, running, stopped, closed,
+                  open, half_open).
+                additionalProperties:
+                  type: string
+              reason:
+                type: string
+                enum: [unreachable, timeout, not_ready, unexpected_status]
+                description: Why a service is down.
+              latencyMillis:
+                type: integer
+                minimum: 0
+            additionalProperties: false
+        notChecked:
+          type: array
+          items:
+            type: object
+            required: [name, reason]
+            properties:
+              name:
+                type: string
+              reason:
+                type: string
+            additionalProperties: false
+      additionalProperties: false
+
+    Readiness:
+      type: object
+      required: [status, dependencies]
+      properties:
+        status:
+          type: string
+          enum: [ready, degraded]
+        dependencies:
+          type: object
+          properties:
+            postgres:
+              type: string
+              enum: [ok]
+            events:
+              type: string
+              enum: [running, stopped]
+          additionalProperties: false
+      additionalProperties: false
+
+    NotReady:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [not_ready]
+      additionalProperties: false

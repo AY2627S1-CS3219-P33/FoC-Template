@@ -21,6 +21,9 @@ const (
 	// routes (supplier fence, account-deletion check). It is only honoured
 	// on service tokens (NFR3.5.3).
 	InternalAccess Permission = "orders:internal"
+	// AdminRead lets admin-service read order-service's export routes. It
+	// is separate from InternalAccess and only honoured on service tokens.
+	AdminRead Permission = "orders:admin-read"
 )
 
 // TokenKind says whether a credential was issued to a person or to a service.
@@ -90,7 +93,7 @@ func (p Principal) Has(permission Permission) bool {
 
 func knownPermission(permission Permission) bool {
 	switch permission {
-	case UseErrands, ReviewErrands, InternalAccess:
+	case UseErrands, ReviewErrands, InternalAccess, AdminRead:
 		return true
 	default:
 		return false

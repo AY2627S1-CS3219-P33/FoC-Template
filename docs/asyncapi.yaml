@@ -23,6 +23,12 @@ info:
       user-specific notifications and delivers them through its frontend interface.
       There is no notification.requested command or requirement for a queue per user.
     - Optional order-events.tap binds to errand.# only when AMQP_DECLARE_TAP is set.
+    - admin-service.events binds to errand.# for the admin dashboard's read model. It is a
+      quorum queue with x-delivery-limit 5 and dead-letters to admin-service.events.dlq.
+      It records the 15 transition events by messageId, applies an event to an errand only
+      when its errandVersion is at least the stored one (events with an equal version are
+      ordered by occurredAt), and ignores rejection events and reminders. Binding it does
+      not change what any other consumer receives.
 
     Delivery and recovery:
     - The transactional outbox is the only outbound path. State, history and outgoing
