@@ -4,6 +4,7 @@ references/
 /internal/database/errandgen/
 /internal/database/opsgen/
 /internal/database/msggen/
+/internal/database/requestergen/
 
 # Rendered docs from `redocly build-docs`
 /openapi.html

@@ -16,6 +16,8 @@ const (
 	FenceNotFound Code = "FENCE_NOT_FOUND"
 	// OutboxRowNotFound means no outbox row has the ID (admin replay, M6).
 	OutboxRowNotFound Code = "OUTBOX_ROW_NOT_FOUND"
+	// PlaceNotFound means the caller has no saved place with the ID.
+	PlaceNotFound Code = "PLACE_NOT_FOUND"
 	// ErrandChanged means the caller's expectedVersion is stale (F3.3.7).
 	ErrandChanged Code = "ERRAND_CHANGED"
 	// ErrandUnavailable means the errand can no longer take this action,
@@ -33,6 +35,9 @@ const (
 	InsufficientCredits Code = "INSUFFICIENT_CREDITS"
 	// EditPending means a reward change is still waiting for credit-service.
 	EditPending Code = "EDIT_PENDING"
+	// PlaceLimitReached means the caller already has the maximum number of
+	// saved places of that kind.
+	PlaceLimitReached Code = "PLACE_LIMIT_REACHED"
 	// SupplierUnavailable means the supplier is missing, deleted or has no
 	// usable version for a new errand (F3.1.1).
 	SupplierUnavailable        Code = "SUPPLIER_UNAVAILABLE"
@@ -51,6 +56,7 @@ func Codes() []Code {
 		ErrandNotFound,
 		FenceNotFound,
 		OutboxRowNotFound,
+		PlaceNotFound,
 		ErrandChanged,
 		ErrandUnavailable,
 		InvalidTransition,
@@ -58,6 +64,7 @@ func Codes() []Code {
 		CourierRestricted,
 		InsufficientCredits,
 		EditPending,
+		PlaceLimitReached,
 		SupplierUnavailable,
 		SupplierDeletionInProgress,
 		DependencyUnavailable,
@@ -75,10 +82,11 @@ func HTTPStatus(code Code) int {
 		return http.StatusUnauthorized
 	case Forbidden, NotEligible, CourierRestricted:
 		return http.StatusForbidden
-	case ErrandNotFound, FenceNotFound, OutboxRowNotFound:
+	case ErrandNotFound, FenceNotFound, OutboxRowNotFound, PlaceNotFound:
 		return http.StatusNotFound
 	case ErrandChanged, ErrandUnavailable, InvalidTransition,
-		InsufficientCredits, EditPending, SupplierDeletionInProgress:
+		InsufficientCredits, EditPending, PlaceLimitReached,
+		SupplierDeletionInProgress:
 		return http.StatusConflict
 	case SupplierUnavailable:
 		return http.StatusUnprocessableEntity

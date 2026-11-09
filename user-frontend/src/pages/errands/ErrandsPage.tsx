@@ -7,18 +7,21 @@ import {
   type ErrandEdit,
   type RequesterErrandView,
 } from "../../api/order";
+import { createPlace, type PlaceCreate } from "../../api/places";
 import { listBuildings, listSuppliers, type Lookup } from "../../api/supplier";
 import type { Profile } from "../../api/types";
 import { OpenErrandList } from "./OpenErrandList";
 import { MyErrandList, type MyListKind } from "./MyErrandList";
 import { ErrandDetail } from "./ErrandDetail";
 import { ErrandForm } from "./ErrandForm";
+import { placeError } from "./messages";
 
 type Tab = "browse" | MyListKind;
 
 type View =
   | { kind: "list" }
-  | { kind: "detail"; errandId: string }
+  // placeNotice: saved places that could not be added after a create.
+  | { kind: "detail"; errandId: string; placeNotice?: string }
   | { kind: "create" }
   | { kind: "edit"; errand: RequesterErrandView }
   // "Order again": a new create prefilled from a finished errand.
@@ -101,14 +104,29 @@ export function ErrandsPage() {
 
   const onChanged = useCallback(() => setRefreshKey((n) => n + 1), []);
 
-  async function onCreate(body: ErrandCreate): Promise<void> {
+  async function onCreate(body: ErrandCreate, places: PlaceCreate[]): Promise<void> {
     const token = await getOrderToken();
     const created = await createErrand(token, body, idempotencyKey.current);
     // The submission succeeded, so the next one is a new logical request.
     idempotencyKey.current = crypto.randomUUID();
     onChanged();
+    // Saved places are added only now, and a failure never fails the errand:
+    // it is reported on the errand's detail instead.
+    const failures: string[] = [];
+    for (const place of places) {
+      try {
+        await createPlace(token, place);
+      } catch (err) {
+        const what = place.kind === "PICKUP" ? "pickup location" : "drop-off";
+        failures.push(`Your ${what} "${place.label}" was not saved: ${placeError(err)}`);
+      }
+    }
     setTab("requested");
-    setView({ kind: "detail", errandId: created.errandId });
+    setView({
+      kind: "detail",
+      errandId: created.errandId,
+      placeNotice: failures.length > 0 ? failures.join(" ") : undefined,
+    });
   }
 
   async function onEdit(errandId: string, body: ErrandEdit): Promise<void> {
@@ -125,7 +143,8 @@ export function ErrandsPage() {
         profile={account}
         buildings={buildings}
         getSupplierToken={getSupplierToken}
-        onSubmit={(body) => onCreate(body as ErrandCreate)}
+        getOrderToken={getOrderToken}
+        onSubmit={(body, places) => onCreate(body as ErrandCreate, places)}
         onCancel={() => setView({ kind: "list" })}
       />
     );
@@ -141,7 +160,8 @@ export function ErrandsPage() {
         profile={account}
         buildings={buildings}
         getSupplierToken={getSupplierToken}
-        onSubmit={(body) => onCreate(body as ErrandCreate)}
+        getOrderToken={getOrderToken}
+        onSubmit={(body, places) => onCreate(body as ErrandCreate, places)}
         onCancel={() => setView({ kind: "list" })}
       />
     );
@@ -165,6 +185,7 @@ export function ErrandsPage() {
     return (
       <ErrandDetail
         errandId={view.errandId}
+        placeNotice={view.placeNotice}
         getToken={getOrderToken}
         onBack={() => setView({ kind: "list" })}
         onEdit={(errand) => setView({ kind: "edit", errand })}

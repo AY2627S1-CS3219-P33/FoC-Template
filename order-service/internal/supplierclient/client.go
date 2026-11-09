@@ -105,6 +105,29 @@ func (c *Client) Breaker() *resilience.Breaker { return c.breaker }
 
 // ResolveForCreate implements errand.SupplierGate. It is never cached.
 func (c *Client) ResolveForCreate(ctx context.Context, supplierID string, now time.Time) (errand.SupplierVersion, error) {
+	v, err := c.current(ctx, supplierID)
+	if err != nil {
+		return errand.SupplierVersion{}, err
+	}
+	open, err := openAt(v.OpeningTime, v.ClosingTime, now)
+	if err != nil {
+		return errand.SupplierVersion{}, dependencyUnavailable()
+	}
+	if !open {
+		return errand.SupplierVersion{}, supplierUnavailable("supplier is closed")
+	}
+	return v, nil
+}
+
+// GetCurrent implements errand.SupplierGate. It is never cached and does
+// not check opening hours.
+func (c *Client) GetCurrent(ctx context.Context, supplierID string) (errand.SupplierVersion, error) {
+	return c.current(ctx, supplierID)
+}
+
+// current reads GET /suppliers/{id}: the current version of a supplier that
+// exists and is not deleted.
+func (c *Client) current(ctx context.Context, supplierID string) (errand.SupplierVersion, error) {
 	if supplierID == "" {
 		return errand.SupplierVersion{}, supplierUnavailable("supplier is unavailable")
 	}
@@ -121,13 +144,6 @@ func (c *Client) ResolveForCreate(ctx context.Context, supplierID string, now ti
 	}
 	if !v.Available {
 		return errand.SupplierVersion{}, supplierUnavailable("supplier is unavailable")
-	}
-	open, err := openAt(v.OpeningTime, v.ClosingTime, now)
-	if err != nil {
-		return errand.SupplierVersion{}, dependencyUnavailable()
-	}
-	if !open {
-		return errand.SupplierVersion{}, supplierUnavailable("supplier is closed")
 	}
 	return v, nil
 }
