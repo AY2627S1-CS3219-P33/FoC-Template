@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -49,6 +50,21 @@ var indexes = []string{
 	"saved_places_label_idx",
 	"saved_places_supplier_idx",
 	"saved_places_user_idx",
+}
+
+func TestMigrationVersionsIncrease(t *testing.T) {
+	names, err := Names()
+	require.NoError(t, err)
+	require.NotEmpty(t, names)
+	var previous int64
+	for _, name := range names {
+		prefix, _, found := strings.Cut(name, "_")
+		require.True(t, found, "migration needs a version prefix: %s", name)
+		version, err := strconv.ParseInt(prefix, 10, 64)
+		require.NoError(t, err, name)
+		require.Greater(t, version, previous, "migration versions must be unique and increasing: %s", name)
+		previous = version
+	}
 }
 
 func TestOrderSchemaMigrationUp(t *testing.T) {

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { OrderError, type ErrandCreate, type ErrandEdit, type Item, type RequesterErrandView } from "../../api/order";
 import {
   listPlaces,
@@ -32,6 +32,7 @@ interface Props {
   initial?: RequesterErrandView;
   // Create mode only: a finished errand to copy ("Order again").
   template?: RequesterErrandView;
+  initialSupplier?: Supplier;
   profile: Profile;
   buildings: Lookup[];
   getSupplierToken: () => Promise<string>;
@@ -49,10 +50,11 @@ function draftFrom(
   initial: RequesterErrandView | undefined,
   profile: Profile,
   keepDeadline: boolean,
+  supplierId = "",
 ): ErrandDraft {
   if (!initial) {
     return {
-      supplierId: "",
+      supplierId,
       deliveryBuildingId: "",
       deliveryDetail: "",
       items: [{ description: "", quantity: "1" }],
@@ -97,6 +99,7 @@ export function ErrandForm({
   mode,
   initial,
   template,
+  initialSupplier,
   profile,
   buildings,
   getSupplierToken,
@@ -110,7 +113,7 @@ export function ErrandForm({
   // State rather than a memo: "Order again" may drop a copied supplier or
   // building, and the baseline drops it too so the form still starts clean.
   const [original, setOriginal] = useState<ErrandDraft>(() =>
-    draftFrom(source, profile, mode === "edit"),
+    draftFrom(source, profile, mode === "edit", initialSupplier?.supplierId),
   );
   const [draft, setDraft] = useState<ErrandDraft>(original);
   // A copy is shown only once its supplier has been checked.
@@ -124,10 +127,13 @@ export function ErrandForm({
 
   // Supplier picker. The search is the supplier service's own, so the picker
   // matches what the Suppliers screen would show for the same text.
-  const [supplierQuery, setSupplierQuery] = useState("");
+  const [supplierQuery, setSupplierQuery] = useState<string | null>(null);
+  const supplierListId = useId();
+  const [buildingQuery, setBuildingQuery] = useState<string | null>(null);
+  const buildingListId = useId();
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [supplierError, setSupplierError] = useState<string | null>(null);
-  const [chosen, setChosen] = useState<Supplier | null>(null);
+  const [chosen, setChosen] = useState<Supplier | null>(initialSupplier ?? null);
 
   // Saved places (create mode only). Loaded once; if they cannot be loaded the
   // form works as before, just without chips.
@@ -250,11 +256,6 @@ export function ErrandForm({
         : source && source.supplierId === draft.supplierId
         ? `${source.pickup.name} — ${source.pickup.building}`
         : null;
-  const needsFallbackOption =
-    draft.supplierId !== "" &&
-    selectedLabel !== null &&
-    !suppliers.some((s) => s.supplierId === draft.supplierId);
-
   const clientErrors = useMemo(() => validateErrandForm(draft), [draft]);
 
   // Already-saved places get no save control: saving them again would only be
@@ -274,10 +275,12 @@ export function ErrandForm({
       : "";
 
   function pickPickupPlace(place: PickupPlace) {
+    setSupplierQuery(null);
     set("supplierId", place.supplierId);
   }
 
   function pickDeliveryPlace(place: DeliveryPlace) {
+    setBuildingQuery(null);
     set("deliveryBuildingId", place.deliveryBuilding.id);
     set("deliveryDetail", place.deliveryDetail);
   }
@@ -434,6 +437,7 @@ export function ErrandForm({
   const buildingOptions = buildings.filter(
     (b) => !b.retired || b.id === original.deliveryBuildingId,
   );
+  const selectedBuilding = buildingOptions.find((b) => b.id === draft.deliveryBuildingId);
 
   const head = (
     <div className="page-head">
@@ -512,35 +516,30 @@ export function ErrandForm({
             ))}
           </div>
         )}
-        <Field label="Find a pickup location" error="">
+        <Field label="Pickup location" error={show("supplierId")}>
           <input
             className="input"
-            type="search"
-            value={supplierQuery}
+            type="text"
+            list={supplierListId}
+            value={supplierQuery ?? selectedLabel ?? ""}
             placeholder="Search by name or location…"
-            onChange={(e) => setSupplierQuery(e.target.value)}
+            autoComplete="off"
+            aria-invalid={!!show("supplierId")}
+            onChange={(e) => {
+              const value = e.target.value;
+              const supplier = suppliers.find((s) => `${s.name} — ${s.building}` === value);
+              setSupplierQuery(supplier ? null : value);
+              set("supplierId", supplier?.supplierId ?? "");
+              setChosen(supplier ?? null);
+            }}
           />
+          <datalist id={supplierListId}>
+            {suppliers.map((s) => (
+              <option key={s.supplierId} value={`${s.name} — ${s.building}`} />
+            ))}
+          </datalist>
         </Field>
         {supplierError && <p className="hint error">{supplierError}</p>}
-        <Field label="Supplier" error={show("supplierId")}>
-          <select
-            className="input select"
-            value={draft.supplierId}
-            onChange={(e) => set("supplierId", e.target.value)}
-            aria-invalid={!!show("supplierId")}
-          >
-            <option value="">Choose a supplier…</option>
-            {/* Keep the current choice selectable when it is outside the search. */}
-            {needsFallbackOption && (
-              <option value={draft.supplierId}>{selectedLabel}</option>
-            )}
-            {suppliers.map((s) => (
-              <option key={s.supplierId} value={s.supplierId}>
-                {s.name} — {s.building}
-              </option>
-            ))}
-          </select>
-        </Field>
         {chosen && chosen.supplierId === draft.supplierId ? (
           <p className="muted small">
             {chosen.building} · Floor {chosen.floor} · open {chosen.openingTime}–
@@ -595,20 +594,30 @@ export function ErrandForm({
         )}
         <div className="form-grid">
           <Field label="Building" error={show("deliveryBuildingId")}>
-            <select
-              className="input select"
-              value={draft.deliveryBuildingId}
-              onChange={(e) => set("deliveryBuildingId", e.target.value)}
+            <input
+              className="input"
+              type="text"
+              list={buildingListId}
+              value={buildingQuery ?? (selectedBuilding
+                ? `${selectedBuilding.name}${selectedBuilding.retired ? " (retired)" : ""}`
+                : "")}
+              placeholder="Search for a building…"
+              autoComplete="off"
+              onChange={(e) => {
+                const value = e.target.value;
+                const building = buildingOptions.find(
+                  (b) => `${b.name}${b.retired ? " (retired)" : ""}` === value,
+                );
+                setBuildingQuery(building ? null : value);
+                set("deliveryBuildingId", building?.id ?? "");
+              }}
               aria-invalid={!!show("deliveryBuildingId")}
-            >
-              <option value="">Choose a building…</option>
+            />
+            <datalist id={buildingListId}>
               {buildingOptions.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.name}
-                  {b.retired ? " (retired)" : ""}
-                </option>
+                <option key={b.id} value={`${b.name}${b.retired ? " (retired)" : ""}`} />
               ))}
-            </select>
+            </datalist>
           </Field>
           <Field label="Reward (credits)" error={show("reward")}>
             <input

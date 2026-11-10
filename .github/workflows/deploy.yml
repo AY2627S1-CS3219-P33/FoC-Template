@@ -6,7 +6,7 @@ on:
       component:
         description: Auto selects changes since each component's last deployment
         type: choice
-        options: [auto, all, user-service, supplier-service, credit-service, order-service, frontend]
+        options: [auto, all, user-service, supplier-service, credit-service, order-service, admin-service, frontend]
         default: auto
       operation:
         description: Deploy this main commit, or roll back one selected component
@@ -66,7 +66,7 @@ jobs:
         with:
           node-version: '22'
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
-      - uses: aws-actions/configure-aws-credentials@cabfdba3510de1431bac9dba27511d97497fc100 # v5
+      - uses: aws-actions/configure-aws-credentials@61815dcd50bd041e203e49132bacad1fd04d2708 # v5
         with:
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ap-southeast-1

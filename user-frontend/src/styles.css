@@ -380,11 +380,22 @@ label {
   grid-template-columns: 16rem 1fr;
 }
 .sidebar {
+  position: sticky;
+  top: 0;
+  align-self: start;
+  height: 100dvh;
   border-right: 1px solid var(--line-soft);
   background: var(--surface);
   display: flex;
   flex-direction: column;
   padding: 1.25rem 1rem;
+}
+.sidebar > :not(.nav) {
+  flex-shrink: 0;
+}
+.sidebar .nav {
+  min-height: 0;
+  overflow-y: auto;
 }
 .sidebar-brand {
   display: flex;

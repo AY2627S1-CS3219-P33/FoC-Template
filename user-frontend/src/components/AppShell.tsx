@@ -15,6 +15,7 @@ import {
   streamUnread,
 } from "../api/notification";
 import type { Profile as ProfileData } from "../api/types";
+import type { Supplier } from "../api/supplier";
 
 type Page = "suppliers" | "errands" | "credits" | "notifications" | "chat" | "profile" | "settings";
 
@@ -53,8 +54,15 @@ export function AppShell() {
   const { profile, signOut, getAccessToken } = useAuth();
   const account = profile as ProfileData;
   const isAdmin = account.role === "ADMIN" || account.role === "SUPER_ADMIN";
-  const [page, setPage] = useState<Page>("suppliers");
+  const [navigation, setNavigation] = useState<{ page: Page; supplier?: Supplier }>({
+    page: "suppliers",
+  });
+  const { page } = navigation;
   const [unread, setUnread] = useState(0);
+
+  function setPage(page: Page) {
+    setNavigation({ page });
+  }
 
   const nav = NAV;
 
@@ -116,9 +124,13 @@ export function AppShell() {
   function render() {
     switch (page) {
       case "suppliers":
-        return <SuppliersPage />;
+        return (
+          <SuppliersPage
+            onRequestErrand={(supplier) => setNavigation({ page: "errands", supplier })}
+          />
+        );
       case "errands":
-        return <ErrandsPage />;
+        return <ErrandsPage initialSupplier={navigation.supplier} />;
       case "credits":
         return <CreditPage />;
       case "notifications":
