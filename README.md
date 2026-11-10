@@ -26,7 +26,8 @@ withdrawn, or exchanged for money, and only circulate within the platform.
 
 This repository follows a **one-service-per-folder** structure: each
 microservice (`user-service/`, `supplier-service/`, `order-service/`,
-`credit-service/`, `admin-service/`) lives in its own top-level folder.
+`credit-service/`, `admin-service/`, `chat-service/`) lives in its own
+top-level folder.
 
 ```text
 .
@@ -35,6 +36,7 @@ microservice (`user-service/`, `supplier-service/`, `order-service/`,
 ├── order-service/
 ├── credit-service/
 ├── admin-service/
+├── chat-service/
 ├── <n2h-service>/
 └── README.md
 ```

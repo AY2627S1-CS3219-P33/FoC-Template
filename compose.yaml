@@ -1,5 +1,6 @@
 include:
   - order-service/compose.yaml
+  - chat-service/compose.yaml
   - admin-service/compose.yaml
 
 services:
@@ -190,6 +191,7 @@ services:
       - supplier-service
       - order-service
       - credit-service
+      - chat-service
       - admin-service
 
   queue-service:

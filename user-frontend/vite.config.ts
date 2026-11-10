@@ -40,6 +40,15 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/credit-service/, ""),
       },
+      // Chat service: REST plus the WebSocket at /chat-service/ws. The browser's
+      // Origin (localhost:5173) is passed through unchanged, and chat-service
+      // allows it by default (WS_ALLOWED_ORIGINS).
+      "/chat-service": {
+        target: "http://localhost:3006",
+        changeOrigin: true,
+        ws: true,
+        rewrite: (path) => path.replace(/^\/chat-service/, ""),
+      },
     },
     allowedHosts: ["russell-unjumbled-unputatively.ngrok-free.dev"],
   },

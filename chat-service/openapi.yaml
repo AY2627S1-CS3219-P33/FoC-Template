@@ -1,0 +1,478 @@
+openapi: 3.1.0
+
+info:
+  title: Friend on Campus Chat Service API
+  version: 1.0.0
+  description: >-
+    Chat between an errand's requester and its assigned courier. A room
+    belongs to one (errand, courier) pair and is created when the courier
+    accepts the errand. It stays OPEN until the errand ends for it (completed,
+    refunded, or that courier withdrew), is CLOSING (still writable) for
+    CHAT_CLOSE_DELAY (24 hours) after that, and is then CLOSED (read-only).
+    Rooms and messages are never deleted.
+    Identity comes only from the verified Auth0 token (audience
+    https://api.foc.local/chat-service); x-required-permissions names the
+    permission an operation needs. A caller who is not a participant of a room
+    gets 404 ROOM_NOT_FOUND, exactly as for a room that does not exist.
+    Live delivery is over a WebSocket (GET /ws; docs/websocket-protocol.md).
+  license:
+    name: MIT
+    identifier: MIT
+
+servers:
+  - url: /chat-service
+    description: API gateway route
+
+tags:
+  - name: Chats
+    description: The caller's chat rooms and their messages.
+  - name: Operations
+    description: Service health.
+
+paths:
+  /me/chats:
+    get:
+      operationId: listMyChats
+      tags: [Chats]
+      summary: List the caller's chat rooms
+      description: >-
+        Every room the caller takes part in, as requester or courier, newest
+        first, each with its newest message. Closed rooms are included. At
+        most 200 rooms are returned.
+      security:
+        - bearerAuth: []
+      x-required-permissions: [chats:use]
+      responses:
+        "200":
+          description: The caller's rooms.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoomList"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/Internal"
+        "503":
+          $ref: "#/components/responses/DependencyUnavailable"
+
+  /errands/{errandId}/chats:
+    parameters:
+      - $ref: "#/components/parameters/ErrandID"
+    get:
+      operationId: listChatsForErrand
+      tags: [Chats]
+      summary: List the caller's chat rooms for one errand
+      description: >-
+        Newest first. A courier gets at most one room; the requester gets one
+        per courier who accepted the errand (a courier who withdrew keeps their
+        own room, and the next courier gets a new, empty one). The list is
+        empty for an errand the caller has no room for, including for a short
+        time (usually under a second) after the errand is accepted, until the
+        accept event is processed. lastMessage is not included.
+      security:
+        - bearerAuth: []
+      x-required-permissions: [chats:use]
+      responses:
+        "200":
+          description: The caller's rooms for the errand.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoomList"
+        "400":
+          $ref: "#/components/responses/InvalidArgument"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/Internal"
+        "503":
+          $ref: "#/components/responses/DependencyUnavailable"
+
+  /chats/{roomId}/messages:
+    parameters:
+      - $ref: "#/components/parameters/RoomID"
+    get:
+      operationId: listMessages
+      tags: [Chats]
+      summary: Read a page of a room's messages
+      description: >-
+        Messages are always returned oldest first. With neither after nor
+        before, the newest page is returned. after catches up after a
+        reconnect (messages newer than that ID); before scrolls back (messages
+        older than that ID). Use at most one of them. Reading is allowed in
+        every room status, including CLOSED.
+      security:
+        - bearerAuth: []
+      x-required-permissions: [chats:use]
+      x-required-relationship: requester or courier of the room
+      parameters:
+        - name: after
+          in: query
+          required: false
+          description: Return messages with an ID greater than this one.
+          schema:
+            type: integer
+            format: int64
+            minimum: 0
+        - name: before
+          in: query
+          required: false
+          description: Return messages with an ID less than this one.
+          schema:
+            type: integer
+            format: int64
+            minimum: 1
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 50
+      responses:
+        "200":
+          description: A page of messages, oldest first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageList"
+        "400":
+          $ref: "#/components/responses/InvalidArgument"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/RoomNotFound"
+        "500":
+          $ref: "#/components/responses/Internal"
+        "503":
+          $ref: "#/components/responses/DependencyUnavailable"
+    post:
+      operationId: sendMessage
+      tags: [Chats]
+      summary: Send a message
+      description: >-
+        Stores a message from the caller. The browser makes a new clientMsgId
+        (a UUID) for each message and reuses it when retrying, so a retry never
+        posts the message twice: it returns the stored message with 200
+        instead of 201. The body is trimmed and stored as typed; clients must
+        display it as text, never as HTML. Allowed while the room is OPEN or
+        CLOSING. The WebSocket is the main way to send once it exists; this
+        route stays for testing and as a fallback, with the same rules.
+      security:
+        - bearerAuth: []
+      x-required-permissions: [chats:use]
+      x-required-relationship: requester or courier of the room
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendMessageRequest"
+      responses:
+        "201":
+          description: The message was stored.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Message"
+        "200":
+          description: A retry; the message stored the first time is returned.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Message"
+        "400":
+          description: >-
+            INVALID_ARGUMENT for a malformed room ID or request body,
+            INVALID_MESSAGE when the body or clientMsgId breaks a rule.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/RoomNotFound"
+        "409":
+          description: ROOM_CLOSED. The room is read-only.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "500":
+          $ref: "#/components/responses/Internal"
+        "503":
+          $ref: "#/components/responses/DependencyUnavailable"
+
+  /ws:
+    get:
+      operationId: openChatWebSocket
+      tags: [Chats]
+      summary: Open the live chat connection (WebSocket)
+      description: >-
+        Upgrades to a WebSocket that pushes new messages, room_opened and
+        room_closing frames, and accepts send frames. There is no
+        Authorization header: the first frame must be
+        {"type":"auth","token":"<access token>"} within 5 seconds, and the
+        token needs chats:use. Only pages from WS_ALLOWED_ORIGINS may connect.
+        The frames, close codes and reconnect rules are in
+        docs/websocket-protocol.md.
+      security: []
+      x-required-permissions: [chats:use]
+      responses:
+        "101":
+          description: Switching to the WebSocket protocol.
+        "400":
+          description: Not a valid WebSocket handshake.
+        "403":
+          description: The page's origin is not allowed.
+        "503":
+          description: The service is shutting down; reconnect to another copy.
+
+  /readyz:
+    get:
+      operationId: getReadiness
+      tags: [Operations]
+      summary: Readiness
+      description: >-
+        200 when PostgreSQL answers and has every migration this build expects.
+        The status is "degraded" (still 200) while the RabbitMQ errand-event
+        consumer is not subscribed: existing chats work, and new rooms appear
+        once it reconnects, because the events wait in the queue. Used by
+        Docker Compose and the load balancer. No authentication.
+      security: []
+      responses:
+        "200":
+          description: Ready, or degraded.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, dependencies]
+                properties:
+                  status:
+                    type: string
+                    enum: [ready, degraded]
+                  dependencies:
+                    type: object
+                    properties:
+                      postgres:
+                        type: string
+                        const: ok
+                      errandEvents:
+                        type: string
+                        enum: [ok, down]
+        "503":
+          description: Not ready.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    const: not_ready
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Auth0 access token for audience https://api.foc.local/chat-service.
+
+  parameters:
+    ErrandID:
+      name: errandId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    RoomID:
+      name: roomId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  schemas:
+    Role:
+      type: string
+      enum: [REQUESTER, COURIER]
+
+    Room:
+      type: object
+      required: [id, errandId, requesterId, courierId, myRole, status, endedAt, endReason, closesAt, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        errandId:
+          type: string
+          format: uuid
+        requesterId:
+          type: string
+          description: Auth0 subject of the requester.
+        courierId:
+          type: string
+          description: Auth0 subject of the courier.
+        myRole:
+          $ref: "#/components/schemas/Role"
+        status:
+          type: string
+          enum: [OPEN, CLOSING, CLOSED]
+          description: >-
+            Calculated with the server's clock when the response is made.
+            Clients switch CLOSING to CLOSED themselves at closesAt.
+        endedAt:
+          type: [string, "null"]
+          format: date-time
+          description: When the errand ended for this room; null while OPEN.
+        endReason:
+          type: [string, "null"]
+          enum: [WITHDRAWN, COMPLETED, REFUNDED, null]
+        closesAt:
+          type: [string, "null"]
+          format: date-time
+          description: When the room becomes read-only; null while OPEN.
+        createdAt:
+          type: string
+          format: date-time
+        lastMessage:
+          $ref: "#/components/schemas/Message"
+      additionalProperties: false
+
+    RoomList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Room"
+      additionalProperties: false
+
+    Message:
+      type: object
+      required: [id, roomId, senderId, senderRole, body, clientMsgId, createdAt]
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: Increases with every message; use it for after and before.
+        roomId:
+          type: string
+          format: uuid
+        senderId:
+          type: string
+        senderRole:
+          $ref: "#/components/schemas/Role"
+        body:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          description: Plain text. Display it as text, never as HTML.
+        clientMsgId:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+      additionalProperties: false
+
+    MessageList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/Message"
+      additionalProperties: false
+
+    SendMessageRequest:
+      type: object
+      required: [clientMsgId, body]
+      properties:
+        clientMsgId:
+          type: string
+          pattern: "^[A-Za-z0-9._:-]{1,64}$"
+          description: Made by the client for each message (a UUID); reused on retry.
+        body:
+          type: string
+          description: >-
+            1 to 2000 characters after trimming. Newlines and tabs are allowed;
+            other control characters are not.
+      additionalProperties: false
+
+    Error:
+      type: object
+      description: Stable error codes from internal/apperror; branch on code, not message.
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          enum:
+            - INVALID_ARGUMENT
+            - INVALID_MESSAGE
+            - UNAUTHENTICATED
+            - FORBIDDEN
+            - ROOM_NOT_FOUND
+            - ROOM_CLOSED
+            - RATE_LIMITED
+            - DEPENDENCY_UNAVAILABLE
+            - INTERNAL
+        message:
+          type: string
+      additionalProperties: false
+
+  responses:
+    InvalidArgument:
+      description: INVALID_ARGUMENT. A path or query parameter is malformed.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unauthenticated:
+      description: UNAUTHENTICATED. The token is missing, invalid, expired or for another API.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Forbidden:
+      description: FORBIDDEN. Not a user token, or the token lacks chats:use.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    RoomNotFound:
+      description: ROOM_NOT_FOUND. No such room, or the caller is not one of its participants.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Internal:
+      description: INTERNAL. An unexpected error; details are logged, never returned.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    DependencyUnavailable:
+      description: DEPENDENCY_UNAVAILABLE. The database or Auth0's signing keys are unreachable; retry later.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"

@@ -11,6 +11,7 @@ remains the source of truth for its own data and rules:
 | **order-service** | Request, browse, accept and complete errands; errand administration | `src/api/order.ts` |
 | **admin-service** | Admin Metrics tab and the readiness section of Overview | `src/api/admin.ts` |
 | **credit-service** | Balance, reservations and ledger — **against a proposed contract**, see below | `src/api/credit.ts` |
+| **chat-service** | Chat between the requester and courier on an errand's page (REST history plus a live WebSocket) | `src/api/chat.ts`, `src/chat/` |
 
 Every client module mirrors its service's frozen OpenAPI contract. Searching,
 filtering, sorting and paging are the services' job; the SPA sends query
@@ -151,6 +152,7 @@ the frontend never hard-codes a backend host:
 | `/order-service` | order-service | `http://localhost:3003` |
 | `/credit-service` | credit-service | `http://localhost:3004` |
 | `/admin-service` | admin-service | `http://localhost:3005` |
+| `/chat-service` (REST and the `/chat-service/ws` WebSocket) | chat-service | `http://localhost:3006` |
 
 The gateway-route prefix is stripped before forwarding, because each Go service
 serves its routes without it. Only the user-service is needed to sign in; the
@@ -173,6 +175,7 @@ permissions, overridable through the environment (see `.env.example`):
 | Errand admin, Overview counters | `VITE_ORDER_AUDIENCE` | `errands:review` |
 | Metrics, Overview readiness | `VITE_ADMIN_AUDIENCE` | `dashboard:read` |
 | Credits | `VITE_CREDIT_AUDIENCE` | `credits:read` |
+| Errand chat | `VITE_CHAT_AUDIENCE` | `chats:use` |
 
 ### credit-service is not implemented
 
