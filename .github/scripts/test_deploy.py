@@ -46,6 +46,8 @@ class SelectionTests(unittest.TestCase):
         self.assertTrue(deploy.affects("user-service", "user-service/internal/deleted.go"))
         self.assertTrue(deploy.affects("frontend", "user-frontend/package-lock.json"))
         self.assertFalse(deploy.affects("frontend", "user-service/internal/main.go"))
+        self.assertFalse(deploy.affects("chat-service", ".github/deploy.json"))
+        self.assertFalse(deploy.affects("notification-service", ".github/scripts/deploy.py"))
 
     @patch.object(deploy, "changed_paths", return_value=["supplier-service/migrations/00003_new.sql"])
     def test_first_deployment_and_forced_selection(self, _changes):
@@ -120,6 +122,20 @@ class ECSTests(unittest.TestCase):
 
 
 class SafetyTests(unittest.TestCase):
+    def test_deploy_targets_match_scoped_iam_resources(self):
+        policy = json.loads((deploy.ROOT / ".github/aws/deploy-permissions.json").read_text())
+        statements = {statement["Sid"]: statement for statement in policy["Statement"]}
+        ecr = set(statements["PublishServiceImages"]["Resource"])
+        task_definitions = set(statements["ReadAndTagServiceRevisions"]["Resource"])
+        services = set(statements["UpdateExistingServices"]["Resource"])
+        for name, config in deploy.CONFIG["services"].items():
+            prefix = f'arn:aws:ecs:{deploy.CONFIG["region"]}:{deploy.CONFIG["account"]}'
+            self.assertIn(
+                f'arn:aws:ecr:{deploy.CONFIG["region"]}:{deploy.CONFIG["account"]}:repository/{name}', ecr
+            )
+            self.assertIn(f"{prefix}:task-definition/{name}-task:*", task_definitions)
+            self.assertIn(f'{prefix}:service/{deploy.CONFIG["cluster"]}/{config["service"]}', services)
+
     def test_task_definition_reads_have_required_unscoped_permission(self):
         policy = json.loads((deploy.ROOT / ".github/aws/deploy-permissions.json").read_text())
         reads = [s for s in policy["Statement"]

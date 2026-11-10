@@ -6,7 +6,7 @@ on:
       component:
         description: Auto selects changes since each component's last deployment
         type: choice
-        options: [auto, all, user-service, supplier-service, credit-service, order-service, admin-service, frontend]
+        options: [auto, all, user-service, supplier-service, credit-service, order-service, admin-service, chat-service, notification-service, frontend]
         default: auto
       operation:
         description: Deploy this main commit, or roll back one selected component

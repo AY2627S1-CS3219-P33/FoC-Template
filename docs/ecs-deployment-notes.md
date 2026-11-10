@@ -55,6 +55,8 @@ Live revisions after the successful 10 November all-component rollout:
 | Credit | `credit-service` | `credit-service-task:5` | 3004 |
 | Order | `order-service-task-service-177de1f2` | `order-service-task:4` | 3003 |
 | Admin | `admin-service-task-service-vmoebao1` | `admin-service-task:2` | 3005 |
+| Chat | `chat-service` | `chat-service-task:1` | 3006 |
+| Notification | `notification-service` | `notification-service-task:1` | 3007 |
 
 ECR registry: `842761392141.dkr.ecr.ap-southeast-1.amazonaws.com`.
 
@@ -65,6 +67,8 @@ ECR registry: `842761392141.dkr.ecr.ap-southeast-1.amazonaws.com`.
 | `credit-service` | `329a0cf38e781236702d746e2c88ac05defc482166a2fe52c2d21108bac200da` |
 | `order-service` | `2c77946309b85240b38b399ec5f56f64c167715518032a55e226aa1a6e06163e` |
 | `admin-service` | `b2826301a8f1b4ccefac664f04552b06e04c8ed6c7c6de99576b94f7db1fc6e4` |
+| `chat-service` | `31e04b172ead6bb307e6800bc7228b1175ce4572f94998cfbd20f91f34d25d9e` |
+| `notification-service` | `d8d7148baadf3f37d890ab48619c116130a547955058e11722dc809a33f3f47c` |
 
 Build for `linux/arm64`. Supplier-service requires the repository root as build context so the seed CSV is included at `/app/data/supplier-seed-data.csv`:
 
@@ -104,11 +108,13 @@ Reuse the existing HTTP port 80 listener when adding services. Another listener 
 | 20 | `/supplier-service/*` | Strip `/supplier-service` | `supplier-service-tg` / 3002 | `/readyz`, HTTP 200 |
 | 30 | `/credit-service/*` | Strip `/credit-service` | `credit-service-tg` / 3004 | `/readyz`, HTTP 200 |
 | 40 | `/order-service/*` | Strip `/order-service` | `order-service-tg` / 3003 | `/readyz`, HTTP 200 |
-| 50 | `/admin-service/*` | Strip `/admin-service` | `admin-service-tg` / 3005 | `/readyz`, HTTP 200 |
+| 50 | `/chat-service/*` | Strip `/chat-service` | `chat-service-tg` / 3006 | `/readyz`, HTTP 200 |
+| 60 | `/admin-service/*` | Strip `/admin-service` | `admin-service-tg` / 3005 | `/readyz`, HTTP 200 |
+| 70 | `/notification-service/*` | Strip `/notification-service` | `notification-service-tg` / 3007 | `/readyz`, HTTP 200 |
 
 Target groups use IP targets registered by ECS. Listener port 80 can forward to a different container port. The listener's default action is now verified as fixed HTTP 404 (`Not found`). Prefix stripping uses ALB URL-rewrite transforms; admin uses regex `^/admin-service/(.*)$` and replacement `/$1`.
 
-All five target groups currently have a **300-second deregistration delay**. The successful all-component run spent approximately 9–11 minutes per backend, including build, startup, health checks and draining; the sequential deployment stage took about 50 minutes. A quiet log after image push can mean the script is waiting for ECS stability. Inspect ECS events, target health and rollout state before cancelling. The job timeout is 60 minutes. Investigate a service with no event progress for 10–15 minutes, repeated task failures, unhealthy targets or rollback. No draining settings were changed.
+All seven target groups currently have a **300-second deregistration delay**. The successful all-component run spent approximately 9–11 minutes per backend, including build, startup, health checks and draining; the sequential deployment stage took about 50 minutes. A quiet log after image push can mean the script is waiting for ECS stability. Inspect ECS events, target health and rollout state before cancelling. The job timeout is 60 minutes. Investigate a service with no event progress for 10–15 minutes, repeated task failures, unhealthy targets or rollback. No draining settings were changed.
 
 CloudFront distribution: `E39SHVSD0FXUB9` (`d8d2ig90yjarp.cloudfront.net`), with alternate domain `app.bestfoc.app`.
 
@@ -120,6 +126,8 @@ CloudFront distribution: `E39SHVSD0FXUB9` (`d8d2ig90yjarp.cloudfront.net`), with
 | `/credit-service/*` | `foc-alb-api` | All seven HTTP methods; caching disabled |
 | `/order-service/*` | `foc-alb-api` | All seven HTTP methods; caching disabled |
 | `/admin-service/*` | `foc-alb-api` | All seven HTTP methods; caching disabled |
+| `/chat-service/*` | `foc-alb-api` | All seven HTTP methods; caching disabled |
+| `/notification-service/*` | `foc-alb-api` | All seven HTTP methods; caching disabled |
 | Default | Original S3 origin, no origin path | Existing images; default root object `frontend/index.html` |
 
 API behaviors use `AllViewerExceptHostHeader`. ALB rules perform the prefix rewrites. No distribution-wide SPA error mapping was configured; such mappings can hide API/image errors.
@@ -362,11 +370,11 @@ RDS, ALB, NAT/Elastic IP, and Amazon MQ can keep incurring charges when ECS desi
 
 ## GitHub Actions CI/CD
 
-Workflows are live on the public team repository `AY2627S1-CS3219-P33/FoC-Template`, default branch `main`. PR #102 merged on 10 November. The `production` environment has `AWS_DEPLOY_ROLE_ARN=arn:aws:iam::842761392141:role/foc-github-deploy`, with OIDC trust checked against the immutable repository/environment subject. CI includes all five backends; there is no separate admin workflow. The user reported an Actions disablement while PR checks were absent; the exact restriction was not independently captured. It was resolved before the successful deployment checks.
+Workflows are live on the public team repository `AY2627S1-CS3219-P33/FoC-Template`, default branch `main`. PR #102 merged on 10 November. The `production` environment has `AWS_DEPLOY_ROLE_ARN=arn:aws:iam::842761392141:role/foc-github-deploy`, with OIDC trust checked against the immutable repository/environment subject. This local update adds chat and notification to CI/CD; it is not merged to `main` yet. There is no separate admin workflow.
 
-- [CI](../.github/workflows/ci.yml) runs on pull requests and pushes to `main`. It regenerates supplier, order and admin SQL query code as their Docker builds do, then checks Go formatting, vet, tests, and builds for all five services, plus frontend type checking/build, OpenAPI lint, workflow lint, and deployment-script tests. Disposable PostgreSQL 18, RabbitMQ 4, and Redis 7.4 containers enable the existing integration tests. The explicit database-restart test remains opt-in.
+- [CI](../.github/workflows/ci.yml) runs on pull requests and pushes to `main`. It regenerates supplier, order and admin SQL query code as their Docker builds do, then checks Go formatting, vet, tests, and builds for all seven services, plus frontend type checking/build, OpenAPI lint, workflow lint, and deployment-script tests. Disposable PostgreSQL 18, RabbitMQ 4, and Redis 7.4 containers enable the existing integration tests. The explicit database-restart test remains opt-in.
 - [Deploy](../.github/workflows/deploy.yml) runs only when manually triggered on the team repository's `main` branch. Deploy operations rerun CI on that exact commit before requesting AWS credentials. Rollback skips source-code CI and restores recorded release artifacts instead.
-- [Deployment configuration](../.github/deploy.json) contains the existing AWS identifiers and public check URLs. [The script](../.github/scripts/deploy.py) uses AWS CLI commands, builds backend images on an ARM64 runner, and creates new task-definition revisions from the service's currently selected revision. Environment variables, secret references, task roles, resource limits, tags, and service configuration are preserved; only the application image changes. It does not choose the highest-numbered unrelated revision.
+- [Deployment configuration](../.github/deploy.json) contains AWS identifiers and public check URLs for all seven backends. Chat and notification are included in the deploy selector and the ECR, task-family, and ECS service scopes. [The script](../.github/scripts/deploy.py) uses AWS CLI commands, builds backend images on an ARM64 runner, and creates new task-definition revisions from the service's currently selected revision. Environment variables, secret references, task roles, resource limits, tags, and service configuration are preserved; only the application image changes. It does not choose the highest-numbered unrelated revision.
 
 ### Environment setup and recovery reference
 
@@ -374,9 +382,9 @@ Workflows are live on the public team repository `AY2627S1-CS3219-P33/FoC-Templa
 2. In the **team repository → Settings → Environments**, create `production`. Under deployment branches/tags, allow only the branch `main`. This restriction is required because the OIDC trust identifies the environment rather than the branch. Optionally add required reviewers. Protect `main` with required CI checks using the repository's branch rules.
 3. In **AWS IAM → Identity providers**, add or reuse the OpenID Connect provider `https://token.actions.githubusercontent.com`, with audience `sts.amazonaws.com`.
 4. In **IAM → Roles**, create a dedicated role such as `foc-github-deploy`, using [deploy-trust.json](../.github/aws/deploy-trust.json) as its trust relationship. A read-only GitHub API check confirmed this repository uses the immutable subject prefix `repo:AY2627S1-CS3219-P33@330282387/FoC-Template@1373992806`; do not replace it with the older name-only format. Recheck if the repository is renamed, transferred, or its OIDC configuration changes.
-5. Attach the customer-managed `foc-github-deploy-permissions` policy from [deploy-permissions.json](../.github/aws/deploy-permissions.json). Include the five application repositories, task families and actual ECS service names. Keep `iam:PassRole` scoped to the actual application execution/task roles (`ecsTaskExecutionRole` and `foc-supplier-task-role` at setup). `ecs:DescribeTaskDefinition` requires a separate `Resource: "*"` read statement; tagging and service updates remain ARN-scoped. The live default is policy version `v4`, corrected after attempt 1 failed; the corresponding template/test changes are currently local on `fix/saved-place-creation-timestamps`. No automatic-migration permissions or secret-value reads belong in this policy.
+5. The customer-managed `foc-github-deploy-permissions` policy is attached to the role. Live policy version `v5` now includes chat and notification ECR repositories, task families and ECS services. Keep `iam:PassRole` scoped to the actual application execution/task roles (`ecsTaskExecutionRole` and `foc-supplier-task-role`). `ecs:DescribeTaskDefinition` requires a separate `Resource: "*"` read statement; tagging and service updates remain ARN-scoped. No automatic-migration permissions or secret-value reads belong in this policy.
 6. In **GitHub → production environment → Environment variables**, set `AWS_DEPLOY_ROLE_ARN` to the new role ARN. Do not add AWS access keys or application secrets to GitHub. Existing application secrets remain in ECS references and are retrieved by task execution roles.
-7. Merge the workflows into the team repository's `main` branch, confirm CI succeeds, then trigger the first deployment. If IAM provider/role creation is denied by school organization policies, stop here and ask the school administrator to provision them.
+7. Merge the updated workflows and policy template into the team repository's `main` branch, confirm CI succeeds, then trigger deployments for chat and notification. Their database migrations are already applied; check the migration list and confirm `migrations_applied` for each first tracked deployment. The live IAM policy was updated separately in AWS.
 
 Only the frontend and deployment metadata prefixes are writable by the role. Supplier image keys at the bucket root and under `suppliers/` are outside its object permissions. No object deletion permission is needed. These JSON files are the repository copies of the configured role/policy; they are not infrastructure-as-code that automatically reconciles AWS.
 
@@ -388,13 +396,13 @@ Open **team repository → Actions → Deploy → Run workflow**, select branch 
 
 | Component selection | Behavior |
 |---|---|
-| `auto` | Deploy only components whose build inputs changed since their own recorded successful deployment |
+| `auto` | Deploy components with no recorded release, or whose build inputs changed since their own release |
 | A named service or `frontend` | Redeploy just that component, even if its source has not changed |
 | `all` | Deploy every component |
 
-Each service owns its folder; frontend owns `user-frontend/`. Supplier also depends on `data/csv/supplier-seed-data.csv` and the root `.dockerignore`. Deployment-script/configuration/deploy-workflow changes conservatively select all components. Markdown-only changes do not trigger deployments. CI still checks all components.
+Each service owns its folder; frontend owns `user-frontend/`. Supplier also depends on `data/csv/supplier-seed-data.csv` and the root `.dockerignore`. Changes to deployment configuration and GitHub workflow/script files do not rebuild application images. Markdown-only changes do not trigger deployments. CI still checks all components.
 
-State is stored at `s3://foc-supplier-images/deployments/state/<component>.json`, including the source commit and one previous release. Change detection compares the full Git trees against each component's record, so multiple commits accumulate and deleted files are included. Missing history errors stop the workflow rather than silently skipping changes. The first run has no baseline and selects all components in `auto`; explicitly select one component to bootstrap gradually. All existing migration SQL files are flagged for that component's first deployment, even if already applied.
+State is stored at `s3://foc-supplier-images/deployments/state/<component>.json`, including the source commit and one previous release. Change detection compares the full Git trees against each component's record, so multiple commits accumulate and deleted files are included. Missing history errors stop the workflow rather than silently skipping changes. Components without a state record are selected by `auto`; this lets chat and notification be deployed on their first tracked run without redeploying unrelated services. All existing migration SQL files are flagged for that component's first deployment, even if already applied.
 
 For a backend, the workflow builds and pushes a uniquely tagged image (`<commit>-<run-id>-<attempt>`), then uses its immutable digest in the new revision. It updates only the selected ECS service, waits for stability while running, and verifies ECS retained the requested revision rather than automatically rolling back. Public checks use the configured JSON endpoints. These checks establish deployment/readiness, not authenticated business-workflow correctness; order readiness can return HTTP 200 while reporting degraded dependencies.
 

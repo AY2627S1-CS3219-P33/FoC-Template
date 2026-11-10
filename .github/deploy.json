@@ -31,6 +31,16 @@
       "service": "admin-service-task-service-vmoebao1",
       "context": "admin-service",
       "health_path": "/admin-service/readyz"
+    },
+    "chat-service": {
+      "service": "chat-service",
+      "context": "chat-service",
+      "health_path": "/chat-service/readyz"
+    },
+    "notification-service": {
+      "service": "notification-service",
+      "context": "notification-service",
+      "health_path": "/notification-service/readyz"
     }
   }
 }
