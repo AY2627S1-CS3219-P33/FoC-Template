@@ -8,6 +8,7 @@ import { SuppliersPage } from "../pages/suppliers/SuppliersPage";
 import { ErrandsPage } from "../pages/errands/ErrandsPage";
 import { CreditPage } from "../pages/credit/CreditPage";
 import type { Profile as ProfileData } from "../api/types";
+import type { Supplier } from "../api/supplier";
 
 type Page = "suppliers" | "errands" | "credits" | "chat" | "profile" | "settings";
 
@@ -42,16 +43,27 @@ export function AppShell() {
   const { profile, signOut } = useAuth();
   const account = profile as ProfileData;
   const isAdmin = account.role === "ADMIN" || account.role === "SUPER_ADMIN";
-  const [page, setPage] = useState<Page>("suppliers");
+  const [navigation, setNavigation] = useState<{ page: Page; supplier?: Supplier }>({
+    page: "suppliers",
+  });
+  const { page } = navigation;
+
+  function setPage(page: Page) {
+    setNavigation({ page });
+  }
 
   const nav = NAV;
 
   function render() {
     switch (page) {
       case "suppliers":
-        return <SuppliersPage />;
+        return (
+          <SuppliersPage
+            onRequestErrand={(supplier) => setNavigation({ page: "errands", supplier })}
+          />
+        );
       case "errands":
-        return <ErrandsPage />;
+        return <ErrandsPage initialSupplier={navigation.supplier} />;
       case "credits":
         return <CreditPage />;
       case "profile":

@@ -31,9 +31,10 @@ interface Props {
   // Supplier management (create, edit, delete, lookups) lives under /admin.
   // The normal Suppliers page is read-only for everyone, administrators included.
   adminMode?: boolean;
+  onRequestErrand?: (supplier: Supplier) => void;
 }
 
-export function SuppliersPage({ adminMode = false }: Props) {
+export function SuppliersPage({ adminMode = false, onRequestErrand }: Props) {
   const isAdmin = adminMode;
   const navigate = useNavigate();
   const getSupplierToken = useSupplierToken();
@@ -183,6 +184,7 @@ export function SuppliersPage({ adminMode = false }: Props) {
         onBack={() => setView({ kind: "list" })}
         onEdit={() => setView({ kind: "edit", supplier: view.supplier })}
         onDelete={() => onDelete(view.supplier)}
+        onRequestErrand={onRequestErrand ? () => onRequestErrand(view.supplier) : undefined}
       />
     );
   }

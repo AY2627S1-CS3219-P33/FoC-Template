@@ -26,6 +26,11 @@
       "service": "order-service-task-service-177de1f2",
       "context": "order-service",
       "health_path": "/order-service/readyz"
+    },
+    "admin-service": {
+      "service": "admin-service-task-service-vmoebao1",
+      "context": "admin-service",
+      "health_path": "/admin-service/readyz"
     }
   }
 }

@@ -11,10 +11,6 @@ import {
   validateMobile,
 } from "../validation";
 
-function creditLabel(balance: number | null): string {
-  return balance === null ? "Not available" : `${balance} credits`;
-}
-
 export function Profile() {
   const { profile, setProfile, getAccessToken } = useAuth();
   const account = profile as ProfileData;
@@ -101,17 +97,6 @@ export function Profile() {
               Role <span className="locked" title="Managed by administrators">🔒</span>
             </dt>
             <dd>{account.role}</dd>
-          </div>
-          <div>
-            <dt>
-              Credit balance{" "}
-              <span className="locked" title="Managed by the credit service">🔒</span>
-            </dt>
-            <dd>{creditLabel(account.credit_balance)}</dd>
-          </div>
-          <div className="full">
-            <dt>Account ID</dt>
-            <dd className="mono">{account.id}</dd>
           </div>
         </dl>
       </section>
