@@ -117,6 +117,8 @@ CloudFront distribution: `E39SHVSD0FXUB9` (`d8d2ig90yjarp.cloudfront.net`), with
 
 API behaviors use `AllViewerExceptHostHeader`. ALB rules perform the prefix rewrites. No distribution-wide SPA error mapping was configured; such mappings can hide API/image errors.
 
+**SPA deep links (not yet applied).** The admin area is served from client-side routes under `/admin/*` (for example `/admin/reviews`). The default behavior has no SPA fallback, so a refresh or direct link to one of these paths will make S3 answer 403/404 instead of returning the app. Do not add a distribution-wide custom error response (it would mask API and image errors). Instead, attach a CloudFront Function to the **default behavior only** (viewer request) that rewrites any URI whose last segment has no file extension to `/frontend/index.html`. API behaviors are separate and unaffected, and images and `/assets/*` have extensions. Not yet created or tested; this needs a change in the AWS console because no infrastructure-as-code exists. The same problem applies to the older `/admin` path.
+
 Browser-to-CloudFront HTTPS works on the distribution domain; the user also confirmed HTTPS on `app.bestfoc.app` after attaching the issued ACM certificate from `us-east-1`. CloudFront-to-ALB used HTTP port 80 at the last inspection; origin HTTPS remains unverified. The ALB HTTP listener was publicly reachable at the last inspection.
 
 ## S3 frontend and supplier images
@@ -274,6 +276,32 @@ Management API calls can use either the original tenant domain or the custom dom
 
 References: [Auth0 cross-origin authentication](https://auth0.com/docs/authenticate/login/cross-origin-authentication), [silent authentication](https://auth0.com/docs/authenticate/login/configure-silent-authentication), [custom domains and token issuers](https://auth0.com/docs/customize/custom-domains), [custom-domain API configuration](https://auth0.com/docs/customize/custom-domains/configure-features-to-use-custom-domains).
 
+## admin-service infrastructure checklist (not yet applied)
+
+`admin-service` is the event-fed read model behind the admin Metrics tab and the readiness section of Overview. The code, Dockerfile, compose entry and CI check exist in the repository; **nothing below has been created in AWS or Auth0.** Do these in order, then add the deployment entry in step 9. Do not add passwords or secret values to this file.
+
+1. **Database and roles on `foc-shared-database`.** Create database `admin_service_db` and two roles: a migrator that owns the schema (the existing `migrator` role works) and a runtime login role named exactly `admin_service`. The first migration grants the runtime role `SELECT, INSERT, UPDATE` on the tables and `USAGE` on the sequences, and does nothing if the role does not exist, so create the role before running migrations. The runtime role must not own the schema and must not run DDL. This is the separation the order database does not have yet.
+2. **Secret `foc/admin-service/runtime`** with JSON keys `DATABASE_URL` (runtime role, `sslmode=verify-full&sslrootcert=/etc/ssl/certs/rds-global-bundle.pem`), `AMQP_URL` (the Amazon MQ URL, reserved characters percent-encoded once), `ADMIN_M2M_CLIENT_ID` and `ADMIN_M2M_CLIENT_SECRET`. Let `ecsTaskExecutionRole` read it, and force a new deployment after any change.
+3. **ECR repository `admin-service`** and an ARM64 image built from the `admin-service/` directory.
+4. **Task definition.** Fargate, ARM64, container port 3005, the secret keys above as secret references, and these environment variables: `APP_ENV=production`, `AUTH0_ISSUER`, `AUTH0_AUDIENCE=https://api.foc.local/admin-service`, `ORDER_AUDIENCE=https://api.foc.local/order-service`, `ORDER_SERVICE_URL=http://order-service:3003`, plus the readiness URLs: `USER_SERVICE_URL=http://user-service:8080`, `SUPPLIER_SERVICE_URL=http://supplier-service:3002` and `CREDIT_SERVICE_URL=http://credit-service:3004`.
+5. **ECS service** in the private subnets with the application security group (it already reaches RDS and Amazon MQ) and **Service Connect** in `foc-local`: publish `http://admin-service:3005`, and use the namespace as a client to reach order-service and, for the readiness section, the other three services' `/readyz` (user, supplier and credit). Deploy the server endpoints before clients that need them.
+6. **ALB.** Target group `admin-service-tg` (IP targets, port 3005, health check `/readyz`, HTTP 200) and a rule on the existing port 80 listener: priority 50, path `/admin-service/*`, forward, stripping `/admin-service` as the other rules do.
+7. **CloudFront.** Add behavior `/admin-service/*` to origin `foc-alb-api`: all seven HTTP methods, caching disabled, `AllViewerExceptHostHeader`. Without it the Metrics tab cannot reach the service.
+8. **Auth0** (a person does this; see the table in the README): a new API with identifier `https://api.foc.local/admin-service` and permission `dashboard:read` granted to the Administrator role; a permission `orders:admin-read` defined on the order-service API and granted to the admin-service machine-to-machine application, which needs no other API.
+9. **Deployment entry.** Once the ECS service exists, add this to `services` in `.github/deploy.json` (use the real ECS service name) and add `admin-service` to the `component` options in `.github/workflows/deploy.yml`. It is not in the repository yet on purpose: `deploy.py` describes every listed service on an `auto` or `all` run, so listing one that does not exist would fail production deployments of the others.
+
+   ```json
+   "admin-service": {
+     "service": "<ECS service name>",
+     "context": "admin-service",
+     "health_path": "/admin-service/readyz"
+   }
+   ```
+
+10. **Rabbit permissions.** The service declares its own queue `admin-service.events` (with a dead-letter queue) bound to `errand.#` on `foc.events`. The Amazon MQ user in `AMQP_URL` needs configure, write and read permission on the vhost. Binding a new queue does not change what other consumers receive.
+11. **Deploy user-service first.** The readiness section calls `GET /readyz` on user-service, a route added for it. Until the new user-service image is deployed, that route answers 404 and the dashboard shows user-service as down (`unexpected_status`). Deploy user-service before, or together with, admin-service. Its ALB health check can stay on `/health`.
+12. **First run.** Apply the migration manually as the migrator role (see [Manual database migrations](#manual-database-migrations)), start the service so its queue is bound, and only then run the backfill once as a one-off task (README, "Backfill"). Running the backfill first can miss events that are committed while it pages.
+
 ## Remaining work
 
 1. Verify the reported ECS domain rollout and test embedded login, profile/supplier/credit/order reads, page-refresh session restoration, token renewal, and logout/login at `https://app.bestfoc.app` with third-party cookies blocked. Fix and deploy the user-service Management API audience issue, then verify administrator listings and role changes.
@@ -290,7 +318,7 @@ RDS, ALB, NAT/Elastic IP, and Amazon MQ can keep incurring charges when ECS desi
 
 Workflows are implemented locally for the public team repository `AY2627S1-CS3219-P33/FoC-Template`, whose default branch is `main`. They have not been pushed or run on GitHub, and no IAM or GitHub environment configuration has been applied by this implementation.
 
-- [CI](../.github/workflows/ci.yml) runs on pull requests and pushes to `main`. It regenerates supplier/order SQL query code as their Docker builds do, then checks Go formatting, vet, tests, and builds for all four services, plus frontend type checking/build, OpenAPI lint, workflow lint, and deployment-script tests. Disposable PostgreSQL 18, RabbitMQ 4, and Redis 7.4 containers enable the existing integration tests. The explicit database-restart test remains opt-in.
+- [CI](../.github/workflows/ci.yml) runs on pull requests and pushes to `main`. It regenerates supplier, order and admin SQL query code as their Docker builds do, then checks Go formatting, vet, tests, and builds for all five services, plus frontend type checking/build, OpenAPI lint, workflow lint, and deployment-script tests. Disposable PostgreSQL 18, RabbitMQ 4, and Redis 7.4 containers enable the existing integration tests. The explicit database-restart test remains opt-in.
 - [Deploy](../.github/workflows/deploy.yml) runs only when manually triggered on the team repository's `main` branch. Deploy operations rerun CI on that exact commit before requesting AWS credentials. Rollback skips source-code CI and restores recorded release artifacts instead.
 - [Deployment configuration](../.github/deploy.json) contains the existing AWS identifiers and public check URLs. [The script](../.github/scripts/deploy.py) uses AWS CLI commands, builds backend images on an ARM64 runner, and creates new task-definition revisions from the service's currently selected revision. Environment variables, secret references, task roles, resource limits, tags, and service configuration are preserved; only the application image changes. It does not choose the highest-numbered unrelated revision.
 

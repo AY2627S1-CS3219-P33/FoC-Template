@@ -24,6 +24,7 @@ import (
 	"github.com/CS3219-AY2627S1/FoC-Template/order-service/internal/database/errandrepo"
 	"github.com/CS3219-AY2627S1/FoC-Template/order-service/internal/database/msgrepo"
 	"github.com/CS3219-AY2627S1/FoC-Template/order-service/internal/database/opsrepo"
+	"github.com/CS3219-AY2627S1/FoC-Template/order-service/internal/database/requesterrepo"
 	"github.com/CS3219-AY2627S1/FoC-Template/order-service/internal/errand"
 	"github.com/CS3219-AY2627S1/FoC-Template/order-service/internal/errand/accept"
 	"github.com/CS3219-AY2627S1/FoC-Template/order-service/internal/errand/browse"
@@ -31,11 +32,13 @@ import (
 	"github.com/CS3219-AY2627S1/FoC-Template/order-service/internal/errand/create"
 	"github.com/CS3219-AY2627S1/FoC-Template/order-service/internal/errand/mine"
 	"github.com/CS3219-AY2627S1/FoC-Template/order-service/internal/errand/requester"
+	"github.com/CS3219-AY2627S1/FoC-Template/order-service/internal/exportapi"
 	"github.com/CS3219-AY2627S1/FoC-Template/order-service/internal/fence"
 	"github.com/CS3219-AY2627S1/FoC-Template/order-service/internal/httpapi"
 	"github.com/CS3219-AY2627S1/FoC-Template/order-service/internal/internalapi"
 	"github.com/CS3219-AY2627S1/FoC-Template/order-service/internal/messaging"
 	"github.com/CS3219-AY2627S1/FoC-Template/order-service/internal/outboxadmin"
+	"github.com/CS3219-AY2627S1/FoC-Template/order-service/internal/places"
 	"github.com/CS3219-AY2627S1/FoC-Template/order-service/internal/readiness"
 	"github.com/CS3219-AY2627S1/FoC-Template/order-service/internal/reconciler"
 	"github.com/CS3219-AY2627S1/FoC-Template/order-service/internal/review"
@@ -122,6 +125,7 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger, authOption
 	store := errandrepo.New(pool)
 	ops := opsrepo.New(pool)
 	outbox := msgrepo.New(pool)
+	saved := requesterrepo.New(pool)
 	suppliers := supplierclient.NewCachedGate(supplierClient, kv)
 
 	application := &Application{
@@ -137,7 +141,7 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger, authOption
 		return nil, err
 	}
 
-	dispatcher, err := messaging.NewDispatcher(outbox, publisher, ops, logger, messaging.DispatcherConfig{})
+	dispatcher, err := messaging.NewDispatcher(outbox, publisher, logger, messaging.DispatcherConfig{})
 	if err != nil {
 		return fail(err)
 	}
@@ -168,6 +172,7 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger, authOption
 		Settings: review.NewSettingsService(review.NewRepositorySettings(ops), ops, logger),
 		Events:   review.NewEventService(ops),
 		Flags:    review.NewFlagService(ops, ops, clock),
+		Overview: review.NewOverviewService(ops, clock),
 	}
 	ready := readiness.NewHandler(
 		readiness.Postgres(pool.Ping),
@@ -184,10 +189,12 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger, authOption
 		requester.NewHandler(requester.Dependencies{Store: store, Suppliers: suppliers, Clock: clock, Logger: logger}, guard),
 		courier.NewHandler(courier.Dependencies{Store: store, Suppliers: suppliers, Settings: ops, Clock: clock, Logger: logger}, guard),
 		mine.NewHandler(mine.Dependencies{Store: store, Suppliers: suppliers, Logger: logger}, guard),
+		places.NewHandler(places.Dependencies{Store: saved, Suppliers: suppliers, Clock: clock, Logger: logger}, guard),
 		review.NewHandler(reviews, guard, logger),
-		outboxadmin.NewHandler(outboxadmin.NewStore(pool), guard, logger),
+		outboxadmin.NewHandler(outboxadmin.NewStore(pool), ops, guard, logger),
 		fence.NewHandler(fence.NewService(ops, logger), serviceGuard, logger),
 		internalapi.NewHandler(ops, serviceGuard, logger),
+		exportapi.NewHandler(ops, suppliers, serviceGuard, logger),
 		ready,
 	)
 

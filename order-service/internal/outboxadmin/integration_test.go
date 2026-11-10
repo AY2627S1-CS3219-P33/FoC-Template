@@ -64,7 +64,7 @@ func TestReplayIsAuditedAndCreditIsAppliedOnce(t *testing.T) {
 	repo := msgrepo.New(pool)
 	pub := testfakes.NewFakePublisher()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	dispatcher, err := messaging.NewDispatcher(repo, pub, testfakes.NewFakeSettings(), logger, messaging.DispatcherConfig{PollInterval: time.Millisecond})
+	dispatcher, err := messaging.NewDispatcher(repo, pub, logger, messaging.DispatcherConfig{PollInterval: time.Millisecond})
 	require.NoError(t, err)
 	credit := testfakes.NewFakeCreditService(testfakes.NewFakeClock(time.Now()))
 	credit.SetBalance("requester", 20)
@@ -106,4 +106,55 @@ func TestReplayIsAuditedAndCreditIsAppliedOnce(t *testing.T) {
 	row, err = repo.GetByKey(ctx, key)
 	require.NoError(t, err)
 	require.Equal(t, msgrepo.StatusFailed, row.Status)
+}
+
+func insertErrand(t *testing.T, pool *pgxpool.Pool, ctx context.Context) string {
+	t.Helper()
+	var eid string
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO errands(status,requester_id,supplier_id,supplier_version_id,delivery_building_id,delivery_building_snapshot,delivery_detail,items,contact_name,contact_mobile,reward,acceptance_deadline,create_idempotency_key) VALUES('PENDING_RESERVATION','requester',gen_random_uuid(),gen_random_uuid(),gen_random_uuid(),'{}','lobby','[{"description":"coffee"}]','Alex','91234567',5,clock_timestamp()+interval '1 hour',gen_random_uuid()::text) RETURNING id::text`).Scan(&eid))
+	return eid
+}
+
+func insertRow(t *testing.T, pool *pgxpool.Pool, ctx context.Context, eid, kind, status, key string, age time.Duration) int64 {
+	t.Helper()
+	var id int64
+	require.NoError(t, pool.QueryRow(ctx, `INSERT INTO outbox(kind,idempotency_key,errand_id,payload,status,created_at,sent_at) VALUES($1,$2,$3,'{}',$4,clock_timestamp()-$5::bigint*interval '1 microsecond',CASE WHEN $4='SENT' THEN clock_timestamp()-$5::bigint*interval '1 microsecond' END) RETURNING id`, kind, key, eid, status, age.Microseconds()).Scan(&id))
+	return id
+}
+
+// Only a FAILED row or a SENT credit command can be replayed. A SENT event is
+// delivered already and a PENDING row is still the dispatcher's, so those are
+// rejected, audited as REJECTED, and left alone.
+func TestRequeueAcceptsSentCreditCommandsOnly(t *testing.T) {
+	pool := testDatabase(t)
+	ctx := context.Background()
+	eid := insertErrand(t, pool, ctx)
+	store := NewStore(pool)
+	sentCredit := insertRow(t, pool, ctx, eid, "credit.transfer", "SENT", eid+":transfer", time.Hour)
+	sentEvent := insertRow(t, pool, ctx, eid, "event.errand.placed", "SENT", eid+":placed", time.Hour)
+	pending := insertRow(t, pool, ctx, eid, "credit.reserve", "PENDING", eid+":reserve", time.Hour)
+	confirmed := insertRow(t, pool, ctx, eid, "credit.release", "CONFIRMED", eid+":release", time.Hour)
+
+	row, err := store.Requeue(ctx, "admin", sentCredit, "alert: no result for 1h")
+	require.NoError(t, err)
+	require.Equal(t, msgrepo.StatusPending, row.Status)
+	require.Equal(t, eid+":transfer", row.IdempotencyKey, "same key, so credit-service applies it once")
+	require.Zero(t, row.Attempts)
+
+	for name, id := range map[string]int64{"sent event": sentEvent, "pending": pending, "confirmed": confirmed} {
+		_, err := store.Requeue(ctx, "admin", id, "try")
+		require.ErrorIs(t, err, msgrepo.ErrNotRequeueable, name)
+	}
+	_, err = store.Requeue(ctx, "admin", 999999, "missing")
+	require.ErrorIs(t, err, msgrepo.ErrNotFound)
+
+	var succeeded, rejected int
+	require.NoError(t, pool.QueryRow(ctx, `SELECT count(*) FILTER (WHERE outcome='SUCCEEDED'), count(*) FILTER (WHERE outcome='REJECTED') FROM admin_audit WHERE action='OUTBOX_REQUEUE'`).Scan(&succeeded, &rejected))
+	require.Equal(t, 1, succeeded)
+	require.Equal(t, 4, rejected)
+	for id, want := range map[int64]string{sentEvent: "SENT", pending: "PENDING", confirmed: "CONFIRMED"} {
+		var status string
+		require.NoError(t, pool.QueryRow(ctx, `SELECT status FROM outbox WHERE id=$1`, id).Scan(&status))
+		require.Equal(t, want, status)
+	}
 }

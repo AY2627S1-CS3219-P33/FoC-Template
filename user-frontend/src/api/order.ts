@@ -18,6 +18,7 @@ export type OrderErrorCode =
   | "ERRAND_NOT_FOUND"
   | "FENCE_NOT_FOUND"
   | "OUTBOX_ROW_NOT_FOUND"
+  | "PLACE_NOT_FOUND"
   | "ERRAND_CHANGED"
   | "ERRAND_UNAVAILABLE"
   | "INVALID_TRANSITION"
@@ -25,6 +26,7 @@ export type OrderErrorCode =
   | "COURIER_RESTRICTED"
   | "INSUFFICIENT_CREDITS"
   | "EDIT_PENDING"
+  | "PLACE_LIMIT_REACHED"
   | "SUPPLIER_UNAVAILABLE"
   | "SUPPLIER_DELETION_IN_PROGRESS"
   | "DEPENDENCY_UNAVAILABLE"
@@ -266,6 +268,11 @@ export interface CancellationFlag {
   window: number;
 }
 
+export interface CompletionFlag {
+  count: number;
+  window: number;
+}
+
 export interface Settings {
   pickupAfter: number;
   deliveryAfter: number;
@@ -273,6 +280,7 @@ export interface Settings {
   verificationReminderAfter: number;
   withdrawalRestriction: WithdrawalRestriction;
   cancellationFlag: CancellationFlag;
+  completionFlag: CompletionFlag;
   reservationTimeout: number;
   editTimeout: number;
   outboxConfirmTimeout: number;
@@ -298,7 +306,7 @@ export interface TransitionPage {
 
 export interface Flag {
   userId: string;
-  kind: "COURIER_WITHDRAWALS" | "REQUESTER_CANCELLATIONS";
+  kind: "COURIER_WITHDRAWALS" | "REQUESTER_CANCELLATIONS" | "COURIER_COMPLETIONS";
   count: number;
   threshold: number;
   window: number;
@@ -308,6 +316,18 @@ export interface Flag {
 
 export interface FlagList {
   items: Flag[];
+}
+
+// openReviews.oldestCreatedAt and oldestAgeSeconds are null when count is 0.
+export interface AdminOverview {
+  asOf: string;
+  ongoing: number;
+  waitingForCourier: number;
+  openReviews: {
+    count: number;
+    oldestCreatedAt: string | null;
+    oldestAgeSeconds: number | null;
+  };
 }
 
 export interface OutboxRow {
@@ -606,6 +626,10 @@ export async function listErrandEvents(
 
 export async function listFlags(token: string): Promise<FlagList> {
   return parse<FlagList>(await fetch(`${BASE}/admin/flags`, { headers: headers(token) }));
+}
+
+export async function getOverview(token: string): Promise<AdminOverview> {
+  return parse<AdminOverview>(await fetch(`${BASE}/admin/overview`, { headers: headers(token) }));
 }
 
 export async function listFailedOutboxRows(

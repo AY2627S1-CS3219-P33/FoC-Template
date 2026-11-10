@@ -22,6 +22,12 @@ export function authError(error: Auth0Error): Error {
   return new Error(messages[code] || "Auth0 could not complete this request. Try the Auth0 page or contact support.");
 }
 
+// Only same-origin admin paths are restored after sign-in, so the stored value
+// can never send the browser anywhere else.
+function isAdminPath(path: string): boolean {
+  return path === "/admin" || path.startsWith("/admin/");
+}
+
 export class EmbeddedAuth {
   private readonly webAuth: WebAuth;
   private readonly connection: string;
@@ -66,7 +72,7 @@ export class EmbeddedAuth {
       } finally {
         const returnTo = sessionStorage.getItem("foc.auth.return_to");
         sessionStorage.removeItem("foc.auth.return_to");
-        const path = returnTo === "/admin" ? returnTo : window.location.pathname;
+        const path = returnTo && isAdminPath(returnTo) ? returnTo : window.location.pathname;
         window.history.replaceState({}, document.title, path + window.location.search);
       }
     }
@@ -94,7 +100,11 @@ export class EmbeddedAuth {
     const next = new Promise<string>((resolve, reject) => {
       this.webAuth.checkSession({ audience, scope }, (error, result) => {
         if (error) {
-          reject(Object.assign(authError(error), { code: error.code || error.error }));
+          // The description is Auth0's own explanation of a silent-token refusal
+          // (for example which audience it could not find). It holds no
+          // submitted values, unlike a sign-in failure, so callers may show it.
+          const description = error.errorDescription || error.error_description || error.description;
+          reject(Object.assign(authError(error), { code: error.code || error.error, description }));
           return;
         }
         try { resolve(this.accept(result, key)); } catch (err) { reject(err); }
@@ -152,8 +162,8 @@ export class EmbeddedAuth {
   }
 
   private rememberReturnPath(): void {
-    if (window.location.pathname === "/admin") {
-      sessionStorage.setItem("foc.auth.return_to", "/admin");
+    if (isAdminPath(window.location.pathname)) {
+      sessionStorage.setItem("foc.auth.return_to", window.location.pathname);
     }
   }
 

@@ -45,8 +45,8 @@ const DURATIONS: { key: keyof Settings & string; label: string; hint: string }[]
   },
   {
     key: "outboxConfirmTimeout",
-    label: "Outbox confirm timeout",
-    hint: "A sent credit command with no result is re-sent after this long.",
+    label: "Outbox overdue after",
+    hint: "A sent credit command with no result, or an unpublished message, is listed as overdue after this long.",
   },
 ];
 
@@ -64,6 +64,8 @@ function draftFrom(settings: Settings): Draft {
     withdrawalDuration: String(settings.withdrawalRestriction.duration),
     cancellationCount: String(settings.cancellationFlag.count),
     cancellationWindow: String(settings.cancellationFlag.window),
+    completionCount: String(settings.completionFlag.count),
+    completionWindow: String(settings.completionFlag.window),
   };
 }
 
@@ -153,6 +155,10 @@ export function OrderSettingsForm({ getToken }: Props) {
       cancellationFlag: {
         count: values.cancellationCount,
         window: values.cancellationWindow,
+      },
+      completionFlag: {
+        count: values.completionCount,
+        window: values.completionWindow,
       },
     };
 
@@ -281,6 +287,32 @@ export function OrderSettingsForm({ getToken }: Props) {
               value={draft.cancellationWindow}
               error={fieldErrors.cancellationWindow}
               onChange={(v) => set("cancellationWindow", v)}
+            />
+          </div>
+        </section>
+
+        <section className="panel">
+          <h2>Completion flag</h2>
+          <p className="muted small">
+            A courier who completes this many errands or more inside the window is flagged for an
+            administrator to look at. Only completions confirmed by the requester or by the
+            auto-complete timer count, not ones an administrator completes. Flagging does not block
+            them.
+          </p>
+          <div className="form-grid mt">
+            <Number3
+              id="completionCount"
+              label="Completions"
+              value={draft.completionCount}
+              error={fieldErrors.completionCount}
+              onChange={(v) => set("completionCount", v)}
+            />
+            <Number3
+              id="completionWindow"
+              label="Within (seconds)"
+              value={draft.completionWindow}
+              error={fieldErrors.completionWindow}
+              onChange={(v) => set("completionWindow", v)}
             />
           </div>
         </section>

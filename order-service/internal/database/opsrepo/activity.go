@@ -37,6 +37,26 @@ func (r *Repository) ListWithdrawalCounts(ctx context.Context, since time.Time, 
 	return counts, nil
 }
 
+// ListCompletionCounts returns the couriers with at least minCount errands
+// completed by confirm or auto-verification, at or after since, most first,
+// then by user ID. An admin_complete does not count.
+func (r *Repository) ListCompletionCounts(ctx context.Context, since time.Time, minCount, limit int) ([]ActivityCount, error) {
+	if err := checkActivityArgs(since, minCount, limit); err != nil {
+		return nil, err
+	}
+	rows, err := r.queries.ListCompletionCounts(ctx, opsgen.ListCompletionCountsParams{
+		Since: timestamp(since), MinCount: int64(minCount), RowLimit: int32(limit),
+	})
+	if err != nil {
+		return nil, mapError(err)
+	}
+	counts := make([]ActivityCount, 0, len(rows))
+	for _, row := range rows {
+		counts = append(counts, ActivityCount{UserID: row.UserID, Count: int(row.EventCount)})
+	}
+	return counts, nil
+}
+
 // ListCancellationCounts returns the requesters with at least minCount
 // cancellations at or after since (F6.3.2, F3.5.3), most first, then by
 // user ID.

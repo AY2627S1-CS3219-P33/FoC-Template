@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -23,6 +24,7 @@ var tables = []string{
 	"errand_reviews",
 	"admin_audit",
 	"settings",
+	"saved_places",
 }
 
 var indexes = []string{
@@ -40,10 +42,29 @@ var indexes = []string{
 	"errand_transitions_to_status_idx",
 	"errand_transitions_at_idx",
 	"errand_transitions_withdrawals_idx",
+	"errand_transitions_completions_idx",
 	"outbox_due_idx",
 	"outbox_unconfirmed_credit_idx",
 	"supplier_fences_supplier_idx",
 	"errand_reviews_open_idx",
+	"saved_places_label_idx",
+	"saved_places_supplier_idx",
+	"saved_places_user_idx",
+}
+
+func TestMigrationVersionsIncrease(t *testing.T) {
+	names, err := Names()
+	require.NoError(t, err)
+	require.NotEmpty(t, names)
+	var previous int64
+	for _, name := range names {
+		prefix, _, found := strings.Cut(name, "_")
+		require.True(t, found, "migration needs a version prefix: %s", name)
+		version, err := strconv.ParseInt(prefix, 10, 64)
+		require.NoError(t, err, name)
+		require.Greater(t, version, previous, "migration versions must be unique and increasing: %s", name)
+		previous = version
+	}
 }
 
 func TestOrderSchemaMigrationUp(t *testing.T) {

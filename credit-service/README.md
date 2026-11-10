@@ -76,7 +76,7 @@ The service needs a RabbitMQ (`AMQP_URL`); locally, the `queue-service` containe
 | command consumer | reads `credit-service.commands`, applies each command in one transaction, writes its result to the `outbox` table in the same transaction |
 | result dispatcher | publishes `outbox` rows to `foc.events`, retrying with backoff; order-service's `order-service.credit-results` queue is bound to `credit.#` and is declared by order-service |
 
-A command that can never succeed, or that fails 5 times, goes to `credit-service.commands.dlq`. Order-service sends a command again if it gets no result, and a repeat gets the stored result, so nothing is lost. Details are in [docs/contracts.md](docs/contracts.md).
+A command that can never succeed goes straight to `credit-service.commands.dlq`. A command that fails for a temporary reason, such as the database being down, is parked on `credit-service.commands.retry` for 30 seconds and then tried again, up to 120 attempts (about an hour); only then does it go to the DLQ. Nothing in order-service resends a command automatically, so a command in the DLQ stays unanswered until an admin requeues its outbox row there, and a repeat gets the stored result, so it is applied once. Details are in [docs/contracts.md](docs/contracts.md).
 
 Tests that need services skip themselves unless `TEST_DATABASE_URL` (see `compose.test.yaml`) and `TEST_AMQP_URL` (a throwaway RabbitMQ) are set. Run them with `go test -p 1 ./...`; the tests share one database and empty it.
 

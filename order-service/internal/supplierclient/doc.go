@@ -10,10 +10,13 @@
 //     at the given instant. Opening hours are "HH:MM" in Asia/Singapore and
 //     cover [opening, closing); a closing time at or before the opening time
 //     crosses midnight, so equal times mean open all day.
+//   - GetCurrent reads the same endpoint and refuses a supplier that is
+//     missing or deleted, but ignores opening hours.
 //   - CachedGate wraps a gate with a cache.KV: supplier versions are cached
 //     with no expiry (they are immutable) and the building list for five
-//     minutes. ResolveForCreate always goes to supplier-service, because
-//     availability must be checked live. A cache failure is a miss.
+//     minutes. ResolveForCreate and GetCurrent always go to
+//     supplier-service, because availability must be checked live. A cache
+//     failure is a miss.
 //
 // Error mapping: a 400 or 404 from supplier-service (unknown or deleted
 // supplier, unknown version, malformed ID) is SUPPLIER_UNAVAILABLE and does

@@ -15,7 +15,11 @@ info:
     - foc.events: durable topic exchange for errand events and credit results.
     - Publishers declare their exchanges idempotently; consumers own their queues.
     - credit-service.commands binds to the four credit command routing keys;
-      credit-service owns its dead-letter queue.
+      credit-service owns its dead-letter queue and a retry queue,
+      credit-service.commands.retry, bound to foc.commands.retry. A command that
+      fails for a temporary reason waits there for 30 seconds (message TTL) and is
+      dead-lettered back to foc.commands, up to 120 attempts, before it goes to
+      credit-service.commands.dlq.
     - order-service.credit-results binds to credit.# on foc.events. It is a quorum
       queue with x-delivery-limit 5 and dead-letters to order-service.credit-results.dlq.
     - Notification-service owns its queues, bound to errand.# or a subset. It chooses
@@ -27,6 +31,12 @@ info:
       quorum queue with x-delivery-limit 5 that dead-letters to
       chat-service.errand-events.dlq; chat-service owns both (chat-service/README.md).
     - Optional order-events.tap binds to errand.# only when AMQP_DECLARE_TAP is set.
+    - admin-service.events binds to errand.# for the admin dashboard's read model. It is a
+      quorum queue with x-delivery-limit 5 and dead-letters to admin-service.events.dlq.
+      It records the 15 transition events by messageId, applies an event to an errand only
+      when its errandVersion is at least the stored one (events with an equal version are
+      ordered by occurredAt), and ignores rejection events and reminders. Binding it does
+      not change what any other consumer receives.
 
     Delivery and recovery:
     - The transactional outbox is the only outbound path. State, history and outgoing
@@ -42,9 +52,12 @@ info:
     - Credit command messageId is its stable outbox idempotency key, preserved on
       retries, timeout resends and admin replay. Results set correlationId to that key
       and use a stable messageId, proposed as <command messageId>:<result routing key>.
-    - Event rows end at SENT. Credit rows wait for a result; missing results cause a
-      resend with the same key (default confirmation timeout 10 minutes). Publish
-      failures use bounded backoff; exhausted rows require audited admin replay.
+    - Event rows end at SENT. Credit rows wait for a result and are never resent
+      automatically; the broker holds a confirmed command until credit-service
+      consumes it. A command with no result after the confirmation timeout (default
+      90 minutes) is listed as overdue and an admin may replay it with the same key.
+      Publish failures use bounded backoff and are retried until they succeed; only
+      an unpublishable message is FAILED.
     - Duplicate credit commands replay the original result without another balance
       change. Release for an unknown errand records a tombstone so a late reserve
       is refused with RESERVATION_RELEASED.

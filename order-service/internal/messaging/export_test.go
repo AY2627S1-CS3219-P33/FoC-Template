@@ -15,6 +15,3 @@ var (
 func (d *Dispatcher) DispatchOnce(ctx context.Context, credit bool) (bool, error) {
 	return d.dispatch(ctx, credit)
 }
-
-// SweepOnce runs one unconfirmed sweep.
-func (d *Dispatcher) SweepOnce(ctx context.Context) error { return d.sweep(ctx) }

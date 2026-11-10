@@ -9,6 +9,7 @@ remains the source of truth for its own data and rules:
 | **user-service** | Sign in, provision the local account, profile, admin user directory | `src/api/client.ts` |
 | **supplier-service** | Browse and administer pickup locations; manage the building and supplier-type lists | `src/api/supplier.ts` |
 | **order-service** | Request, browse, accept and complete errands; errand administration | `src/api/order.ts` |
+| **admin-service** | Admin Metrics tab and the readiness section of Overview | `src/api/admin.ts` |
 | **credit-service** | Balance, reservations and ledger — **against a proposed contract**, see below | `src/api/credit.ts` |
 
 Every client module mirrors its service's frozen OpenAPI contract. Searching,
@@ -42,6 +43,8 @@ Beyond the D1 wireframes, the shell now carries the other services' screens:
 | Request errand | Supplier picker, building dropdown, items, reward, contact, deadline | `src/pages/errands/ErrandForm.tsx` |
 | Credits | Available / reserved / total, ledger and active holds | `src/pages/credit/CreditPage.tsx` |
 | Errand admin | Reviews, settings, transition log, flags, failed outbox | `src/pages/admin/OrderAdminPage.tsx` |
+| Admin Overview | Open reviews, ongoing errands and errands waiting for a courier (live, order-service), and each service's readiness (admin-service) | `src/pages/admin/OverviewPage.tsx`, `ReadinessPanel.tsx` |
+| Admin Metrics | Errands per day, time to accept, how errands ended, reward per day, top pickup suppliers and delivery buildings, active couriers; one period filter, each panel loads on its own | `src/pages/admin/MetricsPage.tsx`, `metrics/` |
 
 ## Requirements implemented
 
@@ -147,7 +150,11 @@ the frontend never hard-codes a backend host:
 | `/supplier-service` | supplier-service | `http://localhost:3002` |
 | `/order-service` | order-service | `http://localhost:3003` |
 | `/credit-service` | credit-service | `http://localhost:3004` |
+<<<<<<< HEAD
 | `/chat-service` (REST and the `/chat-service/ws` WebSocket) | chat-service | `http://localhost:3005` |
+=======
+| `/admin-service` | admin-service | `http://localhost:3005` |
+>>>>>>> 37b25c8891ddcb53cae87b7aac1db0a8781dcb70
 
 The gateway-route prefix is stripped before forwarding, because each Go service
 serves its routes without it. Only the user-service is needed to sign in; the
@@ -167,7 +174,8 @@ permissions, overridable through the environment (see `.env.example`):
 | Suppliers (read) | `VITE_SUPPLIER_AUDIENCE` | `suppliers:read` |
 | Suppliers (admin), Buildings & types | `VITE_SUPPLIER_AUDIENCE` | `suppliers:read suppliers:manage` |
 | Errands | `VITE_ORDER_AUDIENCE` | `errands:use` |
-| Errand admin | `VITE_ORDER_AUDIENCE` | `errands:review` |
+| Errand admin, Overview counters | `VITE_ORDER_AUDIENCE` | `errands:review` |
+| Metrics, Overview readiness | `VITE_ADMIN_AUDIENCE` | `dashboard:read` |
 | Credits | `VITE_CREDIT_AUDIENCE` | `credits:read` |
 | Errand chat | `VITE_CHAT_AUDIENCE` | `chats:use` |
 

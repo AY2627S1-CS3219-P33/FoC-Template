@@ -27,6 +27,7 @@ order-service/
 │   ├── creditmsg/          # Credit-result consumer
 │   ├── database/           # Repositories and generated sqlc packages
 │   ├── errand/             # Domain, state machine, ports, errand routes
+│   ├── exportapi/          # Read-only export routes for admin-service
 │   ├── fence/              # Supplier deletion fence routes
 │   ├── httpapi/            # Router
 │   ├── internalapi/        # Service-to-service read routes
@@ -35,7 +36,7 @@ order-service/
 │   ├── readiness/          # /readyz
 │   ├── reconciler/         # Stuck reservations and edits
 │   ├── resilience/         # Retry, backoff and circuit breaker
-│   ├── review/             # Admin reviews, settings, event log, flags
+│   ├── review/             # Admin reviews, settings, event log, flags, overview
 │   ├── scheduler/          # Deadline and reminder jobs
 │   ├── serviceauth/        # Service tokens, in and out
 │   ├── supplierclient/     # supplier-service adapter
@@ -238,12 +239,14 @@ The worker has independent credit and event loops. Each claims batches of up
 to 10 rows under a two-minute lease, publishes each with a ten-second timeout,
 and polls again at once after a full batch or after about a second (±20%
 jitter) otherwise. Failed publishes use the existing jittered backoff (2 seconds
-base, 5 minutes cap), with at most 10 publication attempts. A failed broker
-connection is retried after its own backoff (500 ms base, 30 s cap) rather
-than on every row. Once a minute a sweep re-sends `SENT` credit commands that
-have had no result for the confirmation timeout from stored settings (default
-10 minutes), and records the backlog. Messages retain their original IDs on
-retry. Expired claims recover automatically; writes from old claims cannot
+base, 5 minutes cap) and never stop: a publish that fails for a reason that
+can pass, such as the broker being down or no consumer queue existing yet, is
+retried for as long as it takes. Only a row that can never be published (a
+malformed payload) becomes `FAILED`. A failed broker connection is retried
+after its own backoff (500 ms base, 30 s cap) rather than on every row. The
+worker never resends a `SENT` command: once the broker has confirmed it, the
+broker holds it until credit-service consumes it. Messages retain their original
+IDs on retry. Expired claims recover automatically; writes from old claims cannot
 overwrite a newer claim or credit confirmation. On `SIGINT`/`SIGTERM` each loop
 finishes the row it is publishing and hands the rest of its batch back.
 
@@ -253,9 +256,10 @@ Credit-service must declare its own command queue; the worker does not create
 it. Configure consumer queues before starting normal publication.
 
 This worker does not create errands or process credit replies. Credit commands
-remain `SENT` until the service's credit-result consumer confirms them, and are
-re-sent after the confirmation timeout. Each resend consumes another attempt;
-exhausted rows become `FAILED`.
+remain `SENT` until the service's credit-result consumer confirms them. A
+command with no result after `outboxConfirmTimeout` (default 90 minutes) is
+listed by `GET /admin/outbox/overdue`, and an admin can requeue it with
+`POST /admin/outbox/{id}/requeue`; nothing resends it automatically.
 
 Stop the dependencies, removing the test database volume:
 

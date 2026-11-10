@@ -410,6 +410,15 @@ type SupplierGate interface {
 	// DEPENDENCY_UNAVAILABLE (supplier-service unreachable or failing).
 	ResolveForCreate(ctx context.Context, supplierID string, now time.Time) (SupplierVersion, error)
 
+	// GetCurrent returns the current version of supplierID if it exists and
+	// is not deleted, whatever its opening hours. Saved pickup places use it
+	// to show whether a supplier still exists; errand creation must use
+	// ResolveForCreate. It is never served from a cache, so a deletion shows
+	// at once.
+	// Errors: SUPPLIER_UNAVAILABLE (missing or deleted);
+	// DEPENDENCY_UNAVAILABLE.
+	GetCurrent(ctx context.Context, supplierID string) (SupplierVersion, error)
+
 	// GetVersion returns one immutable supplier version, also for deleted
 	// suppliers (F2.4.3, F2.5.1). Results may be cached indefinitely.
 	// Errors: SUPPLIER_UNAVAILABLE (no such version); DEPENDENCY_UNAVAILABLE.
@@ -476,12 +485,18 @@ type SystemSettings struct {
 	// CancellationFlag is F3.5.3 and F6.3.2: more than Count cancellations
 	// within Window flag the requester.
 	CancellationFlag CancellationFlag
+	// CompletionFlag is F6.3: Count or more completed errands within Window
+	// flag the courier. Flagging does not block them.
+	CompletionFlag CompletionFlag
 	// ReservationTimeout and EditTimeout are how long a reserve or adjust may
 	// wait for a credit result before the reconcilers act (M5).
 	ReservationTimeout time.Duration
 	EditTimeout        time.Duration
-	// OutboxConfirmTimeout is how long a SENT credit row may wait for its
-	// result before the dispatcher re-sends it (M3).
+	// OutboxConfirmTimeout is how long a SENT credit row, or a PENDING row,
+	// may wait before the admin API lists it as overdue (M3). Nothing resends
+	// it: the broker holds a SENT command until credit-service consumes it.
+	// The default is longer than the hour for which credit-service retries a
+	// command, so a listed row is one that will not recover by itself.
 	OutboxConfirmTimeout time.Duration
 }
 
@@ -494,6 +509,14 @@ type WithdrawalRestriction struct {
 
 // CancellationFlag is the requester flag rule (F3.5.3).
 type CancellationFlag struct {
+	Count  int
+	Window time.Duration
+}
+
+// CompletionFlag is the courier flag rule for completing errands unusually
+// fast. Only completions by confirm or auto-verification count, not an
+// admin's override.
+type CompletionFlag struct {
 	Count  int
 	Window time.Duration
 }
@@ -512,9 +535,13 @@ func DefaultSystemSettings() SystemSettings {
 			Count:  20,
 			Window: time.Hour,
 		},
+		CompletionFlag: CompletionFlag{
+			Count:  10,
+			Window: 15 * time.Minute,
+		},
 		ReservationTimeout:   5 * time.Minute,
 		EditTimeout:          5 * time.Minute,
-		OutboxConfirmTimeout: 10 * time.Minute,
+		OutboxConfirmTimeout: 90 * time.Minute,
 	}
 }
 
@@ -538,6 +565,8 @@ func (s SystemSettings) Validate() error {
 	positive("withdrawalRestriction.duration", s.WithdrawalRestriction.Duration > 0)
 	positive("cancellationFlag.count", s.CancellationFlag.Count > 0)
 	positive("cancellationFlag.window", s.CancellationFlag.Window > 0)
+	positive("completionFlag.count", s.CompletionFlag.Count > 0)
+	positive("completionFlag.window", s.CompletionFlag.Window > 0)
 	positive("reservationTimeout", s.ReservationTimeout > 0)
 	positive("editTimeout", s.EditTimeout > 0)
 	positive("outboxConfirmTimeout", s.OutboxConfirmTimeout > 0)

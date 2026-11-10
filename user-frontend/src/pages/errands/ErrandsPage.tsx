@@ -7,19 +7,22 @@ import {
   type ErrandEdit,
   type RequesterErrandView,
 } from "../../api/order";
-import { listBuildings, listSuppliers, type Lookup } from "../../api/supplier";
+import { createPlace, type PlaceCreate } from "../../api/places";
+import { listBuildings, listSuppliers, type Lookup, type Supplier } from "../../api/supplier";
 import type { Profile } from "../../api/types";
 import { OpenErrandList } from "./OpenErrandList";
 import { MyErrandList, type MyListKind } from "./MyErrandList";
 import { ErrandDetail } from "./ErrandDetail";
 import { ErrandForm } from "./ErrandForm";
+import { placeError } from "./messages";
 
 type Tab = "browse" | MyListKind;
 
 type View =
   | { kind: "list" }
-  | { kind: "detail"; errandId: string }
-  | { kind: "create" }
+  // placeNotice: saved places that could not be added after a create.
+  | { kind: "detail"; errandId: string; placeNotice?: string }
+  | { kind: "create"; supplier?: Supplier }
   | { kind: "edit"; errand: RequesterErrandView }
   // "Order again": a new create prefilled from a finished errand.
   | { kind: "reorder"; source: RequesterErrandView };
@@ -38,7 +41,7 @@ const TABS: { key: Tab; label: string }[] = [
   { key: "history", label: "History" },
 ];
 
-export function ErrandsPage() {
+export function ErrandsPage({ initialSupplier }: { initialSupplier?: Supplier }) {
   const { profile, getAccessToken } = useAuth();
   const account = profile as Profile;
 
@@ -73,7 +76,9 @@ export function ErrandsPage() {
   );
 
   const [tab, setTab] = useState<Tab>("browse");
-  const [view, setView] = useState<View>({ kind: "list" });
+  const [view, setView] = useState<View>(() =>
+    initialSupplier ? { kind: "create", supplier: initialSupplier } : { kind: "list" },
+  );
   // Bumped after any transition so the list behind the detail is refetched.
   const [refreshKey, setRefreshKey] = useState(0);
 
@@ -113,14 +118,29 @@ export function ErrandsPage() {
 
   const onChanged = useCallback(() => setRefreshKey((n) => n + 1), []);
 
-  async function onCreate(body: ErrandCreate): Promise<void> {
+  async function onCreate(body: ErrandCreate, places: PlaceCreate[]): Promise<void> {
     const token = await getOrderToken();
     const created = await createErrand(token, body, idempotencyKey.current);
     // The submission succeeded, so the next one is a new logical request.
     idempotencyKey.current = crypto.randomUUID();
     onChanged();
+    // Saved places are added only now, and a failure never fails the errand:
+    // it is reported on the errand's detail instead.
+    const failures: string[] = [];
+    for (const place of places) {
+      try {
+        await createPlace(token, place);
+      } catch (err) {
+        const what = place.kind === "PICKUP" ? "pickup location" : "drop-off";
+        failures.push(`Your ${what} "${place.label}" was not saved: ${placeError(err)}`);
+      }
+    }
     setTab("requested");
-    setView({ kind: "detail", errandId: created.errandId });
+    setView({
+      kind: "detail",
+      errandId: created.errandId,
+      placeNotice: failures.length > 0 ? failures.join(" ") : undefined,
+    });
   }
 
   async function onEdit(errandId: string, body: ErrandEdit): Promise<void> {
@@ -134,10 +154,12 @@ export function ErrandsPage() {
     return (
       <ErrandForm
         mode="create"
+        initialSupplier={view.supplier}
         profile={account}
         buildings={buildings}
         getSupplierToken={getSupplierToken}
-        onSubmit={(body) => onCreate(body as ErrandCreate)}
+        getOrderToken={getOrderToken}
+        onSubmit={(body, places) => onCreate(body as ErrandCreate, places)}
         onCancel={() => setView({ kind: "list" })}
       />
     );
@@ -153,7 +175,8 @@ export function ErrandsPage() {
         profile={account}
         buildings={buildings}
         getSupplierToken={getSupplierToken}
-        onSubmit={(body) => onCreate(body as ErrandCreate)}
+        getOrderToken={getOrderToken}
+        onSubmit={(body, places) => onCreate(body as ErrandCreate, places)}
         onCancel={() => setView({ kind: "list" })}
       />
     );
@@ -177,6 +200,7 @@ export function ErrandsPage() {
     return (
       <ErrandDetail
         errandId={view.errandId}
+        placeNotice={view.placeNotice}
         getToken={getOrderToken}
         getChatToken={getChatToken}
         onBack={() => setView({ kind: "list" })}

@@ -3,16 +3,13 @@ import { useAuth } from "../auth/AuthContext";
 import { RequestError, updateProfile } from "../api/client";
 import type { Profile as ProfileData } from "../api/types";
 import { RoleBadge, CAPABILITIES } from "../components/RoleBadge";
+import { SavedPlaces } from "./SavedPlaces";
 import {
   DISPLAY_NAME_MAX,
   MOBILE_MAX,
   validateDisplayName,
   validateMobile,
 } from "../validation";
-
-function creditLabel(balance: number | null): string {
-  return balance === null ? "Not available" : `${balance} credits`;
-}
 
 export function Profile() {
   const { profile, setProfile, getAccessToken } = useAuth();
@@ -101,17 +98,6 @@ export function Profile() {
             </dt>
             <dd>{account.role}</dd>
           </div>
-          <div>
-            <dt>
-              Credit balance{" "}
-              <span className="locked" title="Managed by the credit service">🔒</span>
-            </dt>
-            <dd>{creditLabel(account.credit_balance)}</dd>
-          </div>
-          <div className="full">
-            <dt>Account ID</dt>
-            <dd className="mono">{account.id}</dd>
-          </div>
         </dl>
       </section>
 
@@ -167,6 +153,8 @@ export function Profile() {
           </button>
         </div>
       </form>
+
+      <SavedPlaces />
     </>
   );
 }

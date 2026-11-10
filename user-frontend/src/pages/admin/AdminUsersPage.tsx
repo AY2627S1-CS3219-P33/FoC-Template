@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { Link } from "react-router-dom";
 import { listAdminUsers, RequestError, setAdministrator } from "../../api/client";
 import type { AdminUser } from "../../api/types";
 import { useAuth } from "../../auth/AuthContext";
@@ -7,7 +8,7 @@ type RoleTab = "administrator" | "user";
 type Access = "checking" | "allowed" | "denied";
 
 export function AdminUsersPage() {
-  const { getAccessToken, signOut } = useAuth();
+  const { getAccessToken } = useAuth();
   const [role, setRole] = useState<RoleTab>("administrator");
   const [emailInput, setEmailInput] = useState("");
   const [email, setEmail] = useState("");
@@ -77,7 +78,7 @@ export function AdminUsersPage() {
 
   if (access !== "allowed") {
     return (
-      <main className="auth-shell">
+      <div>
         <section className="panel admin-access-card" aria-live="polite">
           {access === "checking" && loading ? (
             <p className="muted">Checking administrator access…</p>
@@ -85,31 +86,28 @@ export function AdminUsersPage() {
             <>
               <h1>Administrator access required</h1>
               <p className="muted">This account does not have permission to open the admin dashboard.</p>
-              <a className="btn admin-return" href="/">Return to Friend on Campus</a>
+              <Link className="btn admin-return" to="/">Return to Friend on Campus</Link>
             </>
           ) : (
             <>
               <h1>Could not verify access</h1>
               <p className="muted">{error ?? "The user service is unavailable."}</p>
               <button className="btn slim" type="button" onClick={() => void load()}>Try again</button>
-              <a className="admin-return-link" href="/">Return to Friend on Campus</a>
+              <Link className="admin-return-link" to="/">Return to Friend on Campus</Link>
             </>
           )}
         </section>
-      </main>
+      </div>
     );
   }
 
   return (
-    <main className="admin-page">
+    <div>
       <header className="admin-header">
         <div>
-          <a href="/" className="admin-back">← Friend on Campus</a>
-          <p className="admin-eyebrow">ACCESS MANAGEMENT</p>
           <h1>Users</h1>
           <p className="muted">Manage account roles stored in Auth0.</p>
         </div>
-        <button type="button" className="btn outline slim" onClick={signOut}>Log out</button>
       </header>
 
       <section className="panel admin-panel" aria-label="User directory">
@@ -169,7 +167,7 @@ export function AdminUsersPage() {
         </div>}
       </section>
       <p className="admin-footnote">Role changes take effect in Auth0. The user may need to sign in again to receive an updated access token.</p>
-    </main>
+    </div>
   );
 }
 

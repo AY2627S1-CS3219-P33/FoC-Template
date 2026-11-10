@@ -142,6 +142,32 @@ WHERE r.resolution IS NULL
 ORDER BY r.id
 LIMIT @row_limit;
 
+-- Admin overview (R1-1). Both queries are live reads of the current state.
+
+-- name: CountOverviewErrands :one
+-- CountOverviewErrands counts the errands in progress (ASSIGNED, PICKED_UP
+-- or DELIVERED) and those waiting for a courier (OPEN). Each errand has one
+-- status, so it is counted once. errands has no index on status alone; the
+-- status filter keeps the scan to the live rows.
+SELECT
+    count(*) FILTER (WHERE status IN ('ASSIGNED', 'PICKED_UP', 'DELIVERED')) AS ongoing,
+    count(*) FILTER (WHERE status = 'OPEN') AS waiting_for_courier
+FROM errands
+WHERE status IN ('OPEN', 'ASSIGNED', 'PICKED_UP', 'DELIVERED');
+
+-- name: SummarizeOpenReviews :one
+-- SummarizeOpenReviews counts the open reviews whose errand is still
+-- REVIEW_REQUIRED and returns the oldest review's creation time (NULL when
+-- there are none). Joining to errands skips a review whose errand has left
+-- review, as ListOpenReviews' callers do. It reads errand_reviews_open_idx.
+SELECT
+    count(*) AS open_count,
+    min(r.created_at)::timestamptz AS oldest_created_at
+FROM errand_reviews r
+JOIN errands e ON e.id = r.errand_id
+WHERE r.resolution IS NULL
+  AND e.status = 'REVIEW_REQUIRED';
+
 -- name: InsertAudit :one
 INSERT INTO admin_audit (actor_id, action, target_type, target_id, reason, outcome)
 VALUES (@actor_id, @action, @target_type, @target_id, @reason, @outcome)
@@ -284,6 +310,21 @@ HAVING count(*) >= @min_count::bigint
 ORDER BY event_count DESC, user_id
 LIMIT @row_limit;
 
+-- name: ListCompletionCounts :many
+-- ListCompletionCounts counts the errands each courier completed through the
+-- requester's confirm or the verification deadline. An admin_complete is left
+-- out: the admin, not the courier's pace, decided it. It reads
+-- errand_transitions_completions_idx, whose predicate the WHERE repeats.
+SELECT t.courier_id::text AS user_id, count(*) AS event_count
+FROM errand_transitions t
+WHERE t.event IN ('confirm', 'verification_lapsed')
+  AND t.courier_id IS NOT NULL
+  AND t.at >= @since::timestamptz
+GROUP BY t.courier_id
+HAVING count(*) >= @min_count::bigint
+ORDER BY event_count DESC, user_id
+LIMIT @row_limit;
+
 -- name: ListCancellationCounts :many
 -- ListCancellationCounts counts requester cancellations per requester. Only
 -- a requester's cancel enters CANCELLED (Diagram 1), so it reads
@@ -299,3 +340,42 @@ GROUP BY t.actor_id
 HAVING count(*) >= @min_count::bigint
 ORDER BY event_count DESC, user_id
 LIMIT @row_limit;
+
+-- Export for admin-service (R2-1). Read-only; never selects contact details,
+-- items or notes.
+
+-- name: ExportTransitionEvents :many
+-- ExportTransitionEvents pages the transition events order-service
+-- published, oldest first by outbox id (after_id is the last id of the
+-- previous page, 0 for the first). The outbox keeps every row, and an
+-- event row's idempotency key is its messageId, so a backfill from here
+-- deduplicates against the live stream. kinds are the outbox kinds of the
+-- transition events ("event.accepted", ...).
+SELECT id, idempotency_key, kind, errand_id, payload
+FROM outbox
+WHERE id > @after_id::bigint
+  AND kind = ANY (@kinds::text[])
+ORDER BY id
+LIMIT @row_limit;
+
+-- name: ExportErrandsPage :many
+-- ExportErrandsPage pages errands by id. after_id is the last id of the
+-- previous page, or NULL for the first.
+SELECT id, status, version, courier_id, reward, supplier_id, supplier_version_id,
+       delivery_building_id,
+       COALESCE(delivery_building_snapshot ->> 'name', '')::text AS delivery_building_name,
+       created_at, updated_at
+FROM errands
+WHERE sqlc.narg(after_id)::uuid IS NULL OR id > sqlc.narg(after_id)::uuid
+ORDER BY id
+LIMIT @row_limit;
+
+-- name: ExportErrandsByID :many
+-- ExportErrandsByID returns the listed errands that exist, by id.
+SELECT id, status, version, courier_id, reward, supplier_id, supplier_version_id,
+       delivery_building_id,
+       COALESCE(delivery_building_snapshot ->> 'name', '')::text AS delivery_building_name,
+       created_at, updated_at
+FROM errands
+WHERE id = ANY (@ids::uuid[])
+ORDER BY id;

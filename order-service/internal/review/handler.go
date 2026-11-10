@@ -38,6 +38,7 @@ type Services struct {
 	Settings SettingsAdmin
 	Events   EventLog
 	Flags    FlagReport
+	Overview OverviewReport
 }
 
 // Handler serves the admin routes of this package.
@@ -46,6 +47,7 @@ type Handler struct {
 	settings SettingsAdmin
 	events   EventLog
 	flags    FlagReport
+	overview OverviewReport
 	guard    func(http.Handler) http.Handler
 	logger   *slog.Logger
 }
@@ -60,6 +62,8 @@ func NewHandler(services Services, guard *auth.Middleware, logger *slog.Logger) 
 		panic("review: event log is required")
 	case services.Flags == nil:
 		panic("review: flag report is required")
+	case services.Overview == nil:
+		panic("review: overview is required")
 	case guard == nil:
 		panic("review: auth middleware is required")
 	case logger == nil:
@@ -70,6 +74,7 @@ func NewHandler(services Services, guard *auth.Middleware, logger *slog.Logger) 
 		settings: services.Settings,
 		events:   services.Events,
 		flags:    services.Flags,
+		overview: services.Overview,
 		guard:    guard.RequireReview,
 		logger:   logger,
 	}
@@ -84,6 +89,7 @@ func (h Handler) RegisterRoutes(router *http.ServeMux) {
 	router.Handle("PUT /admin/settings", h.guard(http.HandlerFunc(h.putSettings)))
 	router.Handle("GET /admin/errand-events", h.guard(http.HandlerFunc(h.listEvents)))
 	router.Handle("GET /admin/flags", h.guard(http.HandlerFunc(h.listFlags)))
+	router.Handle("GET /admin/overview", h.guard(http.HandlerFunc(h.getOverview)))
 }
 
 type pageResponse struct {

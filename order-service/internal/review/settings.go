@@ -166,6 +166,8 @@ func settingValues(s errand.SystemSettings) []struct {
 		{opsrepo.KeyWithdrawalRestrictionDuration, s.WithdrawalRestriction.Duration},
 		{opsrepo.KeyCancellationFlagCount, s.CancellationFlag.Count},
 		{opsrepo.KeyCancellationFlagWindow, s.CancellationFlag.Window},
+		{opsrepo.KeyCompletionFlagCount, s.CompletionFlag.Count},
+		{opsrepo.KeyCompletionFlagWindow, s.CompletionFlag.Window},
 		{opsrepo.KeyReservationTimeout, s.ReservationTimeout},
 		{opsrepo.KeyEditTimeout, s.EditTimeout},
 		{opsrepo.KeyOutboxConfirmTimeout, s.OutboxConfirmTimeout},
