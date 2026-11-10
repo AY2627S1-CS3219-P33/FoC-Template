@@ -54,7 +54,7 @@ services:
     # These override .env, whose values are for running on the host.
     environment:
       HTTP_HOST: 0.0.0.0
-      HTTP_PORT: "3005"
+      HTTP_PORT: "3006"
       DATABASE_URL: postgresql://chat_service:${CHAT_DB_PASSWORD:-chat-local-dev}@chat-db:5432/chat_service?sslmode=disable
       AMQP_URL: amqp://${RABBITMQ_DEFAULT_USER:-foc}:${RABBITMQ_DEFAULT_PASS:-foc-local-dev}@queue-service:5672/
       # Placeholder so the service starts without .env; set the real tenant
@@ -63,7 +63,7 @@ services:
       # nginx (user-frontend, :8081) and the Vite dev server (:5173).
       WS_ALLOWED_ORIGINS: ${WS_ALLOWED_ORIGINS:-localhost:8081,localhost:5173}
     ports:
-      - "127.0.0.1:3005:3005"
+      - "127.0.0.1:3006:3006"
     depends_on:
       chat-db:
         condition: service_healthy
@@ -75,7 +75,7 @@ services:
       queue-service:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3005/readyz"]
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3006/readyz"]
       interval: 10s
       timeout: 5s
       retries: 5

@@ -35,7 +35,7 @@ func TestLoadAppliesDefaults(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, Development, cfg.Environment)
-	require.Equal(t, "0.0.0.0:3005", cfg.HTTP.Address())
+	require.Equal(t, "0.0.0.0:3006", cfg.HTTP.Address())
 	require.Equal(t, "info", cfg.LogLevel)
 	require.Equal(t, 30*time.Second, cfg.StartupTimeout)
 	require.Equal(t, 10*time.Second, cfg.ShutdownTimeout)

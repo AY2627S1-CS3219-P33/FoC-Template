@@ -34,6 +34,6 @@ WORKDIR /app
 COPY --from=build /out/chat-service /app/chat-service
 
 USER chat
-EXPOSE 3005
+EXPOSE 3006
 
 ENTRYPOINT ["/app/chat-service"]

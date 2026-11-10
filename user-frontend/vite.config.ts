@@ -44,7 +44,7 @@ export default defineConfig({
       // Origin (localhost:5173) is passed through unchanged, and chat-service
       // allows it by default (WS_ALLOWED_ORIGINS).
       "/chat-service": {
-        target: "http://localhost:3005",
+        target: "http://localhost:3006",
         changeOrigin: true,
         ws: true,
         rewrite: (path) => path.replace(/^\/chat-service/, ""),

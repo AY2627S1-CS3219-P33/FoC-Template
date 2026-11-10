@@ -9,7 +9,7 @@ This is the contract between a browser and `GET /ws`. The browser client is [use
 | Production | `wss://app.bestfoc.app/chat-service/ws` |
 | Local, through nginx | `ws://localhost:8081/chat-service/ws` |
 | Local, through the Vite dev server | `ws://localhost:5173/chat-service/ws` |
-| Local, direct | `ws://localhost:3005/ws` |
+| Local, direct | `ws://localhost:3006/ws` |
 
 The page's origin must be in `WS_ALLOWED_ORIGINS`; otherwise the handshake is refused with HTTP `403`. Tools that send no `Origin` header (such as `websocat`) may connect, but still need a token.
 
@@ -118,7 +118,7 @@ Suggested backoff: 1 s, 2 s, 5 s, then up to 30 s, with some randomness so many 
 ## Example (browser console)
 
 ```js
-const ws = new WebSocket("ws://localhost:3005/ws");
+const ws = new WebSocket("ws://localhost:3006/ws");
 ws.onmessage = (e) => console.log(JSON.parse(e.data));
 ws.onclose = (e) => console.log("closed", e.code, e.reason);
 ws.onopen = () => ws.send(JSON.stringify({ type: "auth", token: "<access token>" }));
@@ -126,4 +126,4 @@ ws.onopen = () => ws.send(JSON.stringify({ type: "auth", token: "<access token>"
 ws.send(JSON.stringify({ type: "send", roomId: "<room id>", clientMsgId: crypto.randomUUID(), body: "hello" }));
 ```
 
-The page's origin must be allowed, so run this from a tab on `http://localhost:8081` or `http://localhost:5173`. Or use `websocat ws://localhost:3005/ws` and type the frames as single lines.
+The page's origin must be allowed, so run this from a tab on `http://localhost:8081` or `http://localhost:5173`. Or use `websocat ws://localhost:3006/ws` and type the frames as single lines.

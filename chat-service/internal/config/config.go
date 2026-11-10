@@ -116,7 +116,7 @@ func LoadFrom(lookup LookupEnv) (Config, error) {
 	}
 
 	host := read(lookup, "HTTP_HOST", "0.0.0.0")
-	port := readInt(lookup, "HTTP_PORT", 3005, 1, 65_535, &problems)
+	port := readInt(lookup, "HTTP_PORT", 3006, 1, 65_535, &problems)
 	logLevel := read(lookup, "LOG_LEVEL", "info")
 	if !validLogLevel(logLevel) {
 		problems = append(problems, "LOG_LEVEL must be debug, info, warn, or error")

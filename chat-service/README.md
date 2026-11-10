@@ -480,7 +480,7 @@ With the whole stack, from the repository root:
 
 ```sh
 docker compose up --build chat-service
-curl localhost:3005/readyz        # {"status":"ready","dependencies":{"errandEvents":"ok","postgres":"ok"}}
+curl localhost:3006/readyz        # {"status":"ready","dependencies":{"errandEvents":"ok","postgres":"ok"}}
 docker compose ps chat-service    # STATUS shows (healthy)
 ```
 
@@ -535,10 +535,10 @@ docker compose exec chat-db psql -U chat_service -d chat_service -c "
 **4. Chat** (`ROOM` is the ID printed above):
 
 ```sh
-curl -s -X POST localhost:3005/chats/$ROOM/messages -H "Authorization: Bearer $REQUESTER_TOKEN" \
+curl -s -X POST localhost:3006/chats/$ROOM/messages -H "Authorization: Bearer $REQUESTER_TOKEN" \
   -H 'Content-Type: application/json' -d '{"clientMsgId":"test-1","body":"I am at the lobby"}'
-curl -s localhost:3005/chats/$ROOM/messages -H "Authorization: Bearer $COURIER_TOKEN"
-curl -s localhost:3005/me/chats -H "Authorization: Bearer $COURIER_TOKEN"
+curl -s localhost:3006/chats/$ROOM/messages -H "Authorization: Bearer $COURIER_TOKEN"
+curl -s localhost:3006/me/chats -H "Authorization: Bearer $COURIER_TOKEN"
 ```
 
 Things worth trying: send the same `clientMsgId` twice (the second answer is `200`, and only one message is stored); read with a third user's token (`404`); call without a token (`401`). To see a closed room, end it by hand and then try to send (`409 ROOM_CLOSED`):
@@ -577,7 +577,7 @@ Publish it twice and there is still one room. Publish `{not json` and it lands i
 
 ## Trying live chat
 
-**In the app.** With the stack running (`docker compose up --build` from the repository root), sign in at <http://localhost:8081> as one user in one browser and as another user in a second browser (or a private window). Request an errand as the first, accept it as the second, and open the errand on both sides: a **Chat** section appears under the action buttons. Messages appear on the other side straight away, and survive a refresh. For `npm run dev` (port 5173), run chat-service in Compose as well; Vite forwards `/chat-service` to `localhost:3005`. The SPA asks Auth0 for a token for `https://api.foc.local/chat-service` with `chats:use`, so the [Auth0 set-up](#auth0-set-up) must be done first.
+**In the app.** With the stack running (`docker compose up --build` from the repository root), sign in at <http://localhost:8081> as one user in one browser and as another user in a second browser (or a private window). Request an errand as the first, accept it as the second, and open the errand on both sides: a **Chat** section appears under the action buttons. Messages appear on the other side straight away, and survive a refresh. For `npm run dev` (port 5173), run chat-service in Compose as well; Vite forwards `/chat-service` to `localhost:3006`. The SPA asks Auth0 for a token for `https://api.foc.local/chat-service` with `chats:use`, so the [Auth0 set-up](#auth0-set-up) must be done first.
 
 **From the browser console**, without the panel:
 
@@ -586,7 +586,7 @@ You need two user tokens for the chat API (see [Trying the API by hand](#trying-
 Open two browser tabs on `http://localhost:8081` (an allowed origin), open the developer console in each, and paste, with each user's own token:
 
 ```js
-const ws = new WebSocket("ws://localhost:3005/ws");
+const ws = new WebSocket("ws://localhost:3006/ws");
 ws.onmessage = (e) => console.log(JSON.parse(e.data));
 ws.onclose = (e) => console.log("closed", e.code, e.reason);
 ws.onopen = () => ws.send(JSON.stringify({ type: "auth", token: "<this user's access token>" }));
@@ -598,7 +598,7 @@ Each tab prints `{type: "ready", ...}`. Then send from one tab:
 ws.send(JSON.stringify({ type: "send", roomId: "<room id>", clientMsgId: crypto.randomUUID(), body: "hello" }));
 ```
 
-The sending tab prints `ack` and `message`; the other tab prints `message` straight away. A command-line alternative is `websocat ws://localhost:3005/ws`, typing each frame as one line. Accepting an errand in the app while both tabs are connected prints `room_opened` in both.
+The sending tab prints `ack` and `message`; the other tab prints `message` straight away. A command-line alternative is `websocat ws://localhost:3006/ws`, typing each frame as one line. Accepting an errand in the app while both tabs are connected prints `room_opened` in both.
 
 ## Trying room closing
 
@@ -659,7 +659,7 @@ docker compose run --rm chat-migrate                         # from the repo roo
 | `AUTH0_JWKS_*` | No | as order-service | Signing-key cache: `CACHE_TTL` `5m`, `FETCH_TIMEOUT` `3s`, `REFRESH_INTERVAL` `10s`, `FETCH_ATTEMPTS` `1`, `BREAKER_THRESHOLD` `3`, `BREAKER_COOLDOWN` `30s` |
 | `WS_ALLOWED_ORIGINS` | Yes | | Comma-separated host patterns allowed to open a WebSocket, e.g. `localhost:8081,localhost:5173`; production `app.bestfoc.app` |
 | `APP_ENV` | No | `development` | `development`, `test` or `production` |
-| `HTTP_HOST` / `HTTP_PORT` | No | `0.0.0.0` / `3005` | Listen address |
+| `HTTP_HOST` / `HTTP_PORT` | No | `0.0.0.0` / `3006` | Listen address |
 | `LOG_LEVEL` | No | `info` | `debug`, `info`, `warn`, `error` |
 | `STARTUP_TIMEOUT` / `SHUTDOWN_TIMEOUT` | No | `30s` / `10s` | |
 | `DATABASE_POOL_MIN` / `DATABASE_POOL_MAX` | No | `1` / `10` | |

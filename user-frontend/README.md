@@ -11,6 +11,7 @@ remains the source of truth for its own data and rules:
 | **order-service** | Request, browse, accept and complete errands; errand administration | `src/api/order.ts` |
 | **admin-service** | Admin Metrics tab and the readiness section of Overview | `src/api/admin.ts` |
 | **credit-service** | Balance, reservations and ledger — **against a proposed contract**, see below | `src/api/credit.ts` |
+| **chat-service** | Chat between the requester and courier on an errand's page (REST history plus a live WebSocket) | `src/api/chat.ts`, `src/chat/` |
 
 Every client module mirrors its service's frozen OpenAPI contract. Searching,
 filtering, sorting and paging are the services' job; the SPA sends query
@@ -150,11 +151,8 @@ the frontend never hard-codes a backend host:
 | `/supplier-service` | supplier-service | `http://localhost:3002` |
 | `/order-service` | order-service | `http://localhost:3003` |
 | `/credit-service` | credit-service | `http://localhost:3004` |
-<<<<<<< HEAD
-| `/chat-service` (REST and the `/chat-service/ws` WebSocket) | chat-service | `http://localhost:3005` |
-=======
 | `/admin-service` | admin-service | `http://localhost:3005` |
->>>>>>> 37b25c8891ddcb53cae87b7aac1db0a8781dcb70
+| `/chat-service` (REST and the `/chat-service/ws` WebSocket) | chat-service | `http://localhost:3006` |
 
 The gateway-route prefix is stripped before forwarding, because each Go service
 serves its routes without it. Only the user-service is needed to sign in; the

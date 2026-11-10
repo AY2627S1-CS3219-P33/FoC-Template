@@ -1312,7 +1312,6 @@ button.credit-chip:focus-visible {
   outline-offset: 2px;
 }
 
-<<<<<<< HEAD
 /* Errand chat. Mine on the right in the accent colour, theirs on the left. */
 .chat-head {
   display: flex;
@@ -1364,7 +1363,98 @@ button.credit-chip:focus-visible {
   margin: 0 auto 0.8rem;
 }
 .chat-list {
-=======
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+.chat-item {
+  display: flex;
+  flex-direction: column;
+}
+.chat-day {
+  align-self: center;
+  margin: 0.5rem 0 0.3rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.chat-msg {
+  max-width: min(80%, 32rem);
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.9rem;
+  display: grid;
+  gap: 0.2rem;
+}
+.chat-msg.theirs {
+  align-self: flex-start;
+  background: var(--surface);
+  border: 1px solid var(--line-soft);
+  border-bottom-left-radius: 0.3rem;
+}
+.chat-msg.mine {
+  align-self: flex-end;
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-bottom-right-radius: 0.3rem;
+}
+.chat-msg.sending {
+  opacity: 0.7;
+}
+.chat-msg.failed {
+  background: var(--err-bg);
+  color: var(--err);
+  border: 1px solid var(--err-line);
+}
+.chat-body {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.4;
+}
+.chat-meta {
+  font-size: 0.72rem;
+  opacity: 0.8;
+}
+.chat-msg.mine .chat-meta {
+  text-align: right;
+}
+.chat-failed .link-btn {
+  color: inherit;
+  font-size: inherit;
+  font-weight: 650;
+}
+.chat-compose {
+  display: flex;
+  gap: 0.6rem;
+  align-items: flex-end;
+  margin-top: 0.8rem;
+}
+.chat-input {
+  flex: 1;
+  min-width: 0;
+  resize: vertical;
+  min-height: 2.75rem;
+  max-height: 12rem;
+}
+.chat-hint {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 0.35rem 0 0;
+}
+.chat-counter {
+  font-variant-numeric: tabular-nums;
+}
+.chat-counter.over {
+  color: var(--err);
+  font-weight: 650;
+}
+
 /* ---------- Admin overview ---------- */
 .overview-toolbar {
   align-items: center;
@@ -1819,99 +1909,10 @@ button.credit-chip:focus-visible {
   font-size: 0.85rem;
 }
 .viz-deps {
->>>>>>> 37b25c8891ddcb53cae87b7aac1db0a8781dcb70
   list-style: none;
   margin: 0;
   padding: 0;
   display: flex;
-<<<<<<< HEAD
-  flex-direction: column;
-  gap: 0.45rem;
-}
-.chat-item {
-  display: flex;
-  flex-direction: column;
-}
-.chat-day {
-  align-self: center;
-  margin: 0.5rem 0 0.3rem;
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--ink-3);
-}
-.chat-msg {
-  max-width: min(80%, 32rem);
-  padding: 0.5rem 0.75rem;
-  border-radius: 0.9rem;
-  display: grid;
-  gap: 0.2rem;
-}
-.chat-msg.theirs {
-  align-self: flex-start;
-  background: var(--surface);
-  border: 1px solid var(--line-soft);
-  border-bottom-left-radius: 0.3rem;
-}
-.chat-msg.mine {
-  align-self: flex-end;
-  background: var(--accent);
-  color: var(--accent-ink);
-  border-bottom-right-radius: 0.3rem;
-}
-.chat-msg.sending {
-  opacity: 0.7;
-}
-.chat-msg.failed {
-  background: var(--err-bg);
-  color: var(--err);
-  border: 1px solid var(--err-line);
-}
-.chat-body {
-  margin: 0;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  line-height: 1.4;
-}
-.chat-meta {
-  font-size: 0.72rem;
-  opacity: 0.8;
-}
-.chat-msg.mine .chat-meta {
-  text-align: right;
-}
-.chat-failed .link-btn {
-  color: inherit;
-  font-size: inherit;
-  font-weight: 650;
-}
-.chat-compose {
-  display: flex;
-  gap: 0.6rem;
-  align-items: flex-end;
-  margin-top: 0.8rem;
-}
-.chat-input {
-  flex: 1;
-  min-width: 0;
-  resize: vertical;
-  min-height: 2.75rem;
-  max-height: 12rem;
-}
-.chat-hint {
-  display: flex;
-  justify-content: space-between;
-  gap: 1rem;
-  margin: 0.35rem 0 0;
-}
-.chat-counter {
-  font-variant-numeric: tabular-nums;
-}
-.chat-counter.over {
-  color: var(--err);
-  font-weight: 650;
-=======
   flex-wrap: wrap;
   gap: 0.15rem 0.9rem;
 }
@@ -2006,5 +2007,4 @@ button.credit-chip:focus-visible {
     grid-auto-flow: column;
     grid-auto-columns: 1fr;
   }
->>>>>>> 37b25c8891ddcb53cae87b7aac1db0a8781dcb70
 }
