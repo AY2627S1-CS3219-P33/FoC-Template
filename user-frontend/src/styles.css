@@ -1312,6 +1312,149 @@ button.credit-chip:focus-visible {
   outline-offset: 2px;
 }
 
+/* Errand chat. Mine on the right in the accent colour, theirs on the left. */
+.chat-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.9rem;
+}
+.chat-head h2 {
+  margin-bottom: 0;
+}
+.chat-conn {
+  font-size: 0.78rem;
+  font-weight: 650;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+.chat-conn.live {
+  color: var(--ok);
+}
+.chat-conn.live::before {
+  content: "";
+  display: inline-block;
+  width: 0.45rem;
+  height: 0.45rem;
+  margin-right: 0.35rem;
+  border-radius: 50%;
+  background: currentColor;
+  vertical-align: 0.05rem;
+}
+.chat-rooms {
+  margin-bottom: 0.9rem;
+}
+.chat-banner {
+  justify-content: space-between;
+  margin-bottom: 0.8rem;
+}
+.chat-log {
+  height: min(26rem, 60vh);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0.8rem;
+  border: 1px solid var(--line-soft);
+  border-radius: 0.8rem;
+  background: var(--surface-2);
+}
+.chat-earlier {
+  display: block;
+  margin: 0 auto 0.8rem;
+}
+.chat-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+.chat-item {
+  display: flex;
+  flex-direction: column;
+}
+.chat-day {
+  align-self: center;
+  margin: 0.5rem 0 0.3rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.chat-msg {
+  max-width: min(80%, 32rem);
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.9rem;
+  display: grid;
+  gap: 0.2rem;
+}
+.chat-msg.theirs {
+  align-self: flex-start;
+  background: var(--surface);
+  border: 1px solid var(--line-soft);
+  border-bottom-left-radius: 0.3rem;
+}
+.chat-msg.mine {
+  align-self: flex-end;
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-bottom-right-radius: 0.3rem;
+}
+.chat-msg.sending {
+  opacity: 0.7;
+}
+.chat-msg.failed {
+  background: var(--err-bg);
+  color: var(--err);
+  border: 1px solid var(--err-line);
+}
+.chat-body {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.4;
+}
+.chat-meta {
+  font-size: 0.72rem;
+  opacity: 0.8;
+}
+.chat-msg.mine .chat-meta {
+  text-align: right;
+}
+.chat-failed .link-btn {
+  color: inherit;
+  font-size: inherit;
+  font-weight: 650;
+}
+.chat-compose {
+  display: flex;
+  gap: 0.6rem;
+  align-items: flex-end;
+  margin-top: 0.8rem;
+}
+.chat-input {
+  flex: 1;
+  min-width: 0;
+  resize: vertical;
+  min-height: 2.75rem;
+  max-height: 12rem;
+}
+.chat-hint {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  margin: 0.35rem 0 0;
+}
+.chat-counter {
+  font-variant-numeric: tabular-nums;
+}
+.chat-counter.over {
+  color: var(--err);
+  font-weight: 650;
+}
+
 /* ---------- Admin overview ---------- */
 .overview-toolbar {
   align-items: center;
@@ -1864,4 +2007,132 @@ button.credit-chip:focus-visible {
     grid-auto-flow: column;
     grid-auto-columns: 1fr;
   }
+}
+
+/* ---------- Notifications ---------- */
+.topbar-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.bell {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.3rem;
+  height: 2.3rem;
+  border: 2px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 1.05rem;
+  cursor: pointer;
+}
+
+.bell:hover {
+  background: var(--surface-2);
+}
+
+.bell-badge,
+.nav-badge,
+.bn-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.15rem;
+  height: 1.15rem;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  background: var(--err);
+  color: var(--accent-ink);
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.bell-badge {
+  position: absolute;
+  top: -0.3rem;
+  right: -0.3rem;
+}
+
+.nav-badge {
+  margin-left: auto;
+}
+
+.bn-badge {
+  position: absolute;
+  top: -0.45rem;
+  right: -0.7rem;
+}
+
+.notif-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.notif-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.7rem;
+  width: 100%;
+  padding: 0.85rem 1rem;
+  border: 2px solid var(--line-soft);
+  border-radius: 12px;
+  background: var(--surface);
+  text-align: left;
+  cursor: pointer;
+}
+
+.notif-item:hover {
+  background: var(--surface-2);
+}
+
+.notif-item.unread {
+  border-color: var(--accent);
+  background: var(--surface-2);
+}
+
+.notif-dot {
+  flex: none;
+  width: 0.55rem;
+  height: 0.55rem;
+  margin-top: 0.4rem;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+.notif-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.notif-title {
+  font-weight: 650;
+  color: var(--ink);
+}
+
+.notif-body {
+  color: var(--ink-2);
+  font-size: 0.92rem;
+}
+
+.notif-time {
+  flex: none;
+  color: var(--ink-3);
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.bn-item .ico {
+  position: relative;
 }

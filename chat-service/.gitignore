@@ -1,0 +1,5 @@
+.env
+coverage.out
+
+# sqlc output, regenerated with `sqlc generate`
+/internal/database/chatgen/

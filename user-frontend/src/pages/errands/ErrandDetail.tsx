@@ -14,6 +14,7 @@ import {
   type RequesterErrandView,
 } from "../../api/order";
 import { validateReason, LIMITS } from "../../orderValidation";
+import { ErrandChat } from "../../chat/ErrandChat";
 import { errandError, isStale } from "./messages";
 import {
   creditText,
@@ -30,6 +31,8 @@ interface Props {
   // Set right after a create whose saved places could not all be added.
   placeNotice?: string;
   getToken: () => Promise<string>;
+  // A chat-service token, for the errand's chat section.
+  getChatToken: () => Promise<string>;
   onBack: () => void;
   onEdit: (errand: RequesterErrandView) => void;
   onOrderAgain: (errand: RequesterErrandView) => void;
@@ -52,6 +55,7 @@ export function ErrandDetail({
   errandId,
   placeNotice,
   getToken,
+  getChatToken,
   onBack,
   onEdit,
   onOrderAgain,
@@ -282,6 +286,12 @@ export function ErrandDetail({
           })
         }
       />
+
+      {/* For the requester and the courier, and also for a courier who
+          withdrew: they now see the public view, but keep their own room
+          while it closes. Anyone else has no room, so nothing is shown. */}
+      <ErrandChat errandId={errandId} errandStatus={status} getToken={getChatToken} />
+
 
       <section className="panel">
         <h2>Items</h2>
