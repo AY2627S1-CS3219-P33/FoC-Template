@@ -32,7 +32,7 @@ const NAV: NavDef[] = [
   { key: "suppliers", label: "Suppliers", icon: "⌂" },
   { key: "errands", label: "Errands", icon: "☰" },
   { key: "credits", label: "Credits", icon: "◈" },
-  { key: "notifications", label: "Notifications", icon: "🔔" },
+  { key: "notifications", label: "Notifications", icon: "◉" },
   { key: "profile", label: "Profile", icon: "◑" },
   { key: "settings", label: "Settings", icon: "⚙" },
 ];

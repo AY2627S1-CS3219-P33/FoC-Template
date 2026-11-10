@@ -428,26 +428,6 @@ export function ErrandDetail({
         </dl>
       </section>
 
-      <section className="panel">
-        <h2>Record</h2>
-        <dl className="fields">
-          <div className="full">
-            <dt>Errand ID</dt>
-            <dd className="mono">{errand.errandId}</dd>
-          </div>
-          <div>
-            <dt>Version</dt>
-            <dd className="mono">{errand.version}</dd>
-          </div>
-          {!isPublic && (
-            <div>
-              <dt>Last updated</dt>
-              <dd>{formatDateTime(errand.updatedAt)}</dd>
-            </div>
-          )}
-        </dl>
-      </section>
-
       {prompt && (
         <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label={prompt.title}>
           <div className="modal">
