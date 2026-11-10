@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"encoding/json"
-	"net"
 	"net/http"
 	"os"
 	"strconv"
@@ -50,13 +49,7 @@ func TestRoomClosingEndToEnd(t *testing.T) {
 		<-done
 	})
 	base := "127.0.0.1:" + strconv.Itoa(cfg.HTTP.Port)
-	require.Eventually(t, func() bool {
-		conn, err := net.Dial("tcp", base)
-		if err == nil {
-			_ = conn.Close()
-		}
-		return err == nil
-	}, 10*time.Second, 20*time.Millisecond)
+	waitSubscribed(t, base)
 
 	token := func(subject string) string {
 		claims := keys.Claims(auth.ChatAudience, []string{"chats:use"})

@@ -3,7 +3,7 @@ package app
 import (
 	"context"
 	"encoding/json"
-	"net"
+	"io"
 	"net/http"
 	"os"
 	"strconv"
@@ -46,13 +46,7 @@ func TestLiveChatEndToEnd(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- application.Run(runCtx) }()
 	base := "127.0.0.1:" + strconv.Itoa(cfg.HTTP.Port)
-	require.Eventually(t, func() bool {
-		conn, err := net.Dial("tcp", base)
-		if err == nil {
-			_ = conn.Close()
-		}
-		return err == nil
-	}, 10*time.Second, 20*time.Millisecond)
+	waitSubscribed(t, base)
 
 	token := func(subject string) string {
 		claims := keys.Claims(auth.ChatAudience, []string{"chats:use"})
@@ -158,6 +152,23 @@ func publishErrandEvent(t *testing.T, amqpURL, routingKey, errandID string, vers
 	require.NoError(t, ch.PublishWithContext(context.Background(), events.Exchange, routingKey, true, false,
 		amqp.Publishing{ContentType: "application/json", DeliveryMode: amqp.Persistent,
 			MessageId: messageID, Type: routingKey, Body: body}))
+}
+
+// waitSubscribed waits until /readyz reports the errand-event consumer as
+// subscribed. An open HTTP port is not enough: until the consumer has
+// declared its queue, a published event has nowhere to go and RabbitMQ drops
+// it (on a fresh broker, the first test in this package would hang).
+func waitSubscribed(t *testing.T, base string) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		response, err := http.Get("http://" + base + "/readyz")
+		if err != nil {
+			return false
+		}
+		defer response.Body.Close()
+		body, _ := io.ReadAll(response.Body)
+		return response.StatusCode == http.StatusOK && strings.Contains(string(body), `"errandEvents":"ok"`)
+	}, 15*time.Second, 50*time.Millisecond, "the consumer subscribes and /readyz reports it")
 }
 
 func write(t *testing.T, conn *websocket.Conn, v any) {
