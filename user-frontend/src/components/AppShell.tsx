@@ -8,7 +8,12 @@ import { SuppliersPage } from "../pages/suppliers/SuppliersPage";
 import { ErrandsPage } from "../pages/errands/ErrandsPage";
 import { CreditPage } from "../pages/credit/CreditPage";
 import { NotificationsPage } from "../pages/notifications/NotificationsPage";
-import { UNREAD_EVENT, getUnreadCount, streamUnread } from "../api/notification";
+import {
+  UNREAD_EVENT,
+  getUnreadCount,
+  publishNotificationsChanged,
+  streamUnread,
+} from "../api/notification";
 import type { Profile as ProfileData } from "../api/types";
 
 type Page = "suppliers" | "errands" | "credits" | "notifications" | "chat" | "profile" | "settings";
@@ -78,8 +83,15 @@ export function AppShell() {
         // ignore; the stream will deliver the count shortly
       }
     })();
+    // The stream's first value just seeds the badge on connect; any later value
+    // means a notification was recorded, so tell an open notifications page to
+    // refresh its list, not only the badge.
+    let streamSeeded = false;
     const stream = streamUnread(getNotificationToken, (count) => {
-      if (active) setUnread(count);
+      if (!active) return;
+      setUnread(count);
+      if (streamSeeded) publishNotificationsChanged();
+      streamSeeded = true;
     });
     return () => {
       active = false;

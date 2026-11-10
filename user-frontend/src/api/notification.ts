@@ -117,10 +117,21 @@ export async function markAllRead(token: string): Promise<number> {
 // notifications page and the shell badge as a window CustomEvent<number>.
 export const UNREAD_EVENT = "foc:notifications-unread";
 
+// CHANGED_EVENT fires when the server pushes a change over the stream — i.e. a
+// new notification arrived. The shell owns the single stream and emits this so
+// an open notifications list can refresh itself, not just the badge.
+export const CHANGED_EVENT = "foc:notifications-changed";
+
 // publishUnread announces a freshly known unread count to any listener (the
 // shell badge) in the same tab.
 export function publishUnread(count: number): void {
   window.dispatchEvent(new CustomEvent<number>(UNREAD_EVENT, { detail: count }));
+}
+
+// publishNotificationsChanged announces that the server pushed a change, so an
+// open notifications page can reload its list.
+export function publishNotificationsChanged(): void {
+  window.dispatchEvent(new Event(CHANGED_EVENT));
 }
 
 export interface UnreadStream {

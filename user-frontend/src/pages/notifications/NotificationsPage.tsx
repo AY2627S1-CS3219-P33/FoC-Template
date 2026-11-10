@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "../../auth/AuthContext";
 import {
+  CHANGED_EVENT,
   NotificationError,
   getUnreadCount,
   listNotifications,
@@ -61,11 +62,16 @@ export function NotificationsPage() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
 
-  // load fetches the first page for the current filter; loadMore appends.
+  // load fetches the first page for the current filter; loadMore appends. A
+  // silent load refreshes the first page in the background (e.g. when the server
+  // pushes a new notification) without the loading flash or clearing the list on
+  // a transient error, so the list updates live under the user.
   const load = useCallback(
-    async (append: boolean) => {
-      if (append) setBusy(true);
-      else setLoading(true);
+    async (append: boolean, silent = false) => {
+      if (!silent) {
+        if (append) setBusy(true);
+        else setLoading(true);
+      }
       try {
         const token = await getToken();
         const [page, count] = await Promise.all([
@@ -82,14 +88,24 @@ export function NotificationsPage() {
         publishUnread(count);
         setError(null);
       } catch (err) {
-        setError(notificationError(err));
+        if (!silent) setError(notificationError(err));
       } finally {
-        setLoading(false);
-        setBusy(false);
+        if (!silent) {
+          setLoading(false);
+          setBusy(false);
+        }
       }
     },
     [getToken, unreadOnly, cursor],
   );
+
+  // When the shell's stream reports a new notification, refresh the list in
+  // place so it updates without the user having to switch tabs or click around.
+  useEffect(() => {
+    const onChanged = () => void load(false, true);
+    window.addEventListener(CHANGED_EVENT, onChanged);
+    return () => window.removeEventListener(CHANGED_EVENT, onChanged);
+  }, [load]);
 
   // Reload from the top whenever the filter changes.
   useEffect(() => {
