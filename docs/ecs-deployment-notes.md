@@ -1,18 +1,18 @@
 # ECS deployment notes
 
-Updated 6 November 2026. This records the settings inspected and results reported during the deployment session. It is not infrastructure as code or a fresh audit of the AWS account. Do not add passwords, secret values, or bearer tokens.
+Updated 10 November 2026. ECS revisions, broker details, ALB/CloudFront routing, IAM policy version and GitHub deployment results were rechecked on this date. Database migration state below uses the earlier verified/user-reported checks from the same day; a fresh local RDS connection timed out during this documentation refresh. This is an operational record, not infrastructure as code or a complete account audit. Do not add passwords, secret values, or bearer tokens.
 
 ## Current deployment
 
 - Account: `842761392141`; Region: `ap-southeast-1`.
 - ECS cluster: `comfortable-squirrel-pxwxt5`.
-- User, supplier, credit, and order services run on Fargate in private subnets, with public IP assignment disabled and ARM64 task architecture.
+- User, supplier, credit, order and admin services run on Fargate in private subnets, with public IP assignment disabled and ARM64 task architecture. All five have desired/running count 1 and completed rollouts at the latest inspection.
 - The frontend is static content in S3, served through CloudFront. The old frontend ECS service was removed.
 - Browser entry point: <https://app.bestfoc.app/>. The original distribution address is `d8d2ig90yjarp.cloudfront.net`; use the custom frontend domain for same-site Auth0 login.
 - CloudFront forwards API requests to the public ALB, which forwards to private ECS task IPs. Tasks use the NAT gateway for outbound internet access, including Auth0.
 - Amazon MQ provides RabbitMQ. The shared RDS PostgreSQL instance holds the service databases.
 
-Backend deployments were healthy at the earlier checks. The user has since confirmed custom-domain frontend HTTPS, Auth0 domain verification, and deployment of new task-definition revisions for all four services. The public auth configuration was independently checked and returns `login.bestfoc.app`. Embedded login, API access, and renewal with third-party cookies blocked still need verification.
+The [all-component deployment](https://github.com/AY2627S1-CS3219-P33/FoC-Template/actions/runs/42768001825), attempt 2, succeeded for all five backends and the frontend at source commit `37b25c8891ddcb53cae87b7aac1db0a8781dcb70` (PR #102). ECS stability/public checks passed and the frontend HTML hash was verified through CloudFront. The public auth configuration returns `login.bestfoc.app`. This does not establish authenticated business-flow correctness; embedded login, token renewal with third-party cookies blocked, and admin metrics/backfill still need end-to-end verification.
 
 ## VPC and NAT gateway
 
@@ -42,27 +42,29 @@ One shared NAT gateway reduces the gateway count but creates an Availability Zon
 | RDS | `sg-035aaddc7336f2898` | PostgreSQL 5432 from application security group |
 | RabbitMQ | `sg-014bd894dbdad3f72` (`foc-rabbitmq-sg`) | AMQPS 5671 from application security group |
 
-The broker also had the application security group attached at the last inspection. Verify attached groups and individual rules before editing. DBeaver development access depends on the developer's current public IP matching the permitted rule; do not allow PostgreSQL from all IPs.
+The replacement broker has only `foc-rabbitmq-sg` attached at the latest inspection. Verify individual rules before editing. RDS development access is a security-group rule, not an ALB target-group change: rule `sgr-072e7fc65bcbfcde7` was added to `General-Service-Dev` (`sg-01acd9c288bf007a5`) for TCP 5432 from `117.20.154.126/32`, the public IP observed during setup. The existing `172.20.10.2/32` rule uses a private address and does not identify the laptop's public internet source. Existing rules were preserved. Refresh the public-IP rule when the developer's IP changes; do not allow PostgreSQL from all IPs. RDS also had `Credit-Service-Dev` (`sg-0c181d0e29495dbe1`) and the application/RDS groups attached. A later direct RDS check timed out; the cause was not re-diagnosed during this notes refresh.
 
 ## ECS services and images
 
-The revisions and image tags below were recorded before the custom-domain rollout. The user reports all four services were redeployed afterward; their current revision numbers and image tags have not been rechecked.
+Live revisions after the successful 10 November all-component rollout:
 
-| Service | ECS service name | Revision before domain rollout | Container port |
+| Service | ECS service name | Verified task revision | Container port |
 |---|---|---|---|
-| User | `user-service-task-service-tb6pn0x0` | `user-service-task:5` | 8080 |
-| Supplier | `supplier-service-task-service-ot78zbdx` | `supplier-service-task:6` | 3002 |
-| Credit | `credit-service` | `credit-service-task:3` | 3004 |
-| Order | `order-service-task-service-177de1f2` | `order-service-task:2` | 3003 |
+| User | `user-service-task-service-tb6pn0x0` | `user-service-task:7` | 8080 |
+| Supplier | `supplier-service-task-service-ot78zbdx` | `supplier-service-task:8` | 3002 |
+| Credit | `credit-service` | `credit-service-task:5` | 3004 |
+| Order | `order-service-task-service-177de1f2` | `order-service-task:4` | 3003 |
+| Admin | `admin-service-task-service-vmoebao1` | `admin-service-task:2` | 3005 |
 
 ECR registry: `842761392141.dkr.ecr.ap-southeast-1.amazonaws.com`.
 
-| Repository | Image tag recorded before domain rollout |
+| Repository | Verified image digest (`sha256:` prefix omitted) |
 |---|---|
-| `user-service` | `2e4860c-20261101163724` |
-| `supplier-service` | `2e4860c-20261101163724` |
-| `credit-service` | `credit-20261104214829` |
-| `order-service` | `order-20261104234356` |
+| `user-service` | `b2be2a7aa587c08bd349f4d3090de7f7df1a9d1e92962abfe6d922d4bfc80700` |
+| `supplier-service` | `328877cf85dee786850c418c02d8f8e83cb2b8d6a03016fe8dc13138c35817d9` |
+| `credit-service` | `329a0cf38e781236702d746e2c88ac05defc482166a2fe52c2d21108bac200da` |
+| `order-service` | `2c77946309b85240b38b399ec5f56f64c167715518032a55e226aa1a6e06163e` |
+| `admin-service` | `b2826301a8f1b4ccefac664f04552b06e04c8ed6c7c6de99576b94f7db1fc6e4` |
 
 Build for `linux/arm64`. Supplier-service requires the repository root as build context so the seed CSV is included at `/app/data/supplier-seed-data.csv`:
 
@@ -76,7 +78,7 @@ The other service images use their service directories as build contexts. Publis
 
 ### Service Connect
 
-All four services have Service Connect enabled in namespace `foc-local`:
+All five services have Service Connect enabled in namespace `foc-local`:
 
 | Service | Internal address |
 |---|---|
@@ -84,6 +86,7 @@ All four services have Service Connect enabled in namespace `foc-local`:
 | Supplier | `http://supplier-service:3002` |
 | Credit | `http://credit-service:3004` |
 | Order | `http://order-service:3003` |
+| Admin | `http://admin-service:3005` |
 
 These names work inside participating ECS tasks, not browsers. Deploy a new server endpoint before redeploying clients that need to discover it. When inspecting ECS API output, check `deployments[].serviceConnectConfiguration`; a missing service-level field does not mean Service Connect is disabled.
 
@@ -101,8 +104,11 @@ Reuse the existing HTTP port 80 listener when adding services. Another listener 
 | 20 | `/supplier-service/*` | Strip `/supplier-service` | `supplier-service-tg` / 3002 | `/readyz`, HTTP 200 |
 | 30 | `/credit-service/*` | Strip `/credit-service` | `credit-service-tg` / 3004 | `/readyz`, HTTP 200 |
 | 40 | `/order-service/*` | Strip `/order-service` | `order-service-tg` / 3003 | `/readyz`, HTTP 200 |
+| 50 | `/admin-service/*` | Strip `/admin-service` | `admin-service-tg` / 3005 | `/readyz`, HTTP 200 |
 
-Target groups use IP targets registered by ECS. Listener port 80 can forward to a different container port. A fixed 404 default action was recommended after removing the frontend target; confirm that cleanup before changing the listener.
+Target groups use IP targets registered by ECS. Listener port 80 can forward to a different container port. The listener's default action is now verified as fixed HTTP 404 (`Not found`). Prefix stripping uses ALB URL-rewrite transforms; admin uses regex `^/admin-service/(.*)$` and replacement `/$1`.
+
+All five target groups currently have a **300-second deregistration delay**. The successful all-component run spent approximately 9–11 minutes per backend, including build, startup, health checks and draining; the sequential deployment stage took about 50 minutes. A quiet log after image push can mean the script is waiting for ECS stability. Inspect ECS events, target health and rollout state before cancelling. The job timeout is 60 minutes. Investigate a service with no event progress for 10–15 minutes, repeated task failures, unhealthy targets or rollback. No draining settings were changed.
 
 CloudFront distribution: `E39SHVSD0FXUB9` (`d8d2ig90yjarp.cloudfront.net`), with alternate domain `app.bestfoc.app`.
 
@@ -113,6 +119,7 @@ CloudFront distribution: `E39SHVSD0FXUB9` (`d8d2ig90yjarp.cloudfront.net`), with
 | `/supplier-service/*` | `foc-alb-api` | All seven HTTP methods; caching disabled |
 | `/credit-service/*` | `foc-alb-api` | All seven HTTP methods; caching disabled |
 | `/order-service/*` | `foc-alb-api` | All seven HTTP methods; caching disabled |
+| `/admin-service/*` | `foc-alb-api` | All seven HTTP methods; caching disabled |
 | Default | Original S3 origin, no origin path | Existing images; default root object `frontend/index.html` |
 
 API behaviors use `AllViewerExceptHostHeader`. ALB rules perform the prefix rewrites. No distribution-wide SPA error mapping was configured; such mappings can hide API/image errors.
@@ -148,16 +155,21 @@ Endpoint: `foc-shared-database.cn22asqiuahb.ap-southeast-1.rds.amazonaws.com`, p
 
 | Service | Database | Runtime role | Recorded migration state |
 |---|---|---|---|
-| User | `user_service_db` | Existing service credentials | Previously reported version 5; not rechecked |
-| Supplier | `supplier_service_db` | Existing service credentials | Previously reported version 2; not rechecked |
-| Credit | `creditservice` | `app_rw` | Version 5 applied; privileges checked |
-| Order | `order_service_db` | `order_service_user` | Initial migration applied; tables visible |
+| User | `user_service_db` | `user_service_user` | Versions 1–5 applied; user-provided Goose output, 10 November |
+| Supplier | `supplier_service_db` | `supplier_service_user` | Versions 1–2 applied; user-provided Goose output, 10 November |
+| Credit | `creditservice` | `app_rw` | Versions 1–5 applied; user-provided Goose output, 10 November |
+| Order | `order_service_db` | `order_service_user` | Versions 1–3 applied; direct SQL verification after trial and cleanup, 10 November |
+| Admin | `admin_service_db` | `admin_service` | Version 1 applied; user-provided Goose output, 10 November |
 
 The separate older `credit_service_db`, owned by `migrator`, contained only migration bookkeeping when checked and was left untouched. Do not point credit-service at it or delete it without checking usage.
 
 Credit migrations used the existing `migrator` role. `app_rw` login, application table permissions, and required sequence permissions were checked; Goose bookkeeping is read-only for this role. The order runtime role currently owns its database; separate migration/runtime privileges have not been established there. Do not rerun a bootstrap that resets shared role passwords.
 
-Credit and order Dockerfiles now package the RDS CA bundle at `/etc/ssl/certs/rds-global-bundle.pem`. Their configured connection strings use `sslmode=verify-full` and `sslrootcert` pointing there. User/supplier runtime TLS verification has not been audited to the same level.
+Admin's database/schema owner is `migrator`; its separate runtime login is `admin_service`. The user created the runtime role/password and applied the migration through Goose, authenticating as `CreditAdmin` with `options='-c role=migrator'` because the existing migrator password was unavailable. Do not store CreditAdmin credentials in application secrets or reset the shared migrator password. The migration grants runtime SELECT/INSERT/UPDATE on its fact tables. Keep runtime schema CREATE revoked and USAGE granted.
+
+Order's completion-index migration originally duplicated saved-places version `00002`; it is now `00003_completion_flag_index.sql`. The one-off trial applied pending versions 2 and 3, and direct checks confirmed `saved_places` and `errand_transitions_completions_idx`, with `saved_places` owned by `order_service_user`. These schema changes remain after removal of automatic-migration infrastructure. See the cleanup record under [Manual database migrations](#manual-database-migrations).
+
+Credit, order and admin Dockerfiles package the RDS CA bundle at `/etc/ssl/certs/rds-global-bundle.pem`; use `sslmode=verify-full` with `sslrootcert` pointing there. User/supplier runtime TLS verification has not been audited to the same level.
 
 In DBeaver, use an absolute local path to the CA bundle. `./global-bundle.pem` may not resolve from its working directory. Find tables under the selected database's `Schemas → public → Tables` and refresh after migrations.
 
@@ -165,13 +177,15 @@ See [RDS migration notes](rds-goose-migrations.md) for the existing user/supplie
 
 ## Amazon MQ
 
-- Broker: `foc-rabbitmq`, ID `b-2073f411-5a0f-4452-ac34-7406eac4ff7f`.
+- Replacement broker: `foc-rabbitmq-1`, ID `b-5e3cb138-e1dd-488e-a93f-ea99548d42b4`; verified RUNNING on 10 November. The previous broker (`foc-rabbitmq`, ID `b-2073f411-5a0f-4452-ac34-7406eac4ff7f`) was deleted and its endpoint is obsolete.
 - RabbitMQ 4.3, `mq.m7g.medium`, single instance in `ap-southeast-1c`, privately accessible.
-- Endpoint: `amqps://b-2073f411-5a0f-4452-ac34-7406eac4ff7f.mq.ap-southeast-1.on.aws:5671`.
+- Endpoint: `amqps://b-5e3cb138-e1dd-488e-a93f-ea99548d42b4.mq.ap-southeast-1.on.aws:5671`.
+- Private subnet: `subnet-0201f7b8f28efc2b4`; attached security group: `sg-014bd894dbdad3f72`. Permit AMQPS 5671 from the application security group; no ALB is involved.
 - RabbitMQ username/password authentication is separate from IAM. Store the authenticated URL in Secrets Manager; percent-encode reserved password characters once (`!` becomes `%21`).
 - Credit successfully logged `consuming credit commands` for `credit-service.commands` after correcting credentials. Old-task retry/shutdown messages appeared alongside new-task success; compare task IDs.
 - Order readiness reported `creditResults: running`, `postgres: ok`, `rabbitmq: ok`, `redis: disabled`, `supplier: closed`. `closed` describes the supplier circuit breaker; it does not prove an authorized supplier request succeeded.
 - Order uses `AMQP_DECLARE_TAP=true` for the current event-tap topology. Redis is intentionally disabled.
+- When replacing a broker, update only `AMQP_URL` in the credit, order and admin runtime secrets, preserve their other keys, and force new ECS deployments so tasks reload the values. Applications declare their durable topology; the RabbitMQ user needs configure/write/read permissions on `/`. Deleted-broker messages do not return when a replacement broker is created: review in-flight errands and use the supported history backfill/reconciliation procedures where needed.
 
 Standard CloudShell is outside this VPC. Independent broker tests need a VPC-connected environment/task and TLS/AMQP authentication. Do not deploy the local RabbitMQ container to ECS alongside Amazon MQ.
 
@@ -181,6 +195,9 @@ Standard CloudShell is outside this VPC. Independent broker tests need a VPC-con
 |---|---|
 | `foc/credit-service/runtime` | `DATABASE_URL`, `AMQP_URL`, `CREDIT_M2M_CLIENT_ID`, `CREDIT_M2M_CLIENT_SECRET` |
 | `foc/order-service/runtime` | `DATABASE_URL`, `AMQP_URL`, `ORDER_M2M_CLIENT_ID`, `ORDER_M2M_CLIENT_SECRET` |
+| `foc/admin-service/runtime` | `DATABASE_URL`, `AMQP_URL`, `ADMIN_M2M_CLIENT_ID`, `ADMIN_M2M_CLIENT_SECRET` |
+
+Admin runtime secret ARN: `arn:aws:secretsmanager:ap-southeast-1:842761392141:secret:foc/admin-service/runtime-7gvzpj`. Its database connection must use the runtime `admin_service` role, not CreditAdmin or the migrator. The separate experimental `foc/migrations/runtime` secret is scheduled for deletion and must not be referenced by active task definitions.
 
 User-service reuses the credit secret's `CREDIT_M2M_*` keys for wallet provisioning. These are Auth0 machine-to-machine credentials, separate from AWS IAM and browser authentication.
 
@@ -276,31 +293,59 @@ Management API calls can use either the original tenant domain or the custom dom
 
 References: [Auth0 cross-origin authentication](https://auth0.com/docs/authenticate/login/cross-origin-authentication), [silent authentication](https://auth0.com/docs/authenticate/login/configure-silent-authentication), [custom domains and token issuers](https://auth0.com/docs/customize/custom-domains), [custom-domain API configuration](https://auth0.com/docs/customize/custom-domains/configure-features-to-use-custom-domains).
 
-## admin-service infrastructure checklist (not yet applied)
+## Admin service deployment
 
-`admin-service` is the event-fed read model behind the admin Metrics tab and the readiness section of Overview. The code, Dockerfile, compose entry and CI check exist in the repository; **nothing below has been created in AWS or Auth0.** Do these in order, then add the deployment entry in step 9. Do not add passwords or secret values to this file.
+Admin-service is deployed. It maintains the event-fed read model for **Admin → Metrics** and checks service readiness for **Admin → Overview**. Live counters on Overview still come from order-service's `/admin/overview`; numeric metrics come from admin's fact tables, not from readiness probes.
 
-1. **Database and roles on `foc-shared-database`.** Create database `admin_service_db` and two roles: a migrator that owns the schema (the existing `migrator` role works) and a runtime login role named exactly `admin_service`. The first migration grants the runtime role `SELECT, INSERT, UPDATE` on the tables and `USAGE` on the sequences, and does nothing if the role does not exist, so create the role before running migrations. The runtime role must not own the schema and must not run DDL. This is the separation the order database does not have yet.
-2. **Secret `foc/admin-service/runtime`** with JSON keys `DATABASE_URL` (runtime role, `sslmode=verify-full&sslrootcert=/etc/ssl/certs/rds-global-bundle.pem`), `AMQP_URL` (the Amazon MQ URL, reserved characters percent-encoded once), `ADMIN_M2M_CLIENT_ID` and `ADMIN_M2M_CLIENT_SECRET`. Let `ecsTaskExecutionRole` read it, and force a new deployment after any change.
-3. **ECR repository `admin-service`** and an ARM64 image built from the `admin-service/` directory.
-4. **Task definition.** Fargate, ARM64, container port 3005, the secret keys above as secret references, and these environment variables: `APP_ENV=production`, `AUTH0_ISSUER`, `AUTH0_AUDIENCE=https://api.foc.local/admin-service`, `ORDER_AUDIENCE=https://api.foc.local/order-service`, `ORDER_SERVICE_URL=http://order-service:3003`, plus the readiness URLs: `USER_SERVICE_URL=http://user-service:8080`, `SUPPLIER_SERVICE_URL=http://supplier-service:3002` and `CREDIT_SERVICE_URL=http://credit-service:3004`.
-5. **ECS service** in the private subnets with the application security group (it already reaches RDS and Amazon MQ) and **Service Connect** in `foc-local`: publish `http://admin-service:3005`, and use the namespace as a client to reach order-service and, for the readiness section, the other three services' `/readyz` (user, supplier and credit). Deploy the server endpoints before clients that need them.
-6. **ALB.** Target group `admin-service-tg` (IP targets, port 3005, health check `/readyz`, HTTP 200) and a rule on the existing port 80 listener: priority 50, path `/admin-service/*`, forward, stripping `/admin-service` as the other rules do.
-7. **CloudFront.** Add behavior `/admin-service/*` to origin `foc-alb-api`: all seven HTTP methods, caching disabled, `AllViewerExceptHostHeader`. Without it the Metrics tab cannot reach the service.
-8. **Auth0** (a person does this; see the table in the README): a new API with identifier `https://api.foc.local/admin-service` and permission `dashboard:read` granted to the Administrator role; a permission `orders:admin-read` defined on the order-service API and granted to the admin-service machine-to-machine application, which needs no other API.
-9. **Deployment entry.** Once the ECS service exists, add this to `services` in `.github/deploy.json` (use the real ECS service name) and add `admin-service` to the `component` options in `.github/workflows/deploy.yml`. It is not in the repository yet on purpose: `deploy.py` describes every listed service on an `auto` or `all` run, so listing one that does not exist would fail production deployments of the others.
+| Resource | Verified configuration |
+|---|---|
+| ECS service | `admin-service-task-service-vmoebao1` in `comfortable-squirrel-pxwxt5` |
+| Task revision | `admin-service-task:2`, Fargate ARM64, port 3005 |
+| ECR repository / build context | `admin-service` / `admin-service/` |
+| Database / runtime role | `admin_service_db` / `admin_service`; schema owner `migrator` |
+| Runtime secret | `foc/admin-service/runtime` (ARN suffix `7gvzpj`) |
+| Service Connect | `foc-local`, port name `admin-http`, discovery/client alias `admin-service:3005` |
+| ALB | Rule priority 50, `/admin-service/*`, strip prefix, `admin-service-tg:3005`, `/readyz` HTTP 200 |
+| CloudFront | `/admin-service/*` → `foc-alb-api`, caching disabled, `AllViewerExceptHostHeader` |
+| Deployment configuration | `.github/deploy.json` uses the actual generated ECS service name above |
 
-   ```json
-   "admin-service": {
-     "service": "<ECS service name>",
-     "context": "admin-service",
-     "health_path": "/admin-service/readyz"
-   }
-   ```
+The initial startup failed because `AUTH0_ISSUER`, `ADMIN_M2M_CLIENT_ID`, and `ADMIN_M2M_CLIENT_SECRET` were missing. A successful image build or ECS start request does not prove the process stays running. Correct task environment/secret references, deploy a new revision, and inspect stopped-task details and CloudWatch logs. The production readiness endpoint subsequently reported `postgres: ok` and `events: running`; the all-component CD rollout also passed.
 
-10. **Rabbit permissions.** The service declares its own queue `admin-service.events` (with a dead-letter queue) bound to `errand.#` on `foc.events`. The Amazon MQ user in `AMQP_URL` needs configure, write and read permission on the vhost. Binding a new queue does not change what other consumers receive.
-11. **Deploy user-service first.** The readiness section calls `GET /readyz` on user-service, a route added for it. Until the new user-service image is deployed, that route answers 404 and the dashboard shows user-service as down (`unexpected_status`). Deploy user-service before, or together with, admin-service. Its ALB health check can stay on `/health`.
-12. **First run.** Apply the migration manually as the migrator role (see [Manual database migrations](#manual-database-migrations)), start the service so its queue is bound, and only then run the backfill once as a one-off task (README, "Backfill"). Running the backfill first can miss events that are committed while it pages.
+Required non-secret configuration:
+
+```text
+APP_ENV=production
+HTTP_HOST=0.0.0.0
+HTTP_PORT=3005
+AUTH0_ISSUER=https://login.bestfoc.app/
+AUTH0_AUDIENCE=https://api.foc.local/admin-service
+ORDER_AUDIENCE=https://api.foc.local/order-service
+ORDER_SERVICE_URL=http://order-service:3003
+USER_SERVICE_URL=http://user-service:8080
+SUPPLIER_SERVICE_URL=http://supplier-service:3002
+CREDIT_SERVICE_URL=http://credit-service:3004
+DASHBOARD_TIMEZONE=Asia/Singapore
+```
+
+The user confirmed Auth0 setup: the admin API has `dashboard:read` assigned to the Administrator role; admin's M2M application has `orders:admin-read` on the order-service API. These are separate from AWS IAM. Tenant grants and authenticated dashboard requests have not been independently exercised in this notes refresh.
+
+Admin declares the quorum queue `admin-service.events` and its dead-letter queue, bound to `errand.#` on `foc.events`. Credit, order and admin must all reference the replacement broker. Backfill must begin only after the admin consumer binds its queue. Historical backfill/enrichment remains unverified; zero metrics do not by themselves mean the deployment failed. Use the [admin README](../admin-service/README.md#backfill) and a verified connection to order-service. The image contains `/app/admin-backfill`; changing only container `command` will not replace its default `/app/admin-service` entrypoint. A VPC backfill task also needs a working route/name for order-service; do not assume a standalone task automatically inherits an ECS service's Service Connect configuration.
+
+### Readiness versus health
+
+The readiness checker appends `/readyz` to each configured service base URL. User-service is intentionally checked at **`http://user-service:8080/readyz`**, which calls `pool.Ping`: HTTP 200 `{"status":"ready"}` or HTTP 503 `{"status":"not_ready"}`. Its ALB health check remains `/health`, which returns HTTP 204 and only establishes that the process responds. Changing the admin checker to `/health` would lose the database-readiness check and conflict with its expected HTTP 200 response. Metrics are computed separately from stored events. User-service's `/readyz` is internal here; the public ALB rule still exposes `/api/*` and `/health`.
+
+### Frontend and local Compose changes
+
+PR #102 included removal of credit balance/account ID from Profile and the supplier Record IDs, a supplier-detail action that opens an errand with that supplier selected, searchable pickup/building inputs, and the sticky desktop sidebar with accessible logout. The successful `all` deployment included the frontend at `37b25c8`; it was not skipped. Later UI rollback was discussed but no frontend revert was performed. Browser interaction after the AWS rollout has not been checked.
+
+For a local frontend refresh, from the repository root:
+
+```sh
+docker compose up -d --build --no-deps user-frontend
+```
+
+Hard-refresh the browser afterward. `docker compose up -d` alone does not rebuild changed source. If recreated backends are healthy but Nginx returns 502 to their old container IPs, restart `user-frontend` to refresh its static upstream resolutions. The admin proxy already uses Docker DNS dynamically so a stopped admin-service does not stop the entire frontend. Local admin-service exits if its `.env` lacks the required Auth0 settings; that is distinct from an Nginx stale-IP failure. Preserve named database volumes while diagnosing; `down -v` deletes local data.
 
 ## Remaining work
 
@@ -310,31 +355,32 @@ References: [Auth0 cross-origin authentication](https://auth0.com/docs/authentic
 4. Review remaining integration settings, including supplier-to-order checks, before relying on those workflows in production.
 5. Configure CloudFront-to-ALB HTTPS and review direct ALB access during domain setup.
 6. Review historical plaintext credentials/task revisions, unused infrastructure, and user/supplier database TLS verification; rotate credentials where needed.
-7. Configure and exercise the repository CI/CD workflows described below. Automated migration tasks remain deferred; database migrations are manual.
+7. Commit/merge the repository's deployment-policy correction so a future console replacement cannot restore the old `DescribeTaskDefinition` denial. Commit `6827936` fixes the saved-place timestamp issue but is not in the deployed `37b25c8` source; merge/deploy it through the normal workflow. Retain manual migrations; the automatic-migration experiment has been removed from AWS.
+8. Complete admin historical backfill/enrichment and verify authorized dashboard metrics/readiness. SPA deep-link fallback is still absent from the default CloudFront behavior. Review rollout duration before changing target draining times; all five are still 300 seconds.
 
 RDS, ALB, NAT/Elastic IP, and Amazon MQ can keep incurring charges when ECS desired counts are zero. Stopping application tasks does not pause the entire deployment.
 
 ## GitHub Actions CI/CD
 
-Workflows are implemented locally for the public team repository `AY2627S1-CS3219-P33/FoC-Template`, whose default branch is `main`. They have not been pushed or run on GitHub, and no IAM or GitHub environment configuration has been applied by this implementation.
+Workflows are live on the public team repository `AY2627S1-CS3219-P33/FoC-Template`, default branch `main`. PR #102 merged on 10 November. The `production` environment has `AWS_DEPLOY_ROLE_ARN=arn:aws:iam::842761392141:role/foc-github-deploy`, with OIDC trust checked against the immutable repository/environment subject. CI includes all five backends; there is no separate admin workflow. The user reported an Actions disablement while PR checks were absent; the exact restriction was not independently captured. It was resolved before the successful deployment checks.
 
 - [CI](../.github/workflows/ci.yml) runs on pull requests and pushes to `main`. It regenerates supplier, order and admin SQL query code as their Docker builds do, then checks Go formatting, vet, tests, and builds for all five services, plus frontend type checking/build, OpenAPI lint, workflow lint, and deployment-script tests. Disposable PostgreSQL 18, RabbitMQ 4, and Redis 7.4 containers enable the existing integration tests. The explicit database-restart test remains opt-in.
 - [Deploy](../.github/workflows/deploy.yml) runs only when manually triggered on the team repository's `main` branch. Deploy operations rerun CI on that exact commit before requesting AWS credentials. Rollback skips source-code CI and restores recorded release artifacts instead.
 - [Deployment configuration](../.github/deploy.json) contains the existing AWS identifiers and public check URLs. [The script](../.github/scripts/deploy.py) uses AWS CLI commands, builds backend images on an ARM64 runner, and creates new task-definition revisions from the service's currently selected revision. Environment variables, secret references, task roles, resource limits, tags, and service configuration are preserved; only the application image changes. It does not choose the highest-numbered unrelated revision.
 
-### One-time console setup
+### Environment setup and recovery reference
 
 1. Review the deployment configuration against the live account. Confirm each service uses an ARM64 task and the matching ECR repository. Fix the outstanding user-service Management API issue separately; CI/CD does not fix application bugs.
 2. In the **team repository → Settings → Environments**, create `production`. Under deployment branches/tags, allow only the branch `main`. This restriction is required because the OIDC trust identifies the environment rather than the branch. Optionally add required reviewers. Protect `main` with required CI checks using the repository's branch rules.
 3. In **AWS IAM → Identity providers**, add or reuse the OpenID Connect provider `https://token.actions.githubusercontent.com`, with audience `sts.amazonaws.com`.
 4. In **IAM → Roles**, create a dedicated role such as `foc-github-deploy`, using [deploy-trust.json](../.github/aws/deploy-trust.json) as its trust relationship. A read-only GitHub API check confirmed this repository uses the immutable subject prefix `repo:AY2627S1-CS3219-P33@330282387/FoC-Template@1373992806`; do not replace it with the older name-only format. Recheck if the repository is renamed, transferred, or its OIDC configuration changes.
-5. Create and attach a customer-managed permissions policy from [deploy-permissions.json](../.github/aws/deploy-permissions.json). Before attaching, confirm its `iam:PassRole` list includes exactly the execution/task role ARNs in the four live task definitions. The template uses the two roles recorded in these notes; add any other actual roles individually, never a wildcard. ECR login and task-definition registration require wildcard resources; other permissions target the existing repositories, services, task families, S3 prefixes, and distribution. No database credentials or Secrets Manager read permissions are granted to the pipeline. If these resources use customer-managed KMS keys, add the required permissions scoped to those keys.
+5. Attach the customer-managed `foc-github-deploy-permissions` policy from [deploy-permissions.json](../.github/aws/deploy-permissions.json). Include the five application repositories, task families and actual ECS service names. Keep `iam:PassRole` scoped to the actual application execution/task roles (`ecsTaskExecutionRole` and `foc-supplier-task-role` at setup). `ecs:DescribeTaskDefinition` requires a separate `Resource: "*"` read statement; tagging and service updates remain ARN-scoped. The live default is policy version `v4`, corrected after attempt 1 failed; the corresponding template/test changes are currently local on `fix/saved-place-creation-timestamps`. No automatic-migration permissions or secret-value reads belong in this policy.
 6. In **GitHub → production environment → Environment variables**, set `AWS_DEPLOY_ROLE_ARN` to the new role ARN. Do not add AWS access keys or application secrets to GitHub. Existing application secrets remain in ECS references and are retrieved by task execution roles.
 7. Merge the workflows into the team repository's `main` branch, confirm CI succeeds, then trigger the first deployment. If IAM provider/role creation is denied by school organization policies, stop here and ask the school administrator to provision them.
 
-Only the frontend and deployment metadata prefixes are writable by the role. Supplier image keys at the bucket root and under `suppliers/` are outside its object permissions. No object deletion permission is needed. The trust and permissions JSON are setup templates, not resources already installed in AWS.
+Only the frontend and deployment metadata prefixes are writable by the role. Supplier image keys at the bucket root and under `suppliers/` are outside its object permissions. No object deletion permission is needed. These JSON files are the repository copies of the configured role/policy; they are not infrastructure-as-code that automatically reconciles AWS.
 
-Sources: [GitHub OIDC with AWS](https://docs.github.com/en/actions/how-tos/secure-your-work/security-harden-deployments/oidc-in-aws), [immutable OIDC subjects](https://docs.github.com/en/actions/reference/security/oidc), [ECR push permissions](https://docs.aws.amazon.com/AmazonECR/latest/userguide/image-push-iam.html), [ECS deployment permissions](https://github.com/aws-actions/amazon-ecs-deploy-task-definition#permissions).
+Sources: [ECS IAM action/resource support](https://docs.aws.amazon.com/service-authorization/latest/reference/list_ecs.html), [GitHub OIDC with AWS](https://docs.github.com/en/actions/how-tos/secure-your-work/security-harden-deployments/oidc-in-aws), [immutable OIDC subjects](https://docs.github.com/en/actions/reference/security/oidc), [ECR push permissions](https://docs.aws.amazon.com/AmazonECR/latest/userguide/image-push-iam.html), [ECS deployment permissions](https://github.com/aws-actions/amazon-ecs-deploy-task-definition#permissions).
 
 ### Deploying a change
 
@@ -361,11 +407,32 @@ For the frontend, the workflow builds static content, saves a release snapshot u
 If selected components have changed migration SQL, the workflow lists the files and stops before any build/push/deployment unless **migrations_applied** is checked. This checkbox is the operator's attestation, not a database query or migration runner.
 
 1. Review the exact workflow commit and listed migrations. For a first deployment, compare all listed files against the database's existing Goose versions.
-2. From an authorized machine with RDS network access, use each service's documented Goose procedure with its migration credentials: [user](../user-service/migrations/README.md), [supplier](../supplier-service/migrations/README.md), [credit](../credit-service/README.md), and [order](../order-service/migrations/README.md). Check `status`, apply only pending migrations with `up`, and confirm `status` afterward. Use TLS verification and the intended service database; do not reset users or bootstrap existing databases.
+2. From an authorized machine with RDS network access, use each service's documented Goose procedure with its migration credentials: [user](../user-service/migrations/README.md), [supplier](../supplier-service/migrations/README.md), [credit](../credit-service/README.md), [order](../order-service/migrations/README.md), and [admin](../admin-service/migrations/README.md). Check `status`, apply only pending migrations with `up`, and confirm `status` afterward. Use TLS verification and the intended service database; do not reset users or bootstrap existing databases.
 3. Keep migrations backward compatible with running application versions. If that is impossible, plan downtime and explicitly stop affected services before applying them. Never assume an application rollback reverses schema or data changes.
 4. Trigger Deploy again on the same reviewed commit with **migrations_applied** checked. If `main` advanced, review and apply any additional migrations before confirming. A rerun of the original workflow retains its commit; a fresh dispatch selects the current branch commit.
 
-RDS does not need to be exposed to GitHub runners. A future dedicated ECS migration task can replace the manual procedure, using VPC access and separate credentials, but no such task is implemented here.
+RDS does not need to be exposed to GitHub runners. Manual migrations are the chosen final approach. Local Compose's one-shot migration containers do not make AWS CD run Goose. Checking **migrations_applied** does not query RDS, validate tables, compare SQL contents, or apply migrations; it is the operator's attestation. A first recorded release flags all SQL files even when RDS already has them. Goose records versions, not file-content checksums: inspect schema objects too when resolving a numbering collision.
+
+For CLI checks, run the pinned Goose `status` command against each database using its service's migration directory, TLS verification and locally supplied credentials (`~/.pgpass` or a temporary `PGPASSWORD`). Do not print or commit passwords. The database map is in the RDS table above. If the shared `migrator` password is unavailable, the previously verified manual method authenticates as CreditAdmin with connection `options='-c role=migrator'` for admin/credit, preserving ownership without resetting the shared password. Order's owner is `order_service_user`; user/supplier have their corresponding owner roles. Always check `session_user`, `current_user` and `current_database()` before applying SQL as an assumed owner.
+
+### Automatic-migration experiment and removal
+
+The experiment is isolated in branch `feat/automatic-ecs-migrations`, commit `4d1ccab`. Do not merge it while manual migrations remain the decision. One ARM64 Fargate task (0.25 vCPU / 0.5 GB) ran order Goose versions 2 and 3 successfully and stopped with exit code 0. No application ECS service was created for migration, and no application revision was changed by the trial. Applied schema changes were preserved during cleanup.
+
+Resources added and subsequently removed on 10 November:
+
+| Experimental resource | Cleanup outcome |
+|---|---|
+| PostgreSQL login `foc_deploy_migrator` | CONNECT grants and login removed; original owner/runtime roles and passwords preserved |
+| IAM role `foc-migration-execution` | Removed, including inline `ReadMigrationCredentials` and its attachment to the AWS-managed execution policy |
+| Secret `foc/migrations/runtime` (ARN suffix `VNfw4X`) | Scheduled for deletion on 17 November 2026, with seven-day recovery window; must not be used by active tasks |
+| Task definition `order-service-migrate:1` | Deregistered; deletion requested, last observed `DELETE_IN_PROGRESS` |
+| One-off task `7cec226b6c2d49ef9977d3070d07d654` | Stopped successfully; historical ECS record can remain temporarily |
+| ECR image `order-service:migration-trial-8e6a17c0` | Deleted; application images/repository preserved |
+| Log stream `migrations/migrate/7cec226b6c2d49ef9977d3070d07d654` | Deleted from the existing `/ecs/order-service-task` group; group preserved |
+| Deployment-policy version `v3` | Removed and `v2` restored, preserving admin permissions; later `v4` adds only the required task-definition read correction |
+
+There is no running migration compute. No new RDS instance, ECR repository, cluster, VPC, subnet, NAT gateway, ALB or log group was created for the experiment. Automatic-migration code must not be used against the removed IAM role/secret.
 
 ### Rollback and recovery
 
@@ -384,6 +451,12 @@ python3 -m unittest discover -s .github/scripts -p 'test_*.py' -v
 go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7 .github/workflows/ci.yml .github/workflows/deploy.yml
 ```
 
-The script tests exercise accumulated change selection, shared inputs, migration blocking, fork/branch restrictions, task-definition preservation, zero desired counts, ECS automatic rollback detection, safe frontend uploads, failed-release state handling, and recorded rollback. Local checks cannot establish live AWS permissions or replace an initial GitHub deployment trial.
+The script tests exercise accumulated change selection, shared inputs, manual migration blocking, fork/branch restrictions, task-definition preservation, zero desired counts, ECS rollback detection, safe frontend uploads, failed-release state handling, recorded rollback, and the required wildcard task-definition read permission. All 16 local deployment tests pass after the IAM regression check was added. Policy validation reported no errors, IAM simulation changed the denied read to allowed, and the subsequent GitHub deployment succeeded.
 
-Local verification passed deployment-script tests, actionlint, frontend type checking/build, and OpenAPI validation (with existing warnings). Supplier, credit, and order tests passed with disposable PostgreSQL, RabbitMQ, and Redis dependencies. Enabling user-service's database tests exposed two outdated assertions, which have now been corrected. After the user confirmed soft deletion is intentional, `TestPostgresServiceFlow` was updated to check that unconfirmed deletion leaves the account accessible, confirmed deletion retains an inactive row with a deletion timestamp and unchanged username/email, and profile reads then return not-found. `TestBootstrapConflictAndRollback` now expects the pre-existing matching account in its subject-conflict case, verifies existing accounts remain unchanged, and still requires bootstrap completion to remain unset. The full user-service suite, vet, and build pass with disposable PostgreSQL as of 6 November. No application behavior was changed. Live AWS permissions and the first GitHub deployment remain unverified.
+The failed [deployment run](https://github.com/AY2627S1-CS3219-P33/FoC-Template/actions/runs/42768001825) attempt 1 stopped before image build at the user-service preflight. The live policy incorrectly put `ecs:DescribeTaskDefinition` under task-definition ARNs; AWS does not support resource scoping for that action. Version `v4` adds its wildcard read statement, leaving tagging/service writes scoped. CloudTrail lookup was explicitly denied by a school service-control policy, so the original event error could not be fetched. The corrected role passed preflight for all five services, and attempt 2 completed the all-component deploy. Docker's temporary credential-file warning on the hosted runner was not the cause.
+
+The all-component deployment stage ran approximately 14:32–15:22 Singapore time, with all backend rollout/public checks and frontend HTML verification successful. This is deployment evidence, not proof of login, authorized mutations, notifications, or complete order lifecycle behavior.
+
+`TestPlacesCRUD` later exposed an intermittent saved-place timestamp mismatch: separate `clock_timestamp()` defaults could produce different initial created/updated times. Commit `6827936` on `fix/saved-place-creation-timestamps` changes only `order-service/queries/requester.sql` to use `statement_timestamp()` for both insert fields; no migration is required. The baseline failed three times in 200 local repetitions; the fix passed 200 repetitions and the requester-repository, places, test-fakes and migration suites against disposable PostgreSQL 18. Generated sqlc files are ignored and regenerated by CI/builds. The fix is not part of deployed commit `37b25c8`. A review found the same independent defaults in `InsertFence`, but no matching equality assertion/functional failure was demonstrated and no fence query was changed.
+
+Local verification passed deployment-script tests, actionlint, frontend type checking/build, and OpenAPI validation (with existing warnings). Supplier, credit, and order tests passed with disposable PostgreSQL, RabbitMQ, and Redis dependencies. Enabling user-service's database tests exposed two outdated assertions, which have now been corrected. After the user confirmed soft deletion is intentional, `TestPostgresServiceFlow` was updated to check that unconfirmed deletion leaves the account accessible, confirmed deletion retains an inactive row with a deletion timestamp and unchanged username/email, and profile reads then return not-found. `TestBootstrapConflictAndRollback` now expects the pre-existing matching account in its subject-conflict case, verifies existing accounts remain unchanged, and still requires bootstrap completion to remain unset. The full user-service suite, vet, and build pass with disposable PostgreSQL as of 6 November. Those 6 November user-service changes adjusted tests, not application behavior. The 10 November deployment and IAM verification results above supersede the earlier pending-deployment status.
