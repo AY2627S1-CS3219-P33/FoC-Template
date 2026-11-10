@@ -61,6 +61,65 @@ services:
       retries: 5
       start_period: 30s
 
+  notification-db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: notification_service
+      POSTGRES_USER: notification_service
+      POSTGRES_PASSWORD: ${NOTIFICATION_DB_PASSWORD:-notification-local-dev}
+    volumes:
+      - notification_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U notification_service -d notification_service"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  notification-migrate:
+    image: foc-goose-migrator:local
+    build:
+      context: ./supplier-service
+      dockerfile: migrate.Dockerfile
+    command: ["-dir", "/migrations", "up"]
+    environment:
+      GOOSE_DRIVER: postgres
+      GOOSE_DBSTRING: postgresql://notification_service:${NOTIFICATION_DB_PASSWORD:-notification-local-dev}@notification-db:5432/notification_service?sslmode=disable
+    volumes:
+      - ./notification-service/migrations:/migrations:ro
+    depends_on:
+      notification-db:
+        condition: service_healthy
+    restart: "no"
+
+  notification-service:
+    build: ./notification-service
+    env_file:
+      - path: ./notification-service/.env
+        required: false
+    environment:
+      HTTP_HOST: 0.0.0.0
+      HTTP_PORT: "3007"
+      DATABASE_URL: postgresql://notification_service:${NOTIFICATION_DB_PASSWORD:-notification-local-dev}@notification-db:5432/notification_service?sslmode=disable
+      AMQP_URL: amqp://${RABBITMQ_DEFAULT_USER:-foc}:${RABBITMQ_DEFAULT_PASS:-foc-local-dev}@queue-service:5672/
+    ports:
+      # admin-service binds 3005 and chat-service 3006, so this one runs on 3007,
+      # matched by nginx (notification-service:3007) and the healthcheck below.
+      - "127.0.0.1:3007:3007"
+    depends_on:
+      notification-db:
+        condition: service_healthy
+      notification-migrate:
+        condition: service_completed_successfully
+      queue-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3007/readyz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
   user-db:
     image: postgres:16-alpine
     environment:
@@ -191,6 +250,7 @@ services:
       - supplier-service
       - order-service
       - credit-service
+      - notification-service
       - chat-service
       - admin-service
 
@@ -218,6 +278,7 @@ services:
 
 volumes:
   credit_postgres_data:
+  notification_postgres_data:
   user_postgres_data:
   supplier_postgres_data_pg17:
   rabbitmq_data:

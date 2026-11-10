@@ -2008,3 +2008,131 @@ button.credit-chip:focus-visible {
     grid-auto-columns: 1fr;
   }
 }
+
+/* ---------- Notifications ---------- */
+.topbar-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.bell {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.3rem;
+  height: 2.3rem;
+  border: 2px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 1.05rem;
+  cursor: pointer;
+}
+
+.bell:hover {
+  background: var(--surface-2);
+}
+
+.bell-badge,
+.nav-badge,
+.bn-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.15rem;
+  height: 1.15rem;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  background: var(--err);
+  color: var(--accent-ink);
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.bell-badge {
+  position: absolute;
+  top: -0.3rem;
+  right: -0.3rem;
+}
+
+.nav-badge {
+  margin-left: auto;
+}
+
+.bn-badge {
+  position: absolute;
+  top: -0.45rem;
+  right: -0.7rem;
+}
+
+.notif-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.notif-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.7rem;
+  width: 100%;
+  padding: 0.85rem 1rem;
+  border: 2px solid var(--line-soft);
+  border-radius: 12px;
+  background: var(--surface);
+  text-align: left;
+  cursor: pointer;
+}
+
+.notif-item:hover {
+  background: var(--surface-2);
+}
+
+.notif-item.unread {
+  border-color: var(--accent);
+  background: var(--surface-2);
+}
+
+.notif-dot {
+  flex: none;
+  width: 0.55rem;
+  height: 0.55rem;
+  margin-top: 0.4rem;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+.notif-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.notif-title {
+  font-weight: 650;
+  color: var(--ink);
+}
+
+.notif-body {
+  color: var(--ink-2);
+  font-size: 0.92rem;
+}
+
+.notif-time {
+  flex: none;
+  color: var(--ink-3);
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.bn-item .ico {
+  position: relative;
+}
