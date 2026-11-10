@@ -1,12 +1,12 @@
 # ECS deployment notes
 
-Updated 10 November 2026. ECS revisions, broker details, ALB/CloudFront routing, IAM policy version and GitHub deployment results were rechecked on this date. Database migration state below uses the earlier verified/user-reported checks from the same day; a fresh local RDS connection timed out during this documentation refresh. This is an operational record, not infrastructure as code or a complete account audit. Do not add passwords, secret values, or bearer tokens.
+Updated 11 November 2026. ECS revisions, Service Connect deployments, and task security groups were rechecked on this date. Broker details, ALB/CloudFront routing, IAM policy version and GitHub deployment results were last rechecked on 10 November. Database migration state below uses the earlier verified/user-reported checks from that day; a fresh local RDS connection timed out during the documentation refresh. This is an operational record, not infrastructure as code or a complete account audit. Do not add passwords, secret values, or bearer tokens.
 
 ## Current deployment
 
 - Account: `842761392141`; Region: `ap-southeast-1`.
 - ECS cluster: `comfortable-squirrel-pxwxt5`.
-- User, supplier, credit, order and admin services run on Fargate in private subnets, with public IP assignment disabled and ARM64 task architecture. All five have desired/running count 1 and completed rollouts at the latest inspection.
+- All seven services run on Fargate in private subnets, with public IP assignment disabled and ARM64 task architecture. Each has desired/running count 1 and a completed rollout at the 11 November inspection.
 - The frontend is static content in S3, served through CloudFront. The old frontend ECS service was removed.
 - Browser entry point: <https://app.bestfoc.app/>. The original distribution address is `d8d2ig90yjarp.cloudfront.net`; use the custom frontend domain for same-site Auth0 login.
 - CloudFront forwards API requests to the public ALB, which forwards to private ECS task IPs. Tasks use the NAT gateway for outbound internet access, including Auth0.
@@ -39,6 +39,7 @@ One shared NAT gateway reduces the gateway count but creates an Availability Zon
 |---|---|---|
 | ALB | `sg-0419b641a4c392cde` (`alb-public-sg`) | Public HTTP listener on port 80 |
 | Application tasks | `sg-0badb0855aab50221` | Service ports from ALB; internal service access as configured |
+| Admin-service client | `sg-098b424831646a677` (`admin-service-client-sg`) | Attached to admin tasks; user-service allows TCP 8080 from this group |
 | RDS | `sg-035aaddc7336f2898` | PostgreSQL 5432 from application security group |
 | RabbitMQ | `sg-014bd894dbdad3f72` (`foc-rabbitmq-sg`) | AMQPS 5671 from application security group |
 
@@ -46,7 +47,7 @@ The replacement broker has only `foc-rabbitmq-sg` attached at the latest inspect
 
 ## ECS services and images
 
-Live revisions after the successful 10 November all-component rollout:
+Active ECS service revisions at the 11 November inspection:
 
 | Service | ECS service name | Verified task revision | Container port |
 |---|---|---|---|
@@ -54,7 +55,7 @@ Live revisions after the successful 10 November all-component rollout:
 | Supplier | `supplier-service-task-service-ot78zbdx` | `supplier-service-task:8` | 3002 |
 | Credit | `credit-service` | `credit-service-task:5` | 3004 |
 | Order | `order-service-task-service-177de1f2` | `order-service-task:4` | 3003 |
-| Admin | `admin-service-task-service-vmoebao1` | `admin-service-task:2` | 3005 |
+| Admin | `admin-service-task-service-vmoebao1` | `admin-service-task:3` | 3005 |
 | Chat | `chat-service` | `chat-service-task:1` | 3006 |
 | Notification | `notification-service` | `notification-service-task:1` | 3007 |
 
@@ -78,21 +79,21 @@ docker build --platform linux/arm64 \
   -t supplier-service:local .
 ```
 
-The other service images use their service directories as build contexts. Publishing an image does not deploy it: select the task definition revision and update the ECS service.
+The other service images use their service directories as build contexts. Publishing an image does not deploy it: select the task definition revision and update the ECS service. User-service task revision `user-service-task:8` is registered with the new Management API audience variable but is not selected by its ECS service; the active revision remains `:7`.
 
 ### Service Connect
 
-All five services have Service Connect enabled in namespace `foc-local`:
+Service Connect deployments in namespace `foc-local` at the 11 November inspection:
 
-| Service | Internal address |
-|---|---|
-| User | `http://user-service:8080` |
-| Supplier | `http://supplier-service:3002` |
-| Credit | `http://credit-service:3004` |
-| Order | `http://order-service:3003` |
-| Admin | `http://admin-service:3005` |
+| Service | Role | Internal address |
+|---|---|---|
+| User | Server | `http://user-service-sc:8080` |
+| Supplier | Server | `http://supplier-service:3002` |
+| Credit | Server | `http://credit-service:3004` |
+| Order | Server | `http://order-service:3003` |
+| Admin | Client only | Joins the namespace but publishes no endpoint |
 
-These names work inside participating ECS tasks, not browsers. Deploy a new server endpoint before redeploying clients that need to discover it. When inspecting ECS API output, check `deployments[].serviceConnectConfiguration`; a missing service-level field does not mean Service Connect is disabled.
+Chat and notification currently have no Service Connect configuration. These names work inside participating ECS tasks, not browsers. The user endpoint uses `user-service-sc` because the namespace already contains a separate service named `user-service`. Admin uses `USER_SERVICE_URL=http://user-service-sc:8080`. Deploy a server endpoint before redeploying clients that need to discover it. When inspecting ECS API output, check `deployments[].serviceConnectConfiguration`; the service-level `serviceConnectConfiguration` field is null even for the active deployments.
 
 Service Connect currently uses HTTP internally. Auth0 service permissions still apply; discovery does not replace authorization.
 
@@ -293,13 +294,13 @@ The user confirmed adding these Auth0 application settings:
 
 These were added alongside existing entries; keep required localhost entries. Callback/logout URLs must match what the app sends; origins have no path or trailing slash. Saved dashboard values have not been independently rechecked.
 
-### Outstanding user-service Management API issue
+### User-service Management API audience
 
-Local code inspection found that `user-service/internal/auth/management.go` derives both Management API request URLs and its audience from `AUTH0_DOMAIN`. With `AUTH0_DOMAIN=login.bestfoc.app`, it requests the incorrect audience `https://login.bestfoc.app/api/v2/`. The Management API audience must remain `https://dev-nj7qnvzgpr2panhl.us.auth0.com/api/v2/`.
+`user-service` now reads `AUTH0_MANAGEMENT_API_AUDIENCE` separately from `AUTH0_DOMAIN`. Keep `AUTH0_DOMAIN=login.bestfoc.app` for login and Management API requests, and set the audience to `https://dev-nj7qnvzgpr2panhl.us.auth0.com/api/v2/`. Auth0 requires the canonical tenant identifier as the Management API audience even when using a custom domain.
 
-Management API calls can use either the original tenant domain or the custom domain, but token requests and API requests must use the same domain and retain the original audience identifier. Separate the management configuration or audience from the browser login domain, test the fix, and deploy a new user-service image. This fix has not been implemented. Administrator user listings and role changes may fail; ordinary login does not exercise these Management API calls.
+The code change is local and uncommitted. Task revision `user-service-task:8` is registered with the correct audience but uses the existing image; the ECS service still runs revision `:7`. Build and deploy the updated user-service image using revision `:8` as the base before expecting administrator user listings or role changes to work. The CD script bases releases on the revision selected by the service, so deploying before `:8` is selected would omit this variable. Also verify the M2M application's Management API grants include `read:roles` and `read:role_members` for role-filtered listings, `read:users` for directory searches, and `update:users` for role changes.
 
-References: [Auth0 cross-origin authentication](https://auth0.com/docs/authenticate/login/cross-origin-authentication), [silent authentication](https://auth0.com/docs/authenticate/login/configure-silent-authentication), [custom domains and token issuers](https://auth0.com/docs/customize/custom-domains), [custom-domain API configuration](https://auth0.com/docs/customize/custom-domains/configure-features-to-use-custom-domains).
+References: [Auth0 Management API audience with custom domains](https://support.auth0.com/center/s/article/Service-not-enabled-within-domain), [Auth0 custom-domain Management API requests](https://support.auth0.com/center/s/article/Access-token-rejected), [custom domains and token issuers](https://auth0.com/docs/customize/custom-domains).
 
 ## Admin service deployment
 
@@ -308,11 +309,12 @@ Admin-service is deployed. It maintains the event-fed read model for **Admin →
 | Resource | Verified configuration |
 |---|---|
 | ECS service | `admin-service-task-service-vmoebao1` in `comfortable-squirrel-pxwxt5` |
-| Task revision | `admin-service-task:2`, Fargate ARM64, port 3005 |
+| Active task revision | `admin-service-task:3`, Fargate ARM64, port 3005 |
 | ECR repository / build context | `admin-service` / `admin-service/` |
 | Database / runtime role | `admin_service_db` / `admin_service`; schema owner `migrator` |
 | Runtime secret | `foc/admin-service/runtime` (ARN suffix `7gvzpj`) |
-| Service Connect | `foc-local`, port name `admin-http`, discovery/client alias `admin-service:3005` |
+| Service Connect | Client only in `foc-local`; reaches user-service through `user-service-sc:8080` |
+| Task security groups | `sg-0badb0855aab50221`, `sg-098b424831646a677`; the latter is allowed to reach user-service on TCP 8080 |
 | ALB | Rule priority 50, `/admin-service/*`, strip prefix, `admin-service-tg:3005`, `/readyz` HTTP 200 |
 | CloudFront | `/admin-service/*` → `foc-alb-api`, caching disabled, `AllViewerExceptHostHeader` |
 | Deployment configuration | `.github/deploy.json` uses the actual generated ECS service name above |
@@ -329,7 +331,7 @@ AUTH0_ISSUER=https://login.bestfoc.app/
 AUTH0_AUDIENCE=https://api.foc.local/admin-service
 ORDER_AUDIENCE=https://api.foc.local/order-service
 ORDER_SERVICE_URL=http://order-service:3003
-USER_SERVICE_URL=http://user-service:8080
+USER_SERVICE_URL=http://user-service-sc:8080
 SUPPLIER_SERVICE_URL=http://supplier-service:3002
 CREDIT_SERVICE_URL=http://credit-service:3004
 DASHBOARD_TIMEZONE=Asia/Singapore
@@ -341,7 +343,7 @@ Admin declares the quorum queue `admin-service.events` and its dead-letter queue
 
 ### Readiness versus health
 
-The readiness checker appends `/readyz` to each configured service base URL. User-service is intentionally checked at **`http://user-service:8080/readyz`**, which calls `pool.Ping`: HTTP 200 `{"status":"ready"}` or HTTP 503 `{"status":"not_ready"}`. Its ALB health check remains `/health`, which returns HTTP 204 and only establishes that the process responds. Changing the admin checker to `/health` would lose the database-readiness check and conflict with its expected HTTP 200 response. Metrics are computed separately from stored events. User-service's `/readyz` is internal here; the public ALB rule still exposes `/api/*` and `/health`.
+The readiness checker appends `/readyz` to each configured service base URL. User-service is intentionally checked at **`http://user-service-sc:8080/readyz`**, which calls `pool.Ping`: HTTP 200 `{"status":"ready"}` or HTTP 503 `{"status":"not_ready"}`. Its ALB health check remains `/health`, which returns HTTP 204 and only establishes that the process responds. Changing the admin checker to `/health` would lose the database-readiness check and conflict with its expected HTTP 200 response. Metrics are computed separately from stored events. User-service's `/readyz` is internal here; the public ALB rule still exposes `/api/*` and `/health`.
 
 ### Frontend and local Compose changes
 
@@ -357,14 +359,14 @@ Hard-refresh the browser afterward. `docker compose up -d` alone does not rebuil
 
 ## Remaining work
 
-1. Verify the reported ECS domain rollout and test embedded login, profile/supplier/credit/order reads, page-refresh session restoration, token renewal, and logout/login at `https://app.bestfoc.app` with third-party cookies blocked. Fix and deploy the user-service Management API audience issue, then verify administrator listings and role changes.
+1. Verify the reported ECS domain rollout and test embedded login, profile/supplier/credit/order reads, page-refresh session restoration, token renewal, and logout/login at `https://app.bestfoc.app` with third-party cookies blocked. Deploy the local user-service Management API audience fix using task revision `:8` as the base, then verify administrator listings and role changes.
 2. Verify new/existing-user wallet provisioning, initial balance of 100 exactly once, and required Auth0 M2M permissions.
 3. Test credit reads and the order lifecycle through CloudFront, including RabbitMQ commands/results. Readiness alone does not verify these workflows.
 4. Review remaining integration settings, including supplier-to-order checks, before relying on those workflows in production.
 5. Configure CloudFront-to-ALB HTTPS and review direct ALB access during domain setup.
 6. Review historical plaintext credentials/task revisions, unused infrastructure, and user/supplier database TLS verification; rotate credentials where needed.
 7. Commit/merge the repository's deployment-policy correction so a future console replacement cannot restore the old `DescribeTaskDefinition` denial. Commit `6827936` fixes the saved-place timestamp issue but is not in the deployed `37b25c8` source; merge/deploy it through the normal workflow. Retain manual migrations; the automatic-migration experiment has been removed from AWS.
-8. Complete admin historical backfill/enrichment and verify authorized dashboard metrics/readiness. SPA deep-link fallback is still absent from the default CloudFront behavior. Review rollout duration before changing target draining times; all five are still 300 seconds.
+8. Complete admin historical backfill/enrichment and verify authorized dashboard metrics/readiness. SPA deep-link fallback is still absent from the default CloudFront behavior. Review rollout duration before changing target draining times; all seven target groups are still 300 seconds.
 
 RDS, ALB, NAT/Elastic IP, and Amazon MQ can keep incurring charges when ECS desired counts are zero. Stopping application tasks does not pause the entire deployment.
 

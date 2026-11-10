@@ -9,15 +9,16 @@ import (
 
 // Config holds application settings. Extend it as integrations are implemented.
 type Config struct {
-	HTTPAddress          string
-	DatabaseURL          string `json:"-"`
-	Auth0Domain          string `json:"-"`
-	Auth0ClientID        string `json:"-"`
-	Auth0Audience        string `json:"-"`
-	Auth0M2MClientID     string `json:"-"`
-	Auth0M2MClientSecret string `json:"-"`
-	Auth0UserRoleID      string `json:"-"`
-	Auth0AdminRoleID     string `json:"-"`
+	HTTPAddress                string
+	DatabaseURL                string `json:"-"`
+	Auth0Domain                string `json:"-"`
+	Auth0ClientID              string `json:"-"`
+	Auth0Audience              string `json:"-"`
+	Auth0ManagementAPIAudience string `json:"-"`
+	Auth0M2MClientID           string `json:"-"`
+	Auth0M2MClientSecret       string `json:"-"`
+	Auth0UserRoleID            string `json:"-"`
+	Auth0AdminRoleID           string `json:"-"`
 
 	// Credit wallet creation is enabled when CreditServiceURL is set.
 	CreditServiceURL      string
@@ -50,10 +51,14 @@ func Load() (Config, error) {
 	}
 	auth0M2MClientID := strings.TrimSpace(os.Getenv("AUTH0_M2M_CLIENT_ID"))
 	auth0M2MClientSecret := strings.TrimSpace(os.Getenv("AUTH0_M2M_CLIENT_SECRET"))
+	auth0ManagementAPIAudience := strings.TrimSpace(os.Getenv("AUTH0_MANAGEMENT_API_AUDIENCE"))
 	auth0UserRoleID := strings.TrimSpace(os.Getenv("AUTH0_USER_ROLE_ID"))
 	auth0AdminRoleID := strings.TrimSpace(os.Getenv("AUTH0_ADMIN_ROLE_ID"))
 	if (auth0M2MClientID == "") != (auth0M2MClientSecret == "") {
 		return Config{}, errors.New("AUTH0_M2M_CLIENT_ID and AUTH0_M2M_CLIENT_SECRET must be configured together")
+	}
+	if auth0M2MClientID != "" && auth0ManagementAPIAudience == "" {
+		return Config{}, errors.New("AUTH0_MANAGEMENT_API_AUDIENCE is required with Auth0 Management API credentials")
 	}
 	if (auth0UserRoleID == "") != (auth0AdminRoleID == "") {
 		return Config{}, errors.New("AUTH0_USER_ROLE_ID and AUTH0_ADMIN_ROLE_ID must be configured together")
@@ -70,7 +75,8 @@ func Load() (Config, error) {
 		CreditM2MClientID: creditClientID, CreditM2MClientSecret: creditClientSecret,
 		HTTPAddress: address, DatabaseURL: databaseURL,
 		Auth0Domain: auth0Domain, Auth0ClientID: auth0ClientID, Auth0Audience: auth0Audience,
-		Auth0M2MClientID: auth0M2MClientID, Auth0M2MClientSecret: auth0M2MClientSecret,
+		Auth0ManagementAPIAudience: auth0ManagementAPIAudience,
+		Auth0M2MClientID:           auth0M2MClientID, Auth0M2MClientSecret: auth0M2MClientSecret,
 		Auth0UserRoleID: auth0UserRoleID, Auth0AdminRoleID: auth0AdminRoleID,
 	}, nil
 }
