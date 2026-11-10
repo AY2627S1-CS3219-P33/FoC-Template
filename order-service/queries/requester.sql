@@ -30,9 +30,11 @@ WHERE user_id = @user_id AND kind = @kind;
 
 -- name: InsertPlace :one
 INSERT INTO saved_places (
-    user_id, kind, label, supplier_id, delivery_building_id, delivery_detail
+    user_id, kind, label, supplier_id, delivery_building_id, delivery_detail,
+    created_at, updated_at
 ) VALUES (
-    @user_id, @kind, @label, @supplier_id, @delivery_building_id, @delivery_detail
+    @user_id, @kind, @label, @supplier_id, @delivery_building_id, @delivery_detail,
+    statement_timestamp(), statement_timestamp()
 )
 RETURNING id, user_id, kind, label, supplier_id, delivery_building_id,
           delivery_detail, created_at, updated_at;
