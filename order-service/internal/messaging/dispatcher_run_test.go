@@ -30,13 +30,10 @@ type stubOutbox struct {
 	code        string
 	delay       time.Duration
 	markSentErr error
-	resend      [][]msgrepo.Resent
-	resendCalls int
-	due         map[bool]int64
 }
 
 func newStubOutbox(rows ...msgrepo.Row) *stubOutbox {
-	s := &stubOutbox{rows: map[bool][]msgrepo.Row{}, due: map[bool]int64{}}
+	s := &stubOutbox{rows: map[bool][]msgrepo.Row{}}
 	for _, row := range rows {
 		credit := strings.HasPrefix(row.Kind, "credit.")
 		s.rows[credit] = append(s.rows[credit], row)
@@ -80,24 +77,6 @@ func (s *stubOutbox) MarkFailed(_ context.Context, row msgrepo.Row, code string)
 	return nil
 }
 
-func (s *stubOutbox) ResendUnconfirmed(context.Context, time.Duration, int) ([]msgrepo.Resent, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.resendCalls++
-	if len(s.resend) == 0 {
-		return nil, nil
-	}
-	batch := s.resend[0]
-	s.resend = s.resend[1:]
-	return batch, nil
-}
-
-func (s *stubOutbox) CountDue(_ context.Context, credit bool) (int64, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.due[credit], nil
-}
-
 func (s *stubOutbox) sentIDs() []int64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -134,12 +113,6 @@ func (p *stubPublisher) Publish(ctx context.Context, m errand.Message) error {
 	return p.err
 }
 
-type stubSettings struct{}
-
-func (stubSettings) Get(context.Context) (errand.SystemSettings, error) {
-	return errand.DefaultSystemSettings(), nil
-}
-
 var discard = slog.New(slog.NewTextHandler(io.Discard, nil))
 
 func newTestDispatcher(t *testing.T, outbox Outbox, pub errand.Publisher, cfg DispatcherConfig) *Dispatcher {
@@ -147,7 +120,7 @@ func newTestDispatcher(t *testing.T, outbox Outbox, pub errand.Publisher, cfg Di
 	if cfg.WorkerID == "" {
 		cfg.WorkerID = "test"
 	}
-	d, err := NewDispatcher(outbox, pub, stubSettings{}, discard, cfg)
+	d, err := NewDispatcher(outbox, pub, discard, cfg)
 	require.NoError(t, err)
 	return d
 }
@@ -174,9 +147,7 @@ func TestDispatcherConfigDefaultsAndValidation(t *testing.T) {
 	def := DefaultDispatcherConfig()
 	require.Equal(t, def.PollInterval, d.cfg.PollInterval)
 	require.Equal(t, 10, d.cfg.BatchSize)
-	require.Equal(t, 10, d.cfg.MaxAttempts)
 	require.Equal(t, 2*time.Minute, d.cfg.Lease)
-	require.Equal(t, time.Minute, d.cfg.SweepInterval)
 	require.Equal(t, resilience.DefaultBackoffBase, d.cfg.Backoff.Base)
 	require.Equal(t, resilience.DefaultBackoffCap, d.cfg.Backoff.Cap)
 	require.NotNil(t, d.Metrics())
@@ -185,14 +156,13 @@ func TestDispatcherConfigDefaultsAndValidation(t *testing.T) {
 	for name, cfg := range map[string]DispatcherConfig{
 		"lease shorter than a batch": {BatchSize: 20, PublishTimeout: 10 * time.Second, Lease: time.Minute},
 		"batch too large":            {BatchSize: 501},
-		"negative attempts":          {MaxAttempts: -1},
 		"negative poll":              {PollInterval: -time.Second},
 		"bad backoff":                {Backoff: resilience.BackoffPolicy{Base: time.Second, Cap: time.Millisecond}},
 	} {
-		_, err := NewDispatcher(newStubOutbox(), &stubPublisher{}, stubSettings{}, discard, cfg)
+		_, err := NewDispatcher(newStubOutbox(), &stubPublisher{}, discard, cfg)
 		require.Error(t, err, name)
 	}
-	_, err := NewDispatcher(nil, &stubPublisher{}, stubSettings{}, discard, DispatcherConfig{})
+	_, err := NewDispatcher(nil, &stubPublisher{}, discard, DispatcherConfig{})
 	require.Error(t, err)
 }
 
@@ -202,7 +172,7 @@ func TestNewWorkerIDIsUniquePerProcess(t *testing.T) {
 	a, b := NewWorkerID(), NewWorkerID()
 	require.NotEqual(t, a, b)
 	require.True(t, strings.HasPrefix(a, host+"-"))
-	d, err := NewDispatcher(newStubOutbox(), &stubPublisher{}, stubSettings{}, discard, DispatcherConfig{})
+	d, err := NewDispatcher(newStubOutbox(), &stubPublisher{}, discard, DispatcherConfig{})
 	require.NoError(t, err)
 	require.True(t, strings.HasPrefix(d.WorkerID(), host+"-"), "an empty worker ID is generated")
 }
@@ -225,8 +195,10 @@ func TestDispatcherDeliveryOutcomes(t *testing.T) {
 		{name: "unroutable", failure: ErrUnroutable, attempts: 1, retried: 1, code: CodeUnroutable},
 		{name: "event failure", event: true, failure: errors.New("connection lost"), attempts: 1, retried: 1, code: CodePublishFailed},
 		{name: "permanent", failure: errand.ErrUnpublishable, attempts: 1, failed: 1, code: CodeUnpublishable},
-		{name: "last attempt", failure: errors.New("connection lost"), attempts: 10, failed: 1, code: CodePublishFailed},
-		{name: "crashed last attempt", attempts: 11, failed: 1, code: CodeAttemptsExhausted},
+		{name: "tenth failure is still retried", failure: errors.New("connection lost"), attempts: 10, retried: 1, code: CodePublishFailed},
+		{name: "hundredth failure is still retried", failure: ErrBrokerUnavailable, attempts: 100, retried: 1, code: CodeBrokerUnavailable},
+		{name: "claimed after many crashes", attempts: 100, sent: 1, exchange: errand.ExchangeCommands, key: errand.CommandCreditReserve},
+		{name: "permanent after many attempts", failure: errand.ErrUnpublishable, attempts: 100, failed: 1, code: CodeUnpublishable},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			row := testRow(errand.KindCreditReserve)
@@ -250,13 +222,10 @@ func TestDispatcherDeliveryOutcomes(t *testing.T) {
 			require.EqualValues(t, tc.failed, counters.Count(CounterFailed, row.Kind))
 			if tc.retried > 0 {
 				require.GreaterOrEqual(t, store.delay, time.Duration(0))
-				require.LessOrEqual(t, store.delay, resilience.DefaultBackoffBase)
+				require.LessOrEqual(t, store.delay, resilience.DefaultBackoffPolicy().Ceiling(int(tc.attempts)))
+				require.LessOrEqual(t, store.delay, resilience.DefaultBackoffCap, "backoff stays capped however many attempts")
 			}
-			if tc.attempts > 10 {
-				require.Zero(t, pub.calls)
-			} else {
-				require.Equal(t, 1, pub.calls, "published once")
-			}
+			require.Equal(t, 1, pub.calls, "published once")
 			if tc.exchange != "" {
 				m := pub.messages[0]
 				require.Equal(t, tc.exchange, m.Exchange)
@@ -357,23 +326,6 @@ func TestDispatcherLoopsAreIndependent(t *testing.T) {
 			require.ErrorIs(t, <-done, context.Canceled)
 		})
 	}
-}
-
-func TestDispatcherSweepResendsUntilShortBatchAndRecordsBacklog(t *testing.T) {
-	store := newStubOutbox()
-	store.resend = [][]msgrepo.Resent{
-		{{ID: 1, Kind: errand.KindCreditRelease}, {ID: 2, Kind: errand.KindCreditTransfer}},
-		{{ID: 3, Kind: errand.KindCreditRelease}},
-	}
-	store.due = map[bool]int64{true: 4, false: 7}
-	counters := NewCounters()
-	d := newTestDispatcher(t, store, &stubPublisher{}, DispatcherConfig{SweepLimit: 2, Metrics: counters})
-	require.NoError(t, d.sweep(context.Background()))
-	require.Equal(t, 2, store.resendCalls, "a full batch is followed by another query")
-	require.EqualValues(t, 2, counters.Count(CounterResent, errand.KindCreditRelease))
-	require.EqualValues(t, 1, counters.Count(CounterResent, errand.KindCreditTransfer))
-	require.EqualValues(t, 4, counters.LastBacklog(FamilyCredit))
-	require.EqualValues(t, 7, counters.LastBacklog(FamilyEvent))
 }
 
 func TestJitterStaysWithinTwentyPercent(t *testing.T) {

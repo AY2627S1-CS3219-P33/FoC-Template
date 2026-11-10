@@ -26,9 +26,9 @@ type Config struct {
 	ReconnectBackoff resilience.BackoffPolicy
 	// RetryBackoff is the wait before requeueing a delivery after a
 	// transient failure, growing with consecutive failures. The queue's
-	// delivery limit (5) dead-letters a result that keeps failing; the
-	// dispatcher's unconfirmed sweep then re-sends its command and
-	// credit-service answers again.
+	// delivery limit (5) dead-letters a result that keeps failing; its
+	// command row then stays SENT until an admin requeues it, and
+	// credit-service answers the repeated command again.
 	RetryBackoff resilience.BackoffPolicy
 	// HandleTimeout bounds the database work for one delivery.
 	HandleTimeout time.Duration

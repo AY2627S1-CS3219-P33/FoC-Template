@@ -1350,6 +1350,434 @@ button.credit-chip:focus-visible {
   color: var(--err);
   font-size: 0.85rem;
 }
+
+/* ---------- Admin metrics ---------- */
+/* Chart colours: categorical slots 1 to 5 of the data-viz palette, validated
+   for colour-vision safety and for adjacent separation against --surface in
+   both modes. A series keeps its slot whatever else is on screen. The status
+   colours are fixed and only ever used with an icon and a word. */
+:root {
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --series-4: #eda100;
+  --series-5: #e87ba4;
+  --status-good: #0ca30c;
+  --status-warning: #fab219;
+  --status-critical: #d03b3b;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --series-3: #199e70;
+    --series-4: #c98500;
+    --series-5: #d55181;
+  }
+}
+
+.viz-toolbar {
+  margin-bottom: 1.25rem;
+}
+.viz-filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+.viz-chip {
+  appearance: none;
+  border: 1px solid var(--line-soft);
+  background: var(--surface);
+  color: var(--ink);
+  border-radius: 999px;
+  padding: 0.4rem 0.9rem;
+  font: inherit;
+  font-size: 0.88rem;
+  cursor: pointer;
+}
+.viz-chip:hover {
+  border-color: var(--line);
+}
+.viz-chip[aria-pressed="true"] {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--primary-ink);
+  font-weight: 650;
+}
+.viz-chip:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+.viz-dates {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+.viz-dates .input {
+  width: auto;
+  padding: 0.35rem 0.6rem;
+}
+.viz-filter-problem {
+  color: var(--err);
+  font-size: 0.85rem;
+}
+.viz-zone {
+  margin: 0.6rem 0 0;
+  font-size: 0.85rem;
+}
+
+/* Columns, so panels of different heights pack without holes. A wide panel
+   spans every column; reading order stays the page order. */
+.viz-layout {
+  column-width: 24rem;
+  column-gap: 1rem;
+}
+.overview-readiness {
+  margin-top: 1rem;
+}
+.viz-panel {
+  break-inside: avoid;
+  margin-bottom: 1rem;
+  border: 1px solid var(--line-soft);
+  border-radius: 1rem;
+  background: var(--surface);
+  padding: 1.1rem 1.25rem;
+  min-width: 0;
+}
+.viz-panel.is-wide {
+  column-span: all;
+}
+.viz-panel-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.75rem;
+  margin-bottom: 0.9rem;
+}
+.viz-panel-head h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+.viz-panel-head p {
+  margin: 0.25rem 0 0;
+  font-size: 0.82rem;
+  max-width: 42rem;
+}
+.viz-body {
+  transition: opacity 0.15s;
+}
+/* A reload keeps the previous render in view, dimmed: no skeleton, no jump. */
+.viz-body.is-refreshing {
+  opacity: 0.5;
+}
+@media (prefers-reduced-motion: reduce) {
+  .viz-body {
+    transition: none;
+  }
+}
+.viz-asof {
+  margin: 0.9rem 0 0;
+  font-size: 0.78rem;
+}
+.viz-loading,
+.viz-empty {
+  margin: 0.5rem 0;
+}
+.viz-total {
+  margin: 0 0 0.6rem;
+  color: var(--ink-2);
+  font-size: 0.9rem;
+}
+.viz-total strong {
+  color: var(--ink);
+  font-size: 1.15rem;
+}
+
+/* Column chart */
+.viz-frame {
+  position: relative;
+}
+.viz-plot {
+  position: relative;
+  border-radius: 0.5rem;
+}
+.viz-plot:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+.viz-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+.viz-grid {
+  stroke: var(--line-soft);
+  stroke-width: 1;
+}
+.viz-baseline {
+  stroke: var(--ink-3);
+  stroke-opacity: 0.55;
+  stroke-width: 1;
+}
+.viz-tick {
+  fill: var(--ink-3);
+  font-size: 11px;
+}
+.viz-bar {
+  fill: var(--series-1);
+}
+.viz-bar.is-active {
+  filter: brightness(1.18);
+}
+.viz-hit {
+  fill: transparent;
+}
+.viz-tooltip {
+  position: absolute;
+  top: 0;
+  transform: translate(-50%, -100%);
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.4rem 0.65rem;
+  border: 1px solid var(--line-soft);
+  border-radius: 0.5rem;
+  background: var(--surface);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.14);
+  font-size: 0.8rem;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 2;
+}
+.viz-tooltip strong {
+  color: var(--ink);
+  font-size: 0.95rem;
+}
+.viz-tooltip span {
+  color: var(--ink-2);
+}
+
+/* Stat tiles */
+.viz-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.25rem 2rem;
+}
+.viz-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 7rem;
+}
+.viz-stat-label {
+  color: var(--ink-2);
+  font-size: 0.82rem;
+  font-weight: 650;
+}
+.viz-stat-value {
+  font-size: 2rem;
+  font-weight: 750;
+  line-height: 1.15;
+}
+.viz-stat-note {
+  font-size: 0.78rem;
+}
+
+/* Segmented bar and its figures */
+.viz-segbar {
+  display: flex;
+  gap: 2px;
+  height: 8px;
+  margin: 0.4rem 0 0.8rem;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--surface);
+}
+.viz-seg {
+  flex-basis: 0;
+  min-width: 2px;
+}
+.viz-segbar-empty {
+  flex: 1;
+  background: var(--line-soft);
+}
+.viz-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+.viz-table th,
+.viz-table td {
+  padding: 0.45rem 0.5rem;
+  text-align: left;
+  border-top: 1px solid var(--line-soft);
+  font-variant-numeric: tabular-nums;
+}
+.viz-table thead th {
+  border-top: 0;
+  color: var(--ink-3);
+  font-size: 0.72rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.viz-table tbody th {
+  font-weight: 500;
+}
+.viz-table td:not(:first-child) {
+  text-align: right;
+}
+.viz-table thead th:not(:first-child) {
+  text-align: right;
+}
+.viz-outcomes th {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.1rem 0.5rem;
+}
+.viz-swatch {
+  display: inline-block;
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 3px;
+  flex: none;
+  align-self: center;
+}
+.viz-meaning {
+  flex-basis: 100%;
+  margin-left: 1.2rem;
+  font-size: 0.78rem;
+}
+
+/* Ranked bars */
+.viz-ranked {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.7rem;
+}
+/* Name and figures on one line, the bar beneath, so a long name wraps in its
+   own space and the bars stay comparable at any width. */
+.viz-ranked li {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: baseline;
+  gap: 0.3rem 0.75rem;
+  font-size: 0.88rem;
+}
+.viz-rank-name {
+  display: flex;
+  gap: 0.5rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.viz-rank-n {
+  min-width: 1.1rem;
+  font-variant-numeric: tabular-nums;
+}
+.viz-rank-track {
+  display: block;
+  grid-column: 1 / -1;
+  grid-row: 2;
+  height: 10px;
+}
+/* Square on the baseline, rounded at the data end. */
+.viz-rank-bar {
+  display: block;
+  height: 100%;
+  min-width: 2px;
+  background: var(--series-1);
+  border-radius: 0 4px 4px 0;
+}
+.viz-rank-value {
+  white-space: nowrap;
+}
+.viz-unattributed {
+  margin: 0.9rem 0 0;
+  font-size: 0.8rem;
+}
+
+/* Service readiness */
+.viz-services {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.viz-services > li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 1rem;
+  padding: 0.7rem 0;
+  border-top: 1px solid var(--line-soft);
+}
+.viz-services > li:first-child {
+  border-top: 0;
+}
+.viz-service-name {
+  flex: 0 0 9rem;
+  font-weight: 650;
+}
+.viz-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex: 0 0 6.5rem;
+  font-weight: 650;
+}
+.viz-state-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 1.2rem;
+  height: 1.2rem;
+  border-radius: 50%;
+  font-size: 0.72rem;
+  font-weight: 800;
+  line-height: 1;
+  color: #ffffff;
+}
+.viz-state.is-up .viz-state-icon {
+  background: var(--status-good);
+}
+.viz-state.is-degraded .viz-state-icon {
+  background: var(--status-warning);
+  color: #0b0b0b;
+}
+.viz-state.is-down .viz-state-icon {
+  background: var(--status-critical);
+}
+.viz-service-detail {
+  flex: 1 1 12rem;
+  font-size: 0.85rem;
+}
+.viz-deps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15rem 0.9rem;
+}
+.viz-deps .is-off {
+  color: var(--ink);
+  font-weight: 650;
+}
+.viz-latency {
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+}
+.viz-notchecked {
+  list-style: none;
+  margin: 0.6rem 0 0;
+  padding: 0.7rem 0 0;
+  border-top: 1px solid var(--line-soft);
+  font-size: 0.82rem;
+}
+
 /* Saved places: one-click chips in the errand form and the list in Settings. */
 .place-chips {
   display: flex;

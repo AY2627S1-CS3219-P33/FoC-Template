@@ -14,8 +14,8 @@
 // redelivery the transition is already applied, Next refuses it as
 // "already resolved", and the confirmation is retried. A crash between the
 // two commits leaves the command row SENT, and if the result is lost too
-// the dispatcher's unconfirmed sweep re-sends the command, which
-// credit-service answers idempotently.
+// the row stays SENT until an admin requeues it (it is listed as overdue),
+// and credit-service then answers the repeated command idempotently.
 package creditmsg
 
 import (

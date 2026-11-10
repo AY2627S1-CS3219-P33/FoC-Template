@@ -1,0 +1,96 @@
+# admin-service's containers. The root compose.yaml includes this file, so run
+# `docker compose up` from the repository root; RabbitMQ (queue-service) and
+# order-service are defined there and in order-service/compose.yaml.
+#
+# Values are interpolated from admin-service/.env (copy .env.example), with
+# local-development defaults like the other services. Secrets reach the
+# container only at run time and are never built into the image.
+#
+# Two database roles, as in AWS: admin_migrator owns the schema and runs the
+# migrations; admin_service, the role the service connects as, can only read
+# and write rows.
+services:
+  admin-db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: admin_service
+      POSTGRES_USER: admin_migrator
+      POSTGRES_PASSWORD: ${ADMIN_MIGRATOR_PASSWORD:-admin-migrator-local-dev}
+      ADMIN_RUNTIME_PASSWORD: ${ADMIN_RUNTIME_PASSWORD:-admin-runtime-local-dev}
+    volumes:
+      - admin-db-data:/var/lib/postgresql/data
+      - ./db-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin_migrator -d admin_service"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks:
+      - admin-internal
+
+  # One-shot job: the service never runs DDL itself.
+  admin-migrate:
+    # Its own tag: building the shared foc-goose-migrator tag from an
+    # included file races the root file's identical build.
+    image: foc-admin-migrator:local
+    build:
+      context: ../supplier-service
+      dockerfile: migrate.Dockerfile
+    command: ["-dir", "/migrations", "up"]
+    environment:
+      GOOSE_DRIVER: postgres
+      GOOSE_DBSTRING: postgresql://admin_migrator:${ADMIN_MIGRATOR_PASSWORD:-admin-migrator-local-dev}@admin-db:5432/admin_service?sslmode=disable
+    volumes:
+      - ./migrations:/migrations:ro
+    depends_on:
+      admin-db:
+        condition: service_healthy
+    networks:
+      - admin-internal
+    restart: "no"
+
+  admin-service:
+    build: .
+    image: foc-admin-service:local
+    # Auth0 and the M2M credentials come from here. Without the file the
+    # rest of the stack still starts; admin-service exits with a config error.
+    env_file:
+      - path: .env
+        required: false
+    # These override .env, whose values are for running on the host.
+    environment:
+      HTTP_HOST: 0.0.0.0
+      HTTP_PORT: "3005"
+      DATABASE_URL: postgresql://admin_service:${ADMIN_RUNTIME_PASSWORD:-admin-runtime-local-dev}@admin-db:5432/admin_service?sslmode=disable
+      AMQP_URL: amqp://${RABBITMQ_DEFAULT_USER:-foc}:${RABBITMQ_DEFAULT_PASS:-foc-local-dev}@queue-service:5672/
+      ORDER_SERVICE_URL: http://order-service:3003
+      SUPPLIER_SERVICE_URL: http://supplier-service:3002
+      CREDIT_SERVICE_URL: http://credit-service:3004
+      USER_SERVICE_URL: http://user-service:8080
+    ports:
+      - "127.0.0.1:3005:3005"
+    depends_on:
+      admin-db:
+        condition: service_healthy
+      admin-migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3005/readyz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      # default is the root project's network, shared with queue-service
+      # and order-service.
+      - default
+      - admin-internal
+
+networks:
+  # Only admin-service reaches its database.
+  admin-internal:
+    internal: true
+
+volumes:
+  admin-db-data:

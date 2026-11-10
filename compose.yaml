@@ -1,5 +1,6 @@
 include:
   - order-service/compose.yaml
+  - admin-service/compose.yaml
 
 services:
   credit-db:
@@ -101,7 +102,10 @@ services:
       DATABASE_URL: postgresql://notification_service:${NOTIFICATION_DB_PASSWORD:-notification-local-dev}@notification-db:5432/notification_service?sslmode=disable
       AMQP_URL: amqp://${RABBITMQ_DEFAULT_USER:-foc}:${RABBITMQ_DEFAULT_PASS:-foc-local-dev}@queue-service:5672/
     ports:
-      - "127.0.0.1:3005:3005"
+      # admin-service already binds host 3005; expose this one on 3006. The
+      # container still listens on 3005, so nginx (notification-service:3005)
+      # and the healthcheck are unaffected.
+      - "127.0.0.1:3006:3005"
     depends_on:
       notification-db:
         condition: service_healthy
@@ -247,6 +251,7 @@ services:
       - order-service
       - credit-service
       - notification-service
+      - admin-service
 
   queue-service:
     build:

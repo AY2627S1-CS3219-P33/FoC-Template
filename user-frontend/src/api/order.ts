@@ -268,6 +268,11 @@ export interface CancellationFlag {
   window: number;
 }
 
+export interface CompletionFlag {
+  count: number;
+  window: number;
+}
+
 export interface Settings {
   pickupAfter: number;
   deliveryAfter: number;
@@ -275,6 +280,7 @@ export interface Settings {
   verificationReminderAfter: number;
   withdrawalRestriction: WithdrawalRestriction;
   cancellationFlag: CancellationFlag;
+  completionFlag: CompletionFlag;
   reservationTimeout: number;
   editTimeout: number;
   outboxConfirmTimeout: number;
@@ -300,7 +306,7 @@ export interface TransitionPage {
 
 export interface Flag {
   userId: string;
-  kind: "COURIER_WITHDRAWALS" | "REQUESTER_CANCELLATIONS";
+  kind: "COURIER_WITHDRAWALS" | "REQUESTER_CANCELLATIONS" | "COURIER_COMPLETIONS";
   count: number;
   threshold: number;
   window: number;

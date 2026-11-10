@@ -24,6 +24,7 @@ proposal order-service builds against.
 9. [Credit message contract (proposed, gate C1)](#credit-message-contract-proposed-gate-c1)
 10. [Cache contract](#cache-contract)
 11. [Internal routes](#internal-routes)
+12. [Export routes](#export-routes)
 
 ## Authorization and errors
 
@@ -37,6 +38,7 @@ fields in a request are ignored (NFR3.3.1).
 | `/errands/**`, `/me/errands/**` | user | `errands:use` |
 | `/admin/**` (including `GET /admin/overview`) | user | `errands:review` |
 | `/internal/**` | service (`gty: client-credentials`) | `orders:internal` |
+| `/internal/export/**` | service (`gty: client-credentials`) | `orders:admin-read` |
 | `/readyz` | none | none |
 
 A service token on a user or admin route, or a user token on an internal
@@ -169,11 +171,10 @@ Rows are never deleted.
      ▲  ▲                                    │                              │  │
      │  └──── Reschedule (backoff) ◀─────────┤ publish failed               │  └─ credit.operation_failed ─▶ FAILED
      │                                       │                              │
-     │                                       └─ attempts exhausted, or ─────┼──────────────────────────────▶ FAILED
-     │                                          ErrUnpublishable            │
-     ├──── unconfirmed sweep: SENT credit row with no result after ◀────────┘
-     │     the confirm timeout (same key, re-sent)
-     └──── admin requeue of a FAILED row (same key, attempts reset, audited)
+     │                                       └─ ErrUnpublishable ───────────┼──────────────────────────────▶ FAILED
+     │                                                                      │
+     └──── admin requeue of a FAILED row, or of a SENT credit row ◀─────────┘
+           that is overdue (same key, attempts reset, audited)
 ```
 
 - **Claim.** One statement selects `status = 'PENDING' AND next_attempt_at
@@ -188,21 +189,31 @@ Rows are never deleted.
   leaves the lease to expire, and the row is published again with the same
   `messageId`.
 - **Retries.** A failed publish reschedules with exponential backoff and full
-  jitter (`internal/resilience`, base 2 s, cap 5 min). After the configured
-  maximum attempts the row becomes `FAILED` with `last_failure_code`
-  (NFR7.3.1, NFR7.4.1). Attempts count claims, i.e. publish attempts, not
-  credit-service answers.
+  jitter (`internal/resilience`, base 2 s, cap 5 min) and is retried for as
+  long as it takes: the broker being down, a timeout and an unroutable
+  message (the consumer has not declared its queue yet) all pass. Only an
+  unpublishable row (`errand.ErrUnpublishable`, a malformed payload) becomes
+  `FAILED` with `last_failure_code` (NFR7.3.1, NFR7.4.1). `attempts` counts
+  claims, i.e. publish attempts, and does not limit them.
 - **Event rows** end at `SENT`. Delivery to consumers is at-least-once.
 - **Credit rows** go on from `SENT`. The matching result moves them to
   `CONFIRMED` (`MarkConfirmedByKey`; a repeat is a no-op).
-  `credit.operation_failed` moves them to `FAILED` for an admin and they are
-  not retried. A `SENT` credit row with no result after
-  `outboxConfirmTimeout` (default 10 min) goes back to `PENDING` and is sent
-  again with the same key; credit-service answers it idempotently. This is
-  how release and transfer are retried until confirmed.
-- **Replay.** `POST /admin/outbox/{id}/requeue` resets a `FAILED` row to
-  `PENDING` with `attempts = 0`, keeping its key, so the replay cannot apply
-  an effect twice (NFR7.4.2). It writes an `admin_audit` row.
+  `credit.operation_failed` moves them to `FAILED` and they are not retried.
+  A `SENT` credit row is never resent automatically: the broker holds the
+  command until credit-service consumes it, and a resend would only queue a
+  duplicate. A command whose message was lost after the broker confirmed it
+  (dead-lettered by credit-service, or its result dead-lettered by
+  order-service) stays `SENT`. It is *overdue* once it has waited
+  `outboxConfirmTimeout` (default 90 min, longer than the
+  hour for which credit-service retries a command, so only rows that will
+  not recover by themselves are listed), and `GET /admin/outbox/overdue`
+  lists it, together with `PENDING` rows older than that, for an admin to
+  requeue. `event.*` rows end at `SENT` by design and are never overdue.
+- **Replay.** `POST /admin/outbox/{id}/requeue` resets a `FAILED` row, or a
+  `SENT` credit row, to `PENDING` with `attempts = 0`, keeping its key, so the
+  replay cannot apply an effect twice: credit-service answers a repeat with
+  the stored result (NFR7.4.2). A `PENDING`, `CONFIRMED` or `SENT` event row is
+  refused. Every attempt, accepted or refused, writes an `admin_audit` row.
 - **Payloads.** A credit row's payload is an `errand.CreditCommand`; an event
   row's payload is the envelope's `data` (below). Payloads are never returned
   by the admin API because they hold user IDs.
@@ -835,7 +846,8 @@ one query. The `:v1` suffix changes whenever `OpenErrandView` changes shape.
 ## Internal routes
 
 All internal routes need a service token with `orders:internal`
-(`serviceauth.RequireService`). Each calling service has its own Auth0 M2M
+(`serviceauth.RequireService`), except the export routes, which need
+`orders:admin-read`. Each calling service has its own Auth0 M2M
 client, so `sub` (`<client-id>@clients`) identifies the caller in logs and
 audit rows.
 
@@ -846,6 +858,7 @@ audit rows.
 | supplier-service | `POST /internal/supplier-fences/{operationId}/commit` | Make the block permanent after the soft delete |
 | supplier-service | `POST /internal/supplier-fences/{operationId}/release` | Lift the block when deletion is rejected or fails |
 | user-service | `GET /internal/users/{userId}/active-errands` | Account-deletion check (F1.2.2, F1.2.3; gate C5) |
+| admin-service | `GET /internal/export/transitions`, `GET /internal/export/errands` | Read-model backfill and enrichment; see [Export routes](#export-routes) |
 | none (unauthenticated) | `GET /readyz` | Readiness (NFR4.1.2) |
 
 `orders:internal` is one permission for both callers. If NFR3.5.3 review asks
@@ -855,3 +868,41 @@ in a joint contract commit; the routes do not change.
 Order-service calls out with its own M2M client to supplier-service only
 (`GET /suppliers/{id}`, `GET /supplier-versions/{versionId}`,
 `GET /buildings`, needing `suppliers:read`).
+
+## Export routes
+
+Read-only routes for admin-service's read model. They need a service token
+with `orders:admin-read`, a permission separate from `orders:internal`: a
+token with one does not pass the other's routes. Responses hold IDs,
+statuses, times, rewards and names, never contact details, items, notes or
+free-text reasons, so they add no personal data beyond IDs already in events.
+JSON fields are camelCase like every other order-service route.
+
+| Route | Returns |
+| --- | --- |
+| `GET /internal/export/transitions?after=&limit=` | Transition events, oldest first by outbox ID. `after` is the last `id` of the previous page; `nextCursor` is the next `after`. `limit` 1 to 500, default 100 |
+| `GET /internal/export/errands?after=&limit=` | Errands by ID. `after` is the last `errandId`; `nextCursor` as above |
+| `GET /internal/export/errands?ids=a,b,c` | The listed errands that exist (at most 100); not combined with `after` or `limit` |
+
+**Transitions come from the outbox.** The outbox keeps every row, and an event
+row's idempotency key is the event's `messageId`, so each item has the same
+`messageId` as the live event and admin-service deduplicates a backfill
+against the stream. Credit commands, rejection events and reminders are left
+out; the items are the 15 transition events in `errand.TransitionEventNames`.
+Fields: `id`, `messageId`, `type` (the routing key), `errandId`,
+`errandVersion`, `event`, `from`, `to`, `courierId`, `reward`, `occurredAt`.
+Outbox IDs can differ from commit order for rows written at the same moment,
+so bind the live queue before a backfill; a row a page skipped then also
+arrives on the stream.
+
+**Errand fields:** `errandId`, `status`, `version`, `courierId`, `reward`,
+`supplierId`, `supplierName`, `deliveryBuildingId`, `deliveryBuildingName`,
+`createdAt`, `updatedAt`. `supplierName` is resolved in bulk from the errand's
+`supplier_version_id` through the supplier client (the same immutable,
+cached versions the errand views use), so it is the supplier's name when the
+errand was created, also for a supplier since changed or deleted.
+`deliveryBuildingName` is the stored snapshot's `name`. When supplier-service
+is unavailable the rows are returned with `supplierName: null`, and no more
+supplier calls are made for that request; admin-service fills the name on a
+later refresh. An unknown version, or a snapshot without a name, also gives
+`null`.

@@ -94,6 +94,9 @@ func run() error {
 	httpHandler := handler.New(handler.AuthConfig{
 		Domain: cfg.Auth0Domain, ClientID: cfg.Auth0ClientID, Audience: cfg.Auth0Audience,
 	}, authentication, provisioner, userService, administratorService, adminUsersService)
+	// GET /readyz says whether the database answers; GET /health only says the
+	// process does. The admin dashboard reads it.
+	handler.RegisterReadiness(httpHandler.Router, pool.Ping)
 
 	server := &http.Server{
 		Addr:              cfg.HTTPAddress,

@@ -41,6 +41,7 @@ var indexes = []string{
 	"errand_transitions_to_status_idx",
 	"errand_transitions_at_idx",
 	"errand_transitions_withdrawals_idx",
+	"errand_transitions_completions_idx",
 	"outbox_due_idx",
 	"outbox_unconfirmed_credit_idx",
 	"supplier_fences_supplier_idx",

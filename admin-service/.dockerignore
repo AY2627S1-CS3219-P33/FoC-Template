@@ -1,0 +1,15 @@
+.git
+.gitignore
+.env
+.env.*
+docs
+openapi
+openapi.yaml
+openapi.html
+compose*.yaml
+db-init
+README.md
+AGENTS.md
+*.log
+# sqlc output is regenerated inside the image.
+internal/database/*gen

@@ -32,6 +32,7 @@ import (
 	"github.com/CS3219-AY2627S1/FoC-Template/order-service/internal/errand/create"
 	"github.com/CS3219-AY2627S1/FoC-Template/order-service/internal/errand/mine"
 	"github.com/CS3219-AY2627S1/FoC-Template/order-service/internal/errand/requester"
+	"github.com/CS3219-AY2627S1/FoC-Template/order-service/internal/exportapi"
 	"github.com/CS3219-AY2627S1/FoC-Template/order-service/internal/fence"
 	"github.com/CS3219-AY2627S1/FoC-Template/order-service/internal/httpapi"
 	"github.com/CS3219-AY2627S1/FoC-Template/order-service/internal/internalapi"
@@ -140,7 +141,7 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger, authOption
 		return nil, err
 	}
 
-	dispatcher, err := messaging.NewDispatcher(outbox, publisher, ops, logger, messaging.DispatcherConfig{})
+	dispatcher, err := messaging.NewDispatcher(outbox, publisher, logger, messaging.DispatcherConfig{})
 	if err != nil {
 		return fail(err)
 	}
@@ -190,9 +191,10 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger, authOption
 		mine.NewHandler(mine.Dependencies{Store: store, Suppliers: suppliers, Logger: logger}, guard),
 		places.NewHandler(places.Dependencies{Store: saved, Suppliers: suppliers, Clock: clock, Logger: logger}, guard),
 		review.NewHandler(reviews, guard, logger),
-		outboxadmin.NewHandler(outboxadmin.NewStore(pool), guard, logger),
+		outboxadmin.NewHandler(outboxadmin.NewStore(pool), ops, guard, logger),
 		fence.NewHandler(fence.NewService(ops, logger), serviceGuard, logger),
 		internalapi.NewHandler(ops, serviceGuard, logger),
+		exportapi.NewHandler(ops, suppliers, serviceGuard, logger),
 		ready,
 	)
 
