@@ -1,10 +1,11 @@
 // Notification Service client.
 //
-// Mirrors notification-service/openapi.yaml (v1.0.0). Every route is scoped to
+// Mirrors notification-service/openapi.yaml (v1.1.0). Every route is scoped to
 // the caller by their token: there is no way to read or change another user's
 // notifications, and notifications are created only by the service from errand
 // events, never over HTTP. The list is keyset-paginated newest-first; pass the
-// nextCursor from one page to fetch the next.
+// nextCursor from one page to fetch the next. The unread badge is delivered by
+// server push over the stream route (streamUnread), not by polling.
 
 const BASE = "/notification-service";
 
@@ -101,4 +102,107 @@ export async function markAllRead(token: string): Promise<number> {
     await send(`/v1/notifications/read-all`, token, { method: "POST" }),
   );
   return body.updated;
+}
+
+// Server-push unread badge.
+//
+// The service holds a Server-Sent Events connection open and pushes the unread
+// count the moment one of the caller's notifications is recorded, so the badge
+// is live without polling. Marking notifications read is a client action, not a
+// server event, so the page that does it also announces the new count on the
+// same channel (publishUnread); both the stream and that announcement feed the
+// shell's badge through a single listener.
+
+// UNREAD_EVENT carries the caller's current unread count between the
+// notifications page and the shell badge as a window CustomEvent<number>.
+export const UNREAD_EVENT = "foc:notifications-unread";
+
+// publishUnread announces a freshly known unread count to any listener (the
+// shell badge) in the same tab.
+export function publishUnread(count: number): void {
+  window.dispatchEvent(new CustomEvent<number>(UNREAD_EVENT, { detail: count }));
+}
+
+export interface UnreadStream {
+  // close ends the stream and stops reconnecting.
+  close(): void;
+}
+
+// streamUnread opens the Server-Sent Events stream of the caller's unread count
+// and calls onCount with each value the server pushes (one on connect, then one
+// per change). The connection is read over fetch rather than EventSource so the
+// JWT travels in the Authorization header and never in the URL; if it drops it
+// reconnects with capped exponential backoff until close() is called.
+export function streamUnread(
+  getToken: () => Promise<string>,
+  onCount: (count: number) => void,
+): UnreadStream {
+  const controller = new AbortController();
+  let closed = false;
+  let backoff = 1000;
+  const maxBackoff = 30_000;
+
+  const run = async () => {
+    while (!closed) {
+      try {
+        const token = await getToken();
+        const response = await fetch(`${BASE}/v1/notifications/stream`, {
+          headers: { ...headers(token), Accept: "text/event-stream" },
+          signal: controller.signal,
+        });
+        if (!response.ok || !response.body) {
+          throw new Error(`stream failed with status ${response.status}`);
+        }
+        backoff = 1000; // a clean connect resets the backoff
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        for (;;) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          // SSE frames are separated by a blank line.
+          let split: number;
+          while ((split = buffer.indexOf("\n\n")) !== -1) {
+            handleFrame(buffer.slice(0, split), onCount);
+            buffer = buffer.slice(split + 2);
+          }
+        }
+      } catch {
+        if (closed) return; // abort() during close surfaces here
+      }
+      if (closed) return;
+      await delay(backoff);
+      backoff = Math.min(backoff * 2, maxBackoff);
+    }
+  };
+  void run();
+
+  return {
+    close() {
+      closed = true;
+      controller.abort();
+    },
+  };
+}
+
+function handleFrame(frame: string, onCount: (count: number) => void): void {
+  let event = "message";
+  const data: string[] = [];
+  for (const line of frame.split("\n")) {
+    if (line.startsWith(":")) continue; // comment / heartbeat
+    if (line.startsWith("event:")) event = line.slice("event:".length).trim();
+    else if (line.startsWith("data:")) data.push(line.slice("data:".length).trim());
+  }
+  if (event !== "unread" || data.length === 0) return;
+  try {
+    const parsed = JSON.parse(data.join("\n")) as { count?: number };
+    if (typeof parsed.count === "number") onCount(parsed.count);
+  } catch {
+    // Ignore a malformed frame; the next event or a reconnect recovers.
+  }
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

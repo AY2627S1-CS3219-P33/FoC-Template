@@ -19,6 +19,7 @@ import (
 	"github.com/CS3219-AY2627S1/FoC-Template/notification-service/internal/notification"
 	"github.com/CS3219-AY2627S1/FoC-Template/notification-service/internal/notificationapi"
 	"github.com/CS3219-AY2627S1/FoC-Template/notification-service/internal/notifmsg"
+	"github.com/CS3219-AY2627S1/FoC-Template/notification-service/internal/notifstream"
 	"github.com/CS3219-AY2627S1/FoC-Template/notification-service/internal/readiness"
 	"github.com/CS3219-AY2627S1/FoC-Template/notification-service/migrations"
 )
@@ -28,6 +29,7 @@ type Deps struct {
 	Readiness     readiness.Checker
 	Auth          auth.Port
 	Notifications notificationapi.Service
+	Stream        notificationapi.Streamer
 	Logger        *slog.Logger
 }
 
@@ -36,7 +38,7 @@ type Deps struct {
 func Handler(deps Deps) http.Handler {
 	router := http.NewServeMux()
 	readiness.NewHandler(deps.Readiness).RegisterRoutes(router)
-	notificationapi.NewHandler(deps.Notifications, auth.NewMiddleware(deps.Auth), deps.Logger).RegisterRoutes(router)
+	notificationapi.NewHandler(deps.Notifications, deps.Stream, auth.NewMiddleware(deps.Auth), deps.Logger).RegisterRoutes(router)
 	return router
 }
 
@@ -76,7 +78,11 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, err
 	}
 
 	service := notification.NewService(notifrepo.New(pool))
-	consumer, err := notifmsg.NewConsumer(cfg.Messaging.URL, notifmsg.NewHandler(service), logger, notifmsg.Config{
+	// The hub is the push side: the consumer records a notification through the
+	// recorder, which then wakes the recipient's open HTTP streams.
+	hub := notifstream.NewHub()
+	recorder := notifstream.NewRecorder(service, hub)
+	consumer, err := notifmsg.NewConsumer(cfg.Messaging.URL, notifmsg.NewHandler(recorder), logger, notifmsg.Config{
 		Prefetch: cfg.Messaging.ConsumerPrefetch,
 	})
 	if err != nil {
@@ -106,6 +112,7 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*App, err
 				),
 				Auth:          verifier,
 				Notifications: service,
+				Stream:        hub,
 				Logger:        logger,
 			}),
 			ReadHeaderTimeout: 5 * time.Second,

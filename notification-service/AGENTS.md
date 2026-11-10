@@ -2,7 +2,9 @@
 
 A consumer-only Go microservice: it reads errand events off RabbitMQ, stores
 per-user notifications in PostgreSQL, and serves each user their own over an
-Auth0-protected HTTP API. It publishes nothing.
+Auth0-protected HTTP API. The unread count is pushed to clients over
+Server-Sent Events (`GET /v1/notifications/stream`) rather than polled. It
+publishes nothing to the broker.
 
 ## Boundaries
 
@@ -23,6 +25,11 @@ Auth0-protected HTTP API. It publishes nothing.
   `lifecycle` table or a case in `classify`.
 - AMQP plumbing (reconnect, retry, dead-letter): `internal/notifmsg/consumer.go`
   and `topology.go`, adapted from credit-service.
+- Push (the live unread badge): `internal/notifstream`. The consumer records
+  through `notifstream.Recorder`, which wakes the per-recipient `Hub`; the
+  stream handler in `internal/notificationapi` subscribes and writes SSE
+  frames. Keep the hub a pure signal bus — the count is read from the DB, never
+  carried in the signal.
 - Auth (`internal/auth`), config, logging, readiness and the DB pool are adapted
   from credit-service; keep them in step when that service's copies change.
 

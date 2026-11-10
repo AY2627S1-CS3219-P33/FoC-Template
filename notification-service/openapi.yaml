@@ -2,15 +2,17 @@ openapi: 3.1.0
 
 info:
   title: Friend on Campus Notification Service API
-  version: 1.0.0
+  version: 1.1.0
   description: >-
     Per-user notifications about errands. The service consumes errand events
     from RabbitMQ (docs/asyncapi.yaml), derives recipients from the event's
     requesterId, courierId and actorId, stores one notification per recipient
     and serves each user their own. There is no way to create a notification
     over HTTP and no way to read another user's notifications: every route
-    resolves the caller from the verified token. x-required-permissions names
-    the token permission an operation needs; x-caller names the kind of token.
+    resolves the caller from the verified token. The unread count is pushed to
+    clients over Server-Sent Events (the stream route), so clients do not poll.
+    x-required-permissions names the token permission an operation needs;
+    x-caller names the kind of token.
   license:
     name: MIT
     identifier: MIT
@@ -88,6 +90,42 @@ paths:
                 required: [count]
                 properties:
                   count: { type: integer, minimum: 0 }
+        "401":
+          $ref: "#/components/responses/Unauthenticated"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          $ref: "#/components/responses/DependencyUnavailable"
+  /v1/notifications/stream:
+    get:
+      operationId: streamMyUnreadNotifications
+      tags: [Notifications]
+      summary: Stream the caller's unread count (Server-Sent Events)
+      description: >-
+        Holds the connection open and pushes the caller's unread count as
+        Server-Sent Events: one event on connect, then one whenever a
+        notification is recorded for the caller. This replaces polling the
+        unread-count route. Each event has `event: unread` and a JSON data line
+        `{"count": <n>}`; `:` comment lines are periodic heartbeats. The token
+        is sent in the Authorization header (read the stream with fetch, not
+        EventSource, which cannot set headers), never in the URL. Clients should
+        reconnect if the stream drops.
+      security:
+        - bearerAuth: []
+      x-caller: user
+      x-required-permissions: [notifications:read:own]
+      responses:
+        "200":
+          description: An open event stream of unread counts.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+              example: |
+                event: unread
+                data: {"count":3}
+
+                : keep-alive
         "401":
           $ref: "#/components/responses/Unauthenticated"
         "403":

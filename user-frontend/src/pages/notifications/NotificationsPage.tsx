@@ -6,6 +6,7 @@ import {
   listNotifications,
   markAllRead,
   markRead,
+  publishUnread,
   type Notification,
 } from "../../api/notification";
 
@@ -78,6 +79,7 @@ export function NotificationsPage() {
         setItems((prev) => (append ? [...prev, ...page.items] : page.items));
         setCursor(page.nextCursor);
         setUnread(count);
+        publishUnread(count);
         setError(null);
       } catch (err) {
         setError(notificationError(err));
@@ -105,7 +107,11 @@ export function NotificationsPage() {
           ? prev.filter((x) => x.id !== n.id)
           : prev.map((x) => (x.id === n.id ? { ...x, read: true } : x)),
       );
-      setUnread((c) => Math.max(0, c - 1));
+      setUnread((c) => {
+        const next = Math.max(0, c - 1);
+        publishUnread(next);
+        return next;
+      });
     } catch (err) {
       setError(notificationError(err));
     }
@@ -116,6 +122,7 @@ export function NotificationsPage() {
       const token = await getToken();
       await markAllRead(token);
       setUnread(0);
+      publishUnread(0);
       if (unreadOnly) setItems([]);
       else setItems((prev) => prev.map((x) => ({ ...x, read: true })));
     } catch (err) {

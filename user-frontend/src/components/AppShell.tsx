@@ -8,17 +8,13 @@ import { SuppliersPage } from "../pages/suppliers/SuppliersPage";
 import { ErrandsPage } from "../pages/errands/ErrandsPage";
 import { CreditPage } from "../pages/credit/CreditPage";
 import { NotificationsPage } from "../pages/notifications/NotificationsPage";
-import { getUnreadCount } from "../api/notification";
+import { UNREAD_EVENT, getUnreadCount, streamUnread } from "../api/notification";
 import type { Profile as ProfileData } from "../api/types";
 
 type Page = "suppliers" | "errands" | "credits" | "notifications" | "chat" | "profile" | "settings";
 
 const NOTIFICATION_AUDIENCE =
   import.meta.env.VITE_NOTIFICATION_AUDIENCE || "https://api.foc.local/notification-service";
-
-// How often the unread badge refreshes. The notification service is polled, in
-// keeping with the rest of the app; 30s keeps the badge timely without noise.
-const UNREAD_POLL_MS = 30_000;
 
 interface NavDef {
   key: Page;
@@ -57,31 +53,51 @@ export function AppShell() {
 
   const nav = NAV;
 
-  // Poll the unread count for the nav badge and the header bell. Failures are
-  // swallowed: a missing badge must never break the shell, and the
-  // Notifications page surfaces any real outage.
-  const refreshUnread = useCallback(async () => {
-    try {
-      const token = await getAccessToken({
+  const getNotificationToken = useCallback(
+    () =>
+      getAccessToken({
         audience: NOTIFICATION_AUDIENCE,
         scope: "openid profile email notifications:read:own",
-      });
-      setUnread(await getUnreadCount(token));
-    } catch {
-      // ignore; keep the last known count
-    }
-  }, [getAccessToken]);
+      }),
+    [getAccessToken],
+  );
 
+  // The unread badge for the nav and the header bell is delivered by server
+  // push: streamUnread holds a connection open and reports the count on connect
+  // and on every change, so the badge is live without polling. A one-time fetch
+  // paints the badge immediately in case the first stream frame is slow, then
+  // the stream takes over. Failures are swallowed: a missing badge must never
+  // break the shell, and the Notifications page surfaces any real outage.
   useEffect(() => {
-    void refreshUnread();
-    const handle = window.setInterval(() => void refreshUnread(), UNREAD_POLL_MS);
-    return () => window.clearInterval(handle);
-  }, [refreshUnread]);
+    let active = true;
+    void (async () => {
+      try {
+        const count = await getUnreadCount(await getNotificationToken());
+        if (active) setUnread(count);
+      } catch {
+        // ignore; the stream will deliver the count shortly
+      }
+    })();
+    const stream = streamUnread(getNotificationToken, (count) => {
+      if (active) setUnread(count);
+    });
+    return () => {
+      active = false;
+      stream.close();
+    };
+  }, [getNotificationToken]);
 
-  // Opening the notifications page is the natural moment to refresh the badge.
+  // Marking notifications read is a client action, not a server event, so the
+  // Notifications page announces the new count on UNREAD_EVENT; keep the badge
+  // in step with it.
   useEffect(() => {
-    if (page === "notifications") void refreshUnread();
-  }, [page, refreshUnread]);
+    const onUnread = (e: Event) => {
+      const detail = (e as CustomEvent<number>).detail;
+      if (typeof detail === "number") setUnread(detail);
+    };
+    window.addEventListener(UNREAD_EVENT, onUnread);
+    return () => window.removeEventListener(UNREAD_EVENT, onUnread);
+  }, []);
 
   const unreadBadge = unread > 99 ? "99+" : String(unread);
 

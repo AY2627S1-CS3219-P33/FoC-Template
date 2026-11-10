@@ -57,3 +57,19 @@ takes no user identifier from the request, so a user can only ever read or
 change their own notifications. `createdAt` is the event's `occurredAt`, so the
 order a user sees matches the order things happened rather than the order the
 broker delivered them.
+
+## Pushing the unread count
+
+`GET /v1/notifications/stream` is the push side: it holds the connection open
+and sends the caller's unread count as Server-Sent Events — once on connect,
+then whenever a notification is recorded for that user — so clients show a live
+badge without polling. When the consumer stores a notification it wakes an
+in-process hub ([internal/notifstream](../internal/notifstream)), which signals
+the recipient's open streams; each stream then reads the authoritative count
+from the database and writes an `event: unread` frame. Signals coalesce and
+carry no data, so a burst of events costs one refresh. The hub is per-instance,
+so events and a user's stream must reach the same instance to push immediately;
+the per-stream heartbeat and the client's reconnect keep the badge eventually
+correct across instances, and the count itself is always read from the shared
+database. The token is sent in the Authorization header, so nothing sensitive
+is placed in the URL.

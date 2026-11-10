@@ -2,18 +2,22 @@
 //
 //	GET  /v1/notifications               user  notifications:read:own
 //	GET  /v1/notifications/unread-count   user  notifications:read:own
+//	GET  /v1/notifications/stream         user  notifications:read:own
 //	POST /v1/notifications/{id}/read      user  notifications:write:own
 //	POST /v1/notifications/read-all       user  notifications:write:own
 //
 // A user only ever sees their own notifications: every route resolves the
 // recipient from the verified token and takes no user identifier from the
-// request.
+// request. The stream route pushes the unread count over Server-Sent Events so
+// the client does not poll.
 package notificationapi
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -32,20 +36,33 @@ type Service interface {
 	MarkAllRead(ctx context.Context, recipient string) (int64, error)
 }
 
+// Streamer lets a stream wait for a recipient's notifications to change. It
+// returns a channel that is signalled on each change and a cancel to release
+// the subscription. *notifstream.Hub implements it.
+type Streamer interface {
+	Subscribe(recipient string) (<-chan struct{}, func())
+}
+
+// streamHeartbeat bounds how long a stream stays silent. A comment line keeps
+// the connection, and any proxy between the client and the service, from idling
+// the stream out.
+const streamHeartbeat = 25 * time.Second
+
 type Handler struct {
 	service Service
+	stream  Streamer
 	auth    *auth.Middleware
 	logger  *slog.Logger
 }
 
-func NewHandler(service Service, middleware *auth.Middleware, logger *slog.Logger) Handler {
-	if service == nil || middleware == nil {
-		panic("notificationapi: service and auth middleware are required")
+func NewHandler(service Service, stream Streamer, middleware *auth.Middleware, logger *slog.Logger) Handler {
+	if service == nil || stream == nil || middleware == nil {
+		panic("notificationapi: service, streamer and auth middleware are required")
 	}
 	if logger == nil {
 		logger = slog.Default()
 	}
-	return Handler{service: service, auth: middleware, logger: logger}
+	return Handler{service: service, stream: stream, auth: middleware, logger: logger}
 }
 
 func (h Handler) RegisterRoutes(router *http.ServeMux) {
@@ -53,6 +70,7 @@ func (h Handler) RegisterRoutes(router *http.ServeMux) {
 	write := h.auth.Require(auth.User, auth.WriteOwnNotifications)
 	router.Handle("GET /v1/notifications", read(http.HandlerFunc(h.list)))
 	router.Handle("GET /v1/notifications/unread-count", read(http.HandlerFunc(h.unreadCount)))
+	router.Handle("GET /v1/notifications/stream", read(http.HandlerFunc(h.streamUnread)))
 	router.Handle("POST /v1/notifications/{id}/read", write(http.HandlerFunc(h.markRead)))
 	router.Handle("POST /v1/notifications/read-all", write(http.HandlerFunc(h.markAllRead)))
 }
@@ -133,6 +151,78 @@ func (h Handler) unreadCount(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]int64{"count": count})
+}
+
+// streamUnread holds the connection open and pushes the caller's unread count
+// as Server-Sent Events: once on connect, then whenever one of their
+// notifications is recorded. This is the push replacement for polling the
+// unread-count route. The token arrives in the Authorization header like every
+// other route, so nothing sensitive is placed in the URL.
+func (h Handler) streamUnread(w http.ResponseWriter, r *http.Request) {
+	subject, ok := subjectOf(r)
+	if !ok {
+		h.fail(w, r, errors.New("missing principal"))
+		return
+	}
+	// The stream can only work if the response can be flushed to the client as
+	// each event is written rather than buffered until the handler returns.
+	rc := http.NewResponseController(w)
+	if err := rc.Flush(); err != nil {
+		writeError(w, http.StatusInternalServerError, apperror.Internal, "streaming is not supported")
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	// Tell nginx and similar proxies not to buffer the stream.
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	signals, cancel := h.stream.Subscribe(subject)
+	defer cancel()
+
+	// Send the current count straight away so a freshly connected client shows
+	// the right badge without waiting for the next event.
+	if !h.sendUnread(w, rc, r, subject) {
+		return
+	}
+
+	heartbeat := time.NewTicker(streamHeartbeat)
+	defer heartbeat.Stop()
+	ctx := r.Context()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-heartbeat.C:
+			if _, err := io.WriteString(w, ": keep-alive\n\n"); err != nil {
+				return
+			}
+			if rc.Flush() != nil {
+				return
+			}
+		case <-signals:
+			if !h.sendUnread(w, rc, r, subject) {
+				return
+			}
+		}
+	}
+}
+
+// sendUnread writes the recipient's current unread count as one SSE event and
+// flushes it. It reports whether the stream is still writable; a failed read of
+// the count keeps the stream open (the next event or heartbeat retries) rather
+// than dropping the client over a transient database blip.
+func (h Handler) sendUnread(w http.ResponseWriter, rc *http.ResponseController, r *http.Request, subject string) bool {
+	count, err := h.service.UnreadCount(r.Context(), subject)
+	if err != nil {
+		h.logger.ErrorContext(r.Context(), "notification stream unread query failed", "error", err.Error())
+		return true
+	}
+	if _, err := fmt.Fprintf(w, "event: unread\ndata: {\"count\":%d}\n\n", count); err != nil {
+		return false
+	}
+	return rc.Flush() == nil
 }
 
 func (h Handler) markRead(w http.ResponseWriter, r *http.Request) {
