@@ -22,6 +22,7 @@ var ErrManagementUserNotFound = errors.New("Auth0 user not found")
 // to assign and remove application roles.
 type ManagementClient struct {
 	domain     string
+	audience   string
 	clientID   string
 	secret     string
 	httpClient *http.Client
@@ -59,16 +60,20 @@ type ManagedRole struct {
 }
 
 // NewManagementClient validates Auth0 configuration and creates the client.
-func NewManagementClient(domain, clientID, secret string, httpClient *http.Client) (*ManagementClient, error) {
+func NewManagementClient(domain, audience, clientID, secret string, httpClient *http.Client) (*ManagementClient, error) {
 	issuer, err := IssuerURL(domain)
 	if err != nil {
 		return nil, err
+	}
+	if strings.TrimSpace(audience) == "" {
+		return nil, errors.New("Auth0 Management API audience is required")
 	}
 	if strings.TrimSpace(clientID) == "" || strings.TrimSpace(secret) == "" || httpClient == nil {
 		return nil, errors.New("Auth0 Management API credentials and HTTP client are required")
 	}
 	return &ManagementClient{
-		domain: issuer.Hostname(), clientID: clientID, secret: secret, httpClient: httpClient,
+		domain: issuer.Hostname(), audience: strings.TrimSpace(audience),
+		clientID: clientID, secret: secret, httpClient: httpClient,
 	}, nil
 }
 
@@ -258,7 +263,7 @@ func (c *ManagementClient) managementToken(ctx context.Context) (string, error) 
 		"grant_type":    "client_credentials",
 		"client_id":     c.clientID,
 		"client_secret": c.secret,
-		"audience":      "https://" + c.domain + "/api/v2/",
+		"audience":      c.audience,
 	})
 	if err != nil {
 		return "", errors.New("encode Auth0 token request")

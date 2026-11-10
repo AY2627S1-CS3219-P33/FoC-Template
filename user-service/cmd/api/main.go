@@ -82,7 +82,7 @@ func run() error {
 	var administratorService *service.AdministratorService
 	var adminUsersService *service.AdminUsersService
 	if cfg.Auth0M2MClientID != "" {
-		management, err := auth.NewManagementClient(cfg.Auth0Domain, cfg.Auth0M2MClientID, cfg.Auth0M2MClientSecret, &http.Client{Timeout: 5 * time.Second})
+		management, err := auth.NewManagementClient(cfg.Auth0Domain, cfg.Auth0ManagementAPIAudience, cfg.Auth0M2MClientID, cfg.Auth0M2MClientSecret, &http.Client{Timeout: 5 * time.Second})
 		if err != nil {
 			return err
 		}
