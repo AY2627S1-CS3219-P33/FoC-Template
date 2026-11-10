@@ -42,9 +42,9 @@ export default defineConfig({
       },
       // Notification service (documented gateway route /notification-service),
       // same prefix-stripping arrangement. Forwards nowhere until the service
-      // is running on :3005, when the notification screens light up.
+      // is running on :3007, when the notification screens light up.
       "/notification-service": {
-        target: "http://localhost:3005",
+        target: "http://localhost:3007",
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/notification-service/, ""),
       },

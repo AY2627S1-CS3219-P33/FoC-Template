@@ -14,5 +14,5 @@ RUN apk add --no-cache ca-certificates tzdata \
 WORKDIR /app
 COPY --from=build /out/notification-service /app/notification-service
 USER notif
-EXPOSE 3005
+EXPOSE 3007
 ENTRYPOINT ["/app/notification-service"]

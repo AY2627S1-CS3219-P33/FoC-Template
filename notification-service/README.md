@@ -52,7 +52,7 @@ migrations                 goose SQL migrations (applied out of band)
 The service needs PostgreSQL and RabbitMQ. The root
 [compose.yaml](../compose.yaml) wires a `notification-db`, applies the
 migrations with a `notification-migrate` job, and runs the service on
-`127.0.0.1:3005` against the shared `queue-service` broker:
+`127.0.0.1:3007` against the shared `queue-service` broker:
 
 ```bash
 docker compose up notification-service
