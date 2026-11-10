@@ -129,6 +129,8 @@ export function ErrandForm({
   // matches what the Suppliers screen would show for the same text.
   const [supplierQuery, setSupplierQuery] = useState<string | null>(null);
   const supplierListId = useId();
+  const [buildingQuery, setBuildingQuery] = useState<string | null>(null);
+  const buildingListId = useId();
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [supplierError, setSupplierError] = useState<string | null>(null);
   const [chosen, setChosen] = useState<Supplier | null>(initialSupplier ?? null);
@@ -278,6 +280,7 @@ export function ErrandForm({
   }
 
   function pickDeliveryPlace(place: DeliveryPlace) {
+    setBuildingQuery(null);
     set("deliveryBuildingId", place.deliveryBuilding.id);
     set("deliveryDetail", place.deliveryDetail);
   }
@@ -434,6 +437,7 @@ export function ErrandForm({
   const buildingOptions = buildings.filter(
     (b) => !b.retired || b.id === original.deliveryBuildingId,
   );
+  const selectedBuilding = buildingOptions.find((b) => b.id === draft.deliveryBuildingId);
 
   const head = (
     <div className="page-head">
@@ -590,20 +594,30 @@ export function ErrandForm({
         )}
         <div className="form-grid">
           <Field label="Building" error={show("deliveryBuildingId")}>
-            <select
-              className="input select"
-              value={draft.deliveryBuildingId}
-              onChange={(e) => set("deliveryBuildingId", e.target.value)}
+            <input
+              className="input"
+              type="text"
+              list={buildingListId}
+              value={buildingQuery ?? (selectedBuilding
+                ? `${selectedBuilding.name}${selectedBuilding.retired ? " (retired)" : ""}`
+                : "")}
+              placeholder="Search for a building…"
+              autoComplete="off"
+              onChange={(e) => {
+                const value = e.target.value;
+                const building = buildingOptions.find(
+                  (b) => `${b.name}${b.retired ? " (retired)" : ""}` === value,
+                );
+                setBuildingQuery(building ? null : value);
+                set("deliveryBuildingId", building?.id ?? "");
+              }}
               aria-invalid={!!show("deliveryBuildingId")}
-            >
-              <option value="">Choose a building…</option>
+            />
+            <datalist id={buildingListId}>
               {buildingOptions.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.name}
-                  {b.retired ? " (retired)" : ""}
-                </option>
+                <option key={b.id} value={`${b.name}${b.retired ? " (retired)" : ""}`} />
               ))}
-            </select>
+            </datalist>
           </Field>
           <Field label="Reward (credits)" error={show("reward")}>
             <input
