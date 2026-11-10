@@ -120,6 +120,17 @@ class ECSTests(unittest.TestCase):
 
 
 class SafetyTests(unittest.TestCase):
+    def test_task_definition_reads_have_required_unscoped_permission(self):
+        policy = json.loads((deploy.ROOT / ".github/aws/deploy-permissions.json").read_text())
+        reads = [s for s in policy["Statement"]
+                 if s["Action"] == "ecs:DescribeTaskDefinition"]
+        self.assertEqual(len(reads), 1)
+        self.assertEqual(reads[0]["Effect"], "Allow")
+        self.assertEqual(reads[0]["Resource"], "*")
+        tagging = next(s for s in policy["Statement"] if s["Sid"] == "ReadAndTagServiceRevisions")
+        self.assertEqual(set(tagging["Action"]), {"ecs:ListTagsForResource", "ecs:TagResource"})
+        self.assertTrue(all(r.startswith("arn:aws:ecs:") for r in tagging["Resource"]))
+
     @patch.object(deploy.time, "sleep")
     @patch.object(deploy, "public_body", return_value=b"<html>fallback page</html>")
     def test_html_fallback_cannot_pass_an_api_smoke_check(self, body, _sleep):

@@ -29,9 +29,15 @@
       "Resource": "*"
     },
     {
+      "Sid": "DescribeTaskDefinitions",
+      "Effect": "Allow",
+      "Action": "ecs:DescribeTaskDefinition",
+      "Resource": "*"
+    },
+    {
       "Sid": "ReadAndTagServiceRevisions",
       "Effect": "Allow",
-      "Action": ["ecs:DescribeTaskDefinition", "ecs:ListTagsForResource", "ecs:TagResource"],
+      "Action": ["ecs:ListTagsForResource", "ecs:TagResource"],
       "Resource": [
         "arn:aws:ecs:ap-southeast-1:842761392141:task-definition/user-service-task:*",
         "arn:aws:ecs:ap-southeast-1:842761392141:task-definition/supplier-service-task:*",
