@@ -3,7 +3,6 @@ import { Link } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { Profile } from "../pages/Profile";
 import { Settings } from "../pages/Settings";
-import { Placeholder } from "../pages/Placeholder";
 import { SuppliersPage } from "../pages/suppliers/SuppliersPage";
 import { ErrandsPage } from "../pages/errands/ErrandsPage";
 import { CreditPage } from "../pages/credit/CreditPage";
@@ -17,7 +16,7 @@ import {
 import type { Profile as ProfileData } from "../api/types";
 import type { Supplier } from "../api/supplier";
 
-type Page = "suppliers" | "errands" | "credits" | "notifications" | "chat" | "profile" | "settings";
+type Page = "suppliers" | "errands" | "credits" | "notifications" | "profile" | "settings";
 
 const NOTIFICATION_AUDIENCE =
   import.meta.env.VITE_NOTIFICATION_AUDIENCE || "https://api.foc.local/notification-service";
@@ -26,19 +25,16 @@ interface NavDef {
   key: Page;
   label: string;
   icon: string;
-  // Suppliers, Errands, Credits, Profile and Settings are implemented here;
-  // Chat reproduces the wireframe shell but is owned by another service.
-  owned: boolean;
 }
 
+// Chat has no page of its own: it is a panel on each errand's page.
 const NAV: NavDef[] = [
-  { key: "suppliers", label: "Suppliers", icon: "⌂", owned: true },
-  { key: "errands", label: "Errands", icon: "☰", owned: true },
-  { key: "credits", label: "Credits", icon: "◈", owned: true },
-  { key: "notifications", label: "Notifications", icon: "🔔", owned: true },
-  { key: "chat", label: "Chat", icon: "💬", owned: false },
-  { key: "profile", label: "Profile", icon: "◑", owned: true },
-  { key: "settings", label: "Settings", icon: "⚙", owned: true },
+  { key: "suppliers", label: "Suppliers", icon: "⌂" },
+  { key: "errands", label: "Errands", icon: "☰" },
+  { key: "credits", label: "Credits", icon: "◈" },
+  { key: "notifications", label: "Notifications", icon: "🔔" },
+  { key: "profile", label: "Profile", icon: "◑" },
+  { key: "settings", label: "Settings", icon: "⚙" },
 ];
 
 function creditText(balance: number | null): string {
@@ -139,8 +135,6 @@ export function AppShell() {
         return <Profile />;
       case "settings":
         return <Settings />;
-      default:
-        return <Placeholder name={nav.find((n) => n.key === page)?.label ?? ""} />;
     }
   }
 
@@ -157,9 +151,7 @@ export function AppShell() {
               key={item.key}
               className="nav-item"
               aria-current={page === item.key ? "page" : undefined}
-              disabled={!item.owned}
-              title={item.owned ? undefined : "Handled by another service"}
-              onClick={() => item.owned && setPage(item.key)}
+              onClick={() => setPage(item.key)}
             >
               <span className="ico" aria-hidden>
                 {item.icon}
@@ -228,8 +220,7 @@ export function AppShell() {
               key={item.key}
               className="bn-item"
               aria-current={page === item.key ? "page" : undefined}
-              disabled={!item.owned}
-              onClick={() => item.owned && setPage(item.key)}
+              onClick={() => setPage(item.key)}
             >
               <span className="ico" aria-hidden>
                 {item.icon}
