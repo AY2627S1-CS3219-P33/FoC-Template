@@ -18,7 +18,8 @@
         "arn:aws:ecr:ap-southeast-1:842761392141:repository/user-service",
         "arn:aws:ecr:ap-southeast-1:842761392141:repository/supplier-service",
         "arn:aws:ecr:ap-southeast-1:842761392141:repository/credit-service",
-        "arn:aws:ecr:ap-southeast-1:842761392141:repository/order-service"
+        "arn:aws:ecr:ap-southeast-1:842761392141:repository/order-service",
+        "arn:aws:ecr:ap-southeast-1:842761392141:repository/admin-service"
       ]
     },
     {
@@ -35,7 +36,8 @@
         "arn:aws:ecs:ap-southeast-1:842761392141:task-definition/user-service-task:*",
         "arn:aws:ecs:ap-southeast-1:842761392141:task-definition/supplier-service-task:*",
         "arn:aws:ecs:ap-southeast-1:842761392141:task-definition/credit-service-task:*",
-        "arn:aws:ecs:ap-southeast-1:842761392141:task-definition/order-service-task:*"
+        "arn:aws:ecs:ap-southeast-1:842761392141:task-definition/order-service-task:*",
+        "arn:aws:ecs:ap-southeast-1:842761392141:task-definition/admin-service-task:*"
       ]
     },
     {
@@ -46,7 +48,8 @@
         "arn:aws:ecs:ap-southeast-1:842761392141:service/comfortable-squirrel-pxwxt5/user-service-task-service-tb6pn0x0",
         "arn:aws:ecs:ap-southeast-1:842761392141:service/comfortable-squirrel-pxwxt5/supplier-service-task-service-ot78zbdx",
         "arn:aws:ecs:ap-southeast-1:842761392141:service/comfortable-squirrel-pxwxt5/credit-service",
-        "arn:aws:ecs:ap-southeast-1:842761392141:service/comfortable-squirrel-pxwxt5/order-service-task-service-177de1f2"
+        "arn:aws:ecs:ap-southeast-1:842761392141:service/comfortable-squirrel-pxwxt5/order-service-task-service-177de1f2",
+        "arn:aws:ecs:ap-southeast-1:842761392141:service/comfortable-squirrel-pxwxt5/admin-service-task-service-vmoebao1"
       ]
     },
     {
