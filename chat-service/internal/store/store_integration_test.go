@@ -326,7 +326,7 @@ func TestInsertMessageIsIdempotent(t *testing.T) {
 	require.Equal(t, first.ID, retry.ID)
 	require.Equal(t, "I'm at the lobby", retry.Body, "the stored message wins")
 
-	all, err := s.ListAllMessages(ctx, room.ID)
+	all, err := s.ListMessagesAfter(ctx, room.ID, 0, MaxRowLimit)
 	require.NoError(t, err)
 	require.Len(t, all, 1)
 }
@@ -381,29 +381,12 @@ func TestMessagePaging(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []string{"m2", "m3"}, bodies(before), "the two just before m4")
 
-	all, err := s.ListAllMessages(ctx, room.ID)
+	all, err := s.ListMessagesAfter(ctx, room.ID, 0, MaxRowLimit)
 	require.NoError(t, err)
-	require.Equal(t, []string{"m1", "m2", "m3", "m4", "m5"}, bodies(all))
+	require.Equal(t, []string{"m1", "m2", "m3", "m4", "m5"}, bodies(all), "only this room's messages")
 
 	_, err = s.ListMessagesAfter(ctx, room.ID, 0, MaxRowLimit+1)
 	require.Error(t, err)
-}
-
-func TestRecordExport(t *testing.T) {
-	ctx := context.Background()
-	db := testdb.Migrated(t)
-	s := New(db.Pool)
-	room := accept(t, s, uuid.New(), courierA)
-
-	require.NoError(t, s.RecordExport(ctx, room.ID, "auth0|admin", chat.ExportText))
-	var subject, format string
-	require.NoError(t, db.Pool.QueryRow(ctx,
-		`SELECT admin_subject, format FROM chat_log_exports WHERE room_id = $1`, room.ID,
-	).Scan(&subject, &format))
-	require.Equal(t, "auth0|admin", subject)
-	require.Equal(t, "text", format)
-
-	require.ErrorIs(t, s.RecordExport(ctx, uuid.New(), "auth0|admin", chat.ExportJSON), chat.ErrRoomNotFound)
 }
 
 func TestWithTxRollsBackOnError(t *testing.T) {

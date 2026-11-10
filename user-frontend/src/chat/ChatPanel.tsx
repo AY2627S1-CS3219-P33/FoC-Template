@@ -7,6 +7,7 @@ import {
   type KeyboardEvent,
 } from "react";
 import {
+  ChatError,
   chatErrorText,
   describeChatError as describe,
   getMessages,
@@ -21,6 +22,8 @@ import {
   type ServerFrame,
 } from "../api/chat";
 import type { ChatSocketStatus } from "./useChatSocket";
+import { endedText, useRoomStatus } from "./roomStatus";
+import { formatDateTime, timeLeft } from "../pages/errands/format";
 
 // One room's conversation: history, live messages and the message box.
 //
@@ -31,9 +34,11 @@ import type { ChatSocketStatus } from "./useChatSocket";
 // fails or is not confirmed can be retried with the same clientMsgId, so the
 // server never stores it twice.
 //
-// This phase covers OPEN rooms. Closing banners and the read-only state come
-// with the room-closing work; until then a send to a closed room is refused by
-// the server and shown as a failed message.
+// When the errand ends for the room it is CLOSING: a banner says when it
+// closes, and sending still works. At closesAt it becomes CLOSED and
+// ErrandChat stops showing it (the conversation stays in chat-service for
+// admins). A ROOM_CLOSED answer from the server (the browser's clock was
+// behind) is reported with onClosed, which hides it at once.
 
 interface Props {
   room: ChatRoom;
@@ -42,6 +47,10 @@ interface Props {
   send: (frame: SendFrame) => boolean;
   // Registers a listener for server frames; returns the unsubscribe function.
   subscribe: (listener: (frame: ServerFrame) => void) => () => void;
+  // The server refused a send with ROOM_CLOSED, so the room is closed
+  // whatever this browser's clock says.
+  forcedClosed: boolean;
+  onClosed: (roomId: string) => void;
 }
 
 interface Pending {
@@ -64,7 +73,17 @@ const ROLE_LABEL: Record<ChatRole, string> = {
   COURIER: "Courier",
 };
 
-export function ChatPanel({ room, getToken, socketStatus, send, subscribe }: Props) {
+export function ChatPanel({
+  room,
+  getToken,
+  socketStatus,
+  send,
+  subscribe,
+  forcedClosed,
+  onClosed,
+}: Props) {
+  const { status, now } = useRoomStatus(room, forcedClosed);
+  const closed = status === "CLOSED";
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [pending, setPending] = useState<Pending[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -194,10 +213,10 @@ export function ChatPanel({ room, getToken, socketStatus, send, subscribe }: Pro
   // Without the socket nothing is pushed, so poll until it is back.
   const live = socketStatus === "ready";
   useEffect(() => {
-    if (live || socketStatus === "idle" || socketStatus === "forbidden") return;
+    if (closed || live || socketStatus === "idle" || socketStatus === "forbidden") return;
     const handle = window.setInterval(() => void catchUp(), OFFLINE_POLL_MS);
     return () => window.clearInterval(handle);
-  }, [live, socketStatus, catchUp]);
+  }, [closed, live, socketStatus, catchUp]);
 
   // ---- live frames -------------------------------------------------------------
 
@@ -214,11 +233,13 @@ export function ChatPanel({ room, getToken, socketStatus, send, subscribe }: Pro
             merge([frame.message]);
             break;
           case "error":
-            if (frame.clientMsgId) fail(frame.clientMsgId, chatErrorText(frame.code, frame.message));
+            if (!frame.clientMsgId) break;
+            fail(frame.clientMsgId, chatErrorText(frame.code, frame.message));
+            if (frame.code === "ROOM_CLOSED") onClosed(room.id);
             break;
         }
       }),
-    [subscribe, catchUp, merge, fail],
+    [subscribe, catchUp, merge, fail, onClosed, room.id],
   );
 
   // ---- sending -----------------------------------------------------------------
@@ -248,9 +269,10 @@ export function ChatPanel({ room, getToken, socketStatus, send, subscribe }: Pro
         merge([await postMessage(token, room.id, clientMsgId, body)]);
       } catch (err) {
         fail(clientMsgId, describe(err));
+        if (err instanceof ChatError && err.code === "ROOM_CLOSED") onClosed(room.id);
       }
     },
-    [send, room.id, getToken, merge, fail, clearTimer],
+    [send, room.id, getToken, merge, fail, clearTimer, onClosed],
   );
 
   const length = messageLength(draft);
@@ -258,7 +280,7 @@ export function ChatPanel({ room, getToken, socketStatus, send, subscribe }: Pro
 
   function submit() {
     const body = draft.trim();
-    if (body.length === 0 || tooLong) return;
+    if (body.length === 0 || tooLong || closed) return;
     const clientMsgId = crypto.randomUUID();
     setPending((current) => [...current, { clientMsgId, body, state: "sending" }]);
     setDraft("");
@@ -317,6 +339,16 @@ export function ChatPanel({ room, getToken, socketStatus, send, subscribe }: Pro
 
   return (
     <div className="chat">
+      {status === "CLOSING" && room.closesAt && (
+        <div className="banner banner-wait chat-banner" role="status">
+          <span>
+            {endedText(room.endReason, room.myRole)} You can keep chatting until{" "}
+            {formatDateTime(room.closesAt)} ({timeLeft(room.closesAt, now)}); after that this chat
+            closes and is no longer shown here.
+          </span>
+        </div>
+      )}
+
       {loadError && (
         <div className="banner banner-error chat-banner" role="alert">
           <span>{loadError}</span>
@@ -378,14 +410,18 @@ export function ChatPanel({ room, getToken, socketStatus, send, subscribe }: Pro
                 ) : (
                   <span className="chat-meta chat-failed">
                     {p.error ?? "Not sent."}{" "}
-                    <button
-                      type="button"
-                      className="link-btn"
-                      onClick={() => void deliver(p.clientMsgId, p.body)}
-                    >
-                      Retry
-                    </button>
-                    {" · "}
+                    {!closed && (
+                      <>
+                        <button
+                          type="button"
+                          className="link-btn"
+                          onClick={() => void deliver(p.clientMsgId, p.body)}
+                        >
+                          Retry
+                        </button>
+                        {" · "}
+                      </>
+                    )}
                     <button
                       type="button"
                       className="link-btn"
@@ -406,39 +442,45 @@ export function ChatPanel({ room, getToken, socketStatus, send, subscribe }: Pro
         </ol>
       </div>
 
-      <form
-        className="chat-compose"
-        onSubmit={(event) => {
-          event.preventDefault();
-          submit();
-        }}
-      >
-        <label htmlFor={`chat-input-${room.id}`} className="sr-only">
-          Message
-        </label>
-        <textarea
-          id={`chat-input-${room.id}`}
-          className="input chat-input"
-          rows={2}
-          placeholder="Write a message"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={onKeyDown}
-          aria-invalid={tooLong}
-          aria-describedby={`chat-hint-${room.id}`}
-        />
-        <button type="submit" className="btn slim" disabled={length === 0 || tooLong}>
-          Send
-        </button>
-      </form>
-      <p id={`chat-hint-${room.id}`} className="chat-hint muted small">
-        <span>Enter to send · Shift+Enter for a new line</span>
-        {length >= COUNTER_FROM && (
-          <span className={tooLong ? "chat-counter over" : "chat-counter"}>
-            {length}/{MAX_MESSAGE_LENGTH}
-          </span>
-        )}
-      </p>
+      {/* ErrandChat hides a CLOSED room, so this only covers the moment
+          between the room closing and the parent re-rendering. */}
+      {!closed && (
+        <>
+          <form
+            className="chat-compose"
+            onSubmit={(event) => {
+              event.preventDefault();
+              submit();
+            }}
+          >
+            <label htmlFor={`chat-input-${room.id}`} className="sr-only">
+              Message
+            </label>
+            <textarea
+              id={`chat-input-${room.id}`}
+              className="input chat-input"
+              rows={2}
+              placeholder="Write a message"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={onKeyDown}
+              aria-invalid={tooLong}
+              aria-describedby={`chat-hint-${room.id}`}
+            />
+            <button type="submit" className="btn slim" disabled={length === 0 || tooLong}>
+              Send
+            </button>
+          </form>
+          <p id={`chat-hint-${room.id}`} className="chat-hint muted small">
+            <span>Enter to send · Shift+Enter for a new line</span>
+            {length >= COUNTER_FROM && (
+              <span className={tooLong ? "chat-counter over" : "chat-counter"}>
+                {length}/{MAX_MESSAGE_LENGTH}
+              </span>
+            )}
+          </p>
+        </>
+      )}
     </div>
   );
 }

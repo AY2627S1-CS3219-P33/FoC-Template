@@ -55,17 +55,7 @@ CREATE TABLE errand_endings (
     ended_at   timestamptz NOT NULL
 );
 
--- Who exported which log, and when (chat logs are private).
-CREATE TABLE chat_log_exports (
-    id            bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    room_id       uuid        NOT NULL REFERENCES chat_rooms (id),
-    admin_subject text        NOT NULL,
-    format        text        NOT NULL CHECK (format IN ('json', 'text')),
-    exported_at   timestamptz NOT NULL DEFAULT now()
-);
-
 -- +goose Down
-DROP TABLE chat_log_exports;
 DROP TABLE errand_endings;
 DROP TABLE chat_messages;
 DROP TABLE chat_rooms;

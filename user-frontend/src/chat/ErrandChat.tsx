@@ -8,6 +8,7 @@ import {
 import type { ErrandStatus } from "../api/order";
 import { formatDateTime } from "../pages/errands/format";
 import { ChatPanel } from "./ChatPanel";
+import { MAX_TIMEOUT_MS, roomStatus } from "./roomStatus";
 import { useChatSocket, type ChatSocketStatus } from "./useChatSocket";
 
 // The chat section of an errand, for its requester or courier.
@@ -22,6 +23,13 @@ import { useChatSocket, type ChatSocketStatus } from "./useChatSocket";
 // errand has a courier and no room has appeared yet, this shows "Connecting
 // chat…" and picks the room up from the room_opened frame, a re-read after
 // each (re)connect, and a short poll.
+//
+// When the errand ends for a room, a room_closing frame gives its closing
+// time and the panel shows it as CLOSING, with a banner. At closesAt the room
+// is CLOSED and is no longer shown: it stays in chat-service (read-only, and
+// an admin can export it), but this page hides it. A room the server has
+// refused a send to (ROOM_CLOSED) is hidden at once, whatever this browser's
+// clock says.
 
 interface Props {
   errandId: string;
@@ -48,6 +56,12 @@ export function ErrandChat({ errandId, errandStatus, getToken }: Props) {
   const [slow, setSlow] = useState(false);
   // Bumped by "Try again" to restart the wait.
   const [waitRound, setWaitRound] = useState(0);
+  // Rooms the server said are closed (ROOM_CLOSED).
+  const [closedIds, setClosedIds] = useState<ReadonlySet<string>>(() => new Set());
+  const roomsRef = useRef<ChatRoom[] | null>(null);
+  useEffect(() => {
+    roomsRef.current = rooms;
+  }, [rooms]);
 
   const loadRooms = useCallback(async () => {
     try {
@@ -65,8 +79,31 @@ export function ErrandChat({ errandId, errandStatus, getToken }: Props) {
     void loadRooms();
   }, [loadRooms]);
 
+  // Only rooms that are not CLOSED are shown. The list is filtered with the
+  // real clock on every render, and a timer re-renders when the next shown
+  // room reaches its closesAt, so it disappears without a refresh.
+  const [, setTick] = useState(0);
+  const now = Date.now();
+  const visible = (rooms ?? []).filter(
+    (r) => roomStatus(r, now, closedIds.has(r.id)) !== "CLOSED",
+  );
+  const nextCloseAt = visible.reduce<number | null>((next, r) => {
+    const at = r.closesAt ? Date.parse(r.closesAt) : NaN;
+    return Number.isFinite(at) && (next === null || at < next) ? at : next;
+  }, null);
+  useEffect(() => {
+    if (nextCloseAt === null) return;
+    const handle = window.setTimeout(
+      () => setTick((n) => n + 1),
+      Math.min(Math.max(nextCloseAt - Date.now() + 50, 0), MAX_TIMEOUT_MS),
+    );
+    return () => window.clearTimeout(handle);
+  }, [nextCloseAt]);
+
   const hasCourier = HAS_COURIER.includes(errandStatus);
-  const hasRooms = rooms !== null && rooms.length > 0;
+  const hasRooms = visible.length > 0;
+  // A courier is assigned but no shown room is theirs yet: the accept event
+  // is still being processed (an earlier courier's closed room does not count).
   const waiting = rooms !== null && !hasRooms && hasCourier;
 
   // Frames go to the open panel through these listeners, so switching rooms
@@ -92,12 +129,38 @@ export function ErrandChat({ errandId, errandStatus, getToken }: Props) {
         });
         // A new courier's room is the one that matters now.
         setSelectedId(room.id);
+      } else if (frame.type === "room_closing" && frame.errandId === errandId) {
+        if (!roomsRef.current?.some((r) => r.id === frame.roomId)) {
+          // A room we have not seen, e.g. created by a withdrawal that was
+          // processed before its acceptance: read the list again.
+          void loadRooms();
+        } else {
+          setRooms((current) =>
+            (current ?? []).map((r) =>
+              r.id === frame.roomId
+                ? {
+                    ...r,
+                    endReason: frame.endReason,
+                    closesAt: frame.closesAt,
+                    status: roomStatus({ ...r, closesAt: frame.closesAt }, Date.now()),
+                  }
+                : r,
+            ),
+          );
+        }
       }
       listeners.current.forEach((listener) => listener(frame));
     },
     [errandId, loadRooms],
   );
 
+  // The server refused a send with ROOM_CLOSED: hide the room now.
+  const onClosed = useCallback((roomId: string) => {
+    setClosedIds((current) => new Set(current).add(roomId));
+  }, []);
+
+  // Hidden rooms cannot change any more, so a page with none shown (and no
+  // courier expected) needs no live connection.
   const { status, send } = useChatSocket({
     enabled: hasRooms || hasCourier,
     getToken,
@@ -118,7 +181,7 @@ export function ErrandChat({ errandId, errandStatus, getToken }: Props) {
     };
   }, [waiting, waitRound, loadRooms]);
 
-  // Nothing to show: no courier yet, and never had one.
+  // Nothing to show: no courier, and no room that is still open or closing.
   if (rooms === null || (!hasRooms && !hasCourier)) return null;
 
   if (!hasRooms) {
@@ -156,7 +219,7 @@ export function ErrandChat({ errandId, errandStatus, getToken }: Props) {
     );
   }
 
-  const room = rooms.find((r) => r.id === selectedId) ?? rooms[0];
+  const room = visible.find((r) => r.id === selectedId) ?? visible[0];
   const otherParty = room.myRole === "REQUESTER" ? "your courier" : "the requester";
 
   return (
@@ -166,7 +229,7 @@ export function ErrandChat({ errandId, errandStatus, getToken }: Props) {
         <ConnectionLabel status={status} />
       </div>
 
-      {rooms.length > 1 && (
+      {visible.length > 1 && (
         <div className="field chat-rooms">
           <label htmlFor={`chat-room-${errandId}`}>Conversation</label>
           <select
@@ -175,10 +238,11 @@ export function ErrandChat({ errandId, errandStatus, getToken }: Props) {
             value={room.id}
             onChange={(e) => setSelectedId(e.target.value)}
           >
-            {rooms.map((r, index) => (
+            {visible.map((r) => (
               <option key={r.id} value={r.id}>
-                {index === 0 ? "Latest courier" : "Earlier courier"} · since{" "}
+                {r.id === rooms[0].id ? "Latest courier" : "Earlier courier"} · since{" "}
                 {formatDateTime(r.createdAt)}
+                {roomStatus(r, now) === "CLOSING" ? " · closing" : ""}
               </option>
             ))}
           </select>
@@ -198,6 +262,8 @@ export function ErrandChat({ errandId, errandStatus, getToken }: Props) {
         socketStatus={status}
         send={send}
         subscribe={subscribe}
+        forcedClosed={closedIds.has(room.id)}
+        onClosed={onClosed}
       />
     </section>
   );

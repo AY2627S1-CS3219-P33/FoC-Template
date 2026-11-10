@@ -22,8 +22,8 @@ info:
       user recipients from requesterId, courierId, actorId and reviewReason, stores
       user-specific notifications and delivers them through its frontend interface.
       There is no notification.requested command or requirement for a queue per user.
-    - chat-service.errand-events binds to errand.accepted (later also errand.withdrawn,
-      errand.completed and errand.refunded) to open and close chat rooms. It is a
+    - chat-service.errand-events binds to errand.accepted, errand.withdrawn,
+      errand.completed and errand.refunded to open and close chat rooms. It is a
       quorum queue with x-delivery-limit 5 that dead-letters to
       chat-service.errand-events.dlq; chat-service owns both (chat-service/README.md).
     - Optional order-events.tap binds to errand.# only when AMQP_DECLARE_TAP is set.
@@ -620,6 +620,15 @@ operations:
       $ref: "#/channels/errandWithdrawn"
     messages:
       - $ref: "#/channels/errandWithdrawn/messages/message"
+  chatReceivesErrandWithdrawn:
+    action: receive
+    description: chat-service ends the chat room of the courier in courierId only. It
+      stays writable for CHAT_CLOSE_DELAY (24 hours) after occurredAt, then
+      becomes read-only (queue chat-service.errand-events).
+    channel:
+      $ref: "#/channels/errandWithdrawn"
+    messages:
+      - $ref: "#/channels/errandWithdrawn/messages/message"
   orderSendsErrandExpired:
     action: send
     channel:
@@ -680,6 +689,15 @@ operations:
       $ref: "#/channels/errandCompleted"
     messages:
       - $ref: "#/channels/errandCompleted/messages/message"
+  chatReceivesErrandCompleted:
+    action: receive
+    description: chat-service ends every chat room of the errand; each stays writable
+      for CHAT_CLOSE_DELAY (24 hours) after occurredAt, then becomes read-only.
+      A room that already ended (a withdrawn courier's) keeps its earlier end.
+    channel:
+      $ref: "#/channels/errandCompleted"
+    messages:
+      - $ref: "#/channels/errandCompleted/messages/message"
   orderSendsErrandRefunded:
     action: send
     channel:
@@ -688,6 +706,14 @@ operations:
       - $ref: "#/channels/errandRefunded/messages/message"
   notificationReceivesErrandRefunded:
     action: receive
+    channel:
+      $ref: "#/channels/errandRefunded"
+    messages:
+      - $ref: "#/channels/errandRefunded/messages/message"
+  chatReceivesErrandRefunded:
+    action: receive
+    description: chat-service ends every chat room of the errand, as for
+      errand.completed.
     channel:
       $ref: "#/channels/errandRefunded"
     messages:

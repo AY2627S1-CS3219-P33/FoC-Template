@@ -83,8 +83,8 @@ ORDER BY created_at DESC, id
 LIMIT @row_limit;
 
 -- name: ListRoomsForErrand :many
--- ListRoomsForErrand returns every room of an errand, including withdrawn
--- couriers' rooms (admin only).
+-- ListRoomsForErrand returns every room of an errand, oldest first, including
+-- withdrawn couriers' rooms. No route exposes it; tests use it to inspect rooms.
 SELECT * FROM chat_rooms
 WHERE errand_id = @errand_id
 ORDER BY created_at, id;
@@ -123,11 +123,3 @@ SELECT DISTINCT ON (room_id) *
 FROM chat_messages
 WHERE room_id = ANY(@room_ids::uuid[])
 ORDER BY room_id, id DESC;
-
--- name: ListAllMessages :many
--- ListAllMessages returns a room's whole log, oldest first (admin export).
-SELECT * FROM chat_messages WHERE room_id = @room_id ORDER BY id;
-
--- name: InsertExport :exec
-INSERT INTO chat_log_exports (room_id, admin_subject, format)
-VALUES (@room_id, @admin_subject, @format);

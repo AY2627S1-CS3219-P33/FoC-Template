@@ -25,16 +25,20 @@ const (
 	DeliveryLimit = 5
 )
 
-// Routing keys chat-service binds to. errand.withdrawn, errand.completed and
-// errand.refunded are added with the room-closing handlers (phase 7). Until
-// a key is bound, those events are simply not routed to this queue.
+// Routing keys chat-service binds to: an acceptance opens a room, and a
+// withdrawal (that courier's room), completion or refund (every room of the
+// errand) starts its closing. Delivery and disputes do not end a room.
 const (
-	RoutingErrandAccepted = "errand.accepted"
+	RoutingErrandAccepted  = "errand.accepted"
+	RoutingErrandWithdrawn = "errand.withdrawn"
+	RoutingErrandCompleted = "errand.completed"
+	RoutingErrandRefunded  = "errand.refunded"
 )
 
-// Bindings lists every routing key Queue receives.
+// Bindings lists every routing key Queue receives. Binding is additive, so a
+// queue declared by an older build gains the new keys on the next connect.
 func Bindings() []string {
-	return []string{RoutingErrandAccepted}
+	return []string{RoutingErrandAccepted, RoutingErrandWithdrawn, RoutingErrandCompleted, RoutingErrandRefunded}
 }
 
 // Declare creates the exchange, both queues and the bindings if they do not

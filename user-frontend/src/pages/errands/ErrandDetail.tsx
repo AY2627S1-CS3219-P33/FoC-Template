@@ -29,7 +29,7 @@ import {
 interface Props {
   errandId: string;
   getToken: () => Promise<string>;
-  // A chat-service token; the chat is shown to the requester and the courier.
+  // A chat-service token, for the errand's chat section.
   getChatToken: () => Promise<string>;
   onBack: () => void;
   onEdit: (errand: RequesterErrandView) => void;
@@ -170,7 +170,6 @@ export function ErrandDetail({
   const status = isPublic ? "OPEN" : errand.status;
   const requester = errand.viewerRole === "REQUESTER" ? errand : null;
   const courier = errand.viewerRole === "COURIER" ? errand : null;
-  const participant = requester ?? courier;
 
   return (
     <>
@@ -280,9 +279,11 @@ export function ErrandDetail({
         }
       />
 
-      {participant && (
-        <ErrandChat errandId={errandId} errandStatus={participant.status} getToken={getChatToken} />
-      )}
+      {/* For the requester and the courier, and also for a courier who
+          withdrew: they now see the public view, but keep their own room
+          while it closes. Anyone else has no room, so nothing is shown. */}
+      <ErrandChat errandId={errandId} errandStatus={status} getToken={getChatToken} />
+
 
       <section className="panel">
         <h2>Items</h2>

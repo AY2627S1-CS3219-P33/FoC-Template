@@ -21,15 +21,33 @@ import (
 // outbox dispatcher builds it (internal/errand/outbox.go, EventData).
 func acceptedBody(t *testing.T, errandID string, change func(env map[string]any, data map[string]any)) []byte {
 	t.Helper()
+	return eventBody(t, RoutingErrandAccepted, errandID, 3, "2026-11-09T14:00:00Z", change)
+}
+
+// eventTransitions is what order-service puts in data for each event chat
+// reads: the transition's event name, from and to, and who acted.
+var eventTransitions = map[string][4]string{
+	RoutingErrandAccepted:  {"accept", "OPEN", "ASSIGNED", "COURIER"},
+	RoutingErrandWithdrawn: {"withdraw", "ASSIGNED", "OPEN", "COURIER"},
+	RoutingErrandCompleted: {"confirm", "DELIVERED", "COMPLETED", "REQUESTER"},
+	RoutingErrandRefunded:  {"admin_refund", "REVIEW_REQUIRED", "REFUNDED", "ADMIN"},
+}
+
+// eventBody is an errand event as order-service publishes it. courierId is
+// the errand's courier before the transition, so on errand.withdrawn it is
+// the courier who withdrew.
+func eventBody(t *testing.T, routingKey, errandID string, version int, at string, change func(env, data map[string]any)) []byte {
+	t.Helper()
+	transition := eventTransitions[routingKey]
 	data := map[string]any{
-		"errandId": errandID, "errandVersion": 3, "event": "accept",
-		"from": "OPEN", "to": "ASSIGNED", "actorType": "COURIER", "actorId": "auth0|courier",
+		"errandId": errandID, "errandVersion": version, "event": transition[0],
+		"from": transition[1], "to": transition[2], "actorType": transition[3], "actorId": "auth0|courier",
 		"requesterId": "auth0|requester", "courierId": "auth0|courier",
-		"reward": 5, "at": "2026-11-09T14:00:00Z",
+		"reward": 5, "at": at,
 	}
 	env := map[string]any{
-		"messageId": errandID + ":accepted:3", "type": "errand.accepted",
-		"occurredAt": "2026-11-09T14:00:00Z", "errandId": errandID, "errandVersion": 3,
+		"messageId": fmt.Sprintf("%s:%s:%d", errandID, routingKey, version), "type": routingKey,
+		"occurredAt": at, "errandId": errandID, "errandVersion": version,
 		"data": data,
 	}
 	if change != nil {
@@ -91,17 +109,114 @@ func TestDecodeAcceptedRejectsBrokenMessages(t *testing.T) {
 	}
 }
 
-type fakeApplier struct {
-	err    error
-	events []chat.AcceptedEvent
+func TestDecodeWithdrawn(t *testing.T) {
+	errandID := uuid.NewString()
+	event, err := decodeWithdrawn(RoutingErrandWithdrawn,
+		eventBody(t, RoutingErrandWithdrawn, errandID, 4, "2026-11-09T15:00:00Z", nil))
+	require.NoError(t, err)
+	require.Equal(t, chat.WithdrawnEvent{
+		ErrandID: uuid.MustParse(errandID), ErrandVersion: 4,
+		RequesterID: "auth0|requester", CourierID: "auth0|courier",
+		OccurredAt: time.Date(2026, 11, 9, 15, 0, 0, 0, time.UTC),
+	}, event)
+
+	_, err = decodeWithdrawn(RoutingErrandWithdrawn,
+		eventBody(t, RoutingErrandWithdrawn, errandID, 4, "2026-11-09T15:00:00Z", func(_, data map[string]any) {
+			delete(data, "courierId")
+		}))
+	require.ErrorIs(t, err, errMalformed, "without courierId there is no room to end")
+
+	_, err = decodeWithdrawn(RoutingErrandWithdrawn, acceptedBody(t, errandID, nil))
+	require.ErrorIs(t, err, errMalformed, "the type must match the routing key")
 }
 
-func (f *fakeApplier) OnAccepted(_ context.Context, event chat.AcceptedEvent) (chat.AcceptResult, error) {
-	f.events = append(f.events, event)
+func TestDecodeErrandEnded(t *testing.T) {
+	errandID := uuid.NewString()
+	for key, reason := range map[string]chat.EndReason{
+		RoutingErrandCompleted: chat.EndCompleted,
+		RoutingErrandRefunded:  chat.EndRefunded,
+	} {
+		t.Run(key, func(t *testing.T) {
+			event, err := decodeErrandEnded(key, eventBody(t, key, errandID, 7, "2026-11-09T16:00:00Z", nil), reason)
+			require.NoError(t, err)
+			require.Equal(t, chat.ErrandEndedEvent{
+				ErrandID: uuid.MustParse(errandID), ErrandVersion: 7, Reason: reason,
+				OccurredAt: time.Date(2026, 11, 9, 16, 0, 0, 0, time.UTC),
+			}, event)
+
+			_, err = decodeErrandEnded(key, eventBody(t, key, errandID, 7, "2026-11-09T16:00:00Z", func(_, data map[string]any) {
+				delete(data, "courierId")
+			}), reason)
+			require.NoError(t, err, "the courier is not needed: every room ends")
+
+			_, err = decodeErrandEnded(key, eventBody(t, key, errandID, 7, "2026-11-09T16:00:00Z", func(env, _ map[string]any) {
+				delete(env, "occurredAt")
+			}), reason)
+			require.ErrorIs(t, err, errMalformed, "the closing time comes from occurredAt")
+		})
+	}
+}
+
+// fakeApplier records which handler each event reached.
+type fakeApplier struct {
+	err   error
+	calls []string
+	ended []chat.ErrandEndedEvent
+}
+
+func (f *fakeApplier) OnAccepted(_ context.Context, _ chat.AcceptedEvent) (chat.AcceptResult, error) {
+	f.calls = append(f.calls, "accepted")
 	if f.err != nil {
 		return chat.AcceptResult{}, f.err
 	}
 	return chat.AcceptResult{Room: chat.Room{ID: uuid.New()}, Opened: true}, nil
+}
+
+func (f *fakeApplier) OnWithdrawn(_ context.Context, _ chat.WithdrawnEvent) (chat.WithdrawResult, error) {
+	f.calls = append(f.calls, "withdrawn")
+	if f.err != nil {
+		return chat.WithdrawResult{}, f.err
+	}
+	return chat.WithdrawResult{Room: chat.Room{ID: uuid.New()}, Closing: true}, nil
+}
+
+func (f *fakeApplier) OnErrandEnded(_ context.Context, event chat.ErrandEndedEvent) (chat.EndResult, error) {
+	f.calls = append(f.calls, "ended")
+	f.ended = append(f.ended, event)
+	if f.err != nil {
+		return chat.EndResult{}, f.err
+	}
+	return chat.EndResult{}, nil
+}
+
+func TestHandlerRoutesEachEvent(t *testing.T) {
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	errandID := uuid.NewString()
+	for key, want := range map[string]string{
+		RoutingErrandAccepted:  "accepted",
+		RoutingErrandWithdrawn: "withdrawn",
+		RoutingErrandCompleted: "ended",
+		RoutingErrandRefunded:  "ended",
+	} {
+		t.Run(key, func(t *testing.T) {
+			applier := &fakeApplier{}
+			body := eventBody(t, key, errandID, 3, "2026-11-09T14:00:00Z", nil)
+			require.Equal(t, Ack, NewHandler(applier, logger).Handle(context.Background(), key, "m-1", body))
+			require.Equal(t, []string{want}, applier.calls)
+		})
+	}
+
+	applier := &fakeApplier{}
+	handler := NewHandler(applier, logger)
+	handler.Handle(context.Background(), RoutingErrandCompleted, "m-1",
+		eventBody(t, RoutingErrandCompleted, errandID, 3, "2026-11-09T14:00:00Z", nil))
+	handler.Handle(context.Background(), RoutingErrandRefunded, "m-2",
+		eventBody(t, RoutingErrandRefunded, errandID, 3, "2026-11-09T14:00:00Z", nil))
+	require.Equal(t, chat.EndCompleted, applier.ended[0].Reason)
+	require.Equal(t, chat.EndRefunded, applier.ended[1].Reason)
+
+	require.Equal(t, Reject, handler.Handle(context.Background(), RoutingErrandWithdrawn, "m-3",
+		acceptedBody(t, errandID, nil)), "a body whose type is another event is dead-lettered")
 }
 
 func TestHandlerDispositions(t *testing.T) {
@@ -127,7 +242,7 @@ func TestHandlerDispositions(t *testing.T) {
 			applier := &fakeApplier{err: tc.err}
 			got := NewHandler(applier, logger).Handle(context.Background(), tc.routingKey, "m-1", tc.body)
 			require.Equal(t, tc.want, got)
-			require.Equal(t, tc.applied, len(applier.events) == 1)
+			require.Equal(t, tc.applied, len(applier.calls) == 1)
 		})
 	}
 }

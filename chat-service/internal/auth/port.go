@@ -18,9 +18,6 @@ const (
 	// UseChats lets a user read and send messages in rooms they take part
 	// in, and open the WebSocket.
 	UseChats Permission = "chats:use"
-	// ExportChats lets an administrator list every room of an errand and
-	// download any room's log (/admin routes).
-	ExportChats Permission = "chats:export"
 )
 
 // TokenKind says whether a credential was issued to a person or to a service.
@@ -93,7 +90,7 @@ func (p Principal) Has(permission Permission) bool {
 
 func knownPermission(permission Permission) bool {
 	switch permission {
-	case UseChats, ExportChats:
+	case UseChats:
 		return true
 	default:
 		return false

@@ -1,7 +1,7 @@
 # Chat service agent notes
 
 ## Scope
-This service owns chat between an errand's requester and its assigned courier: rooms, messages, live delivery over WebSocket, and admin log export. Errand, credit and user logic must not live here. Never query another service's database; room lifecycle comes only from order-service's errand events on RabbitMQ. The design and build order are in `implementation-plan.md`; follow it and keep it up to date when a decision changes.
+This service owns chat between an errand's requester and its assigned courier: rooms, messages, and live delivery over WebSocket. Errand, credit and user logic must not live here. Never query another service's database; room lifecycle comes only from order-service's errand events on RabbitMQ. The design and build order are in `implementation-plan.md`; follow it and keep it up to date when a decision changes.
 
 ## Rules that must not drift
 - One room per `(errandId, courierId)`. A new courier gets a new, empty room and never sees an earlier courier's messages.
@@ -28,7 +28,7 @@ Every rule (participant check, room status, message validation, paging) lives in
 Frames, close codes and the Room/Message JSON live only in `internal/protocol`; update `docs/websocket-protocol.md` with any change. `chat` pushes through `chat.Notifier` only after a commit, and never for a retry. Only `broadcast` and `hub` know how delivery works; address envelopes to users, never connections. The hub must never block (`Deliver` drops slow clients). Keep business state out of `hub` and `ws`. A WebSocket token arrives in the first frame, never the URL; the connection closes at the token's expiry.
 
 ## Authentication
-`internal/auth` is copied from order-service; keep the two in step. Identity and permissions come only from the verified Auth0 token, never from a request body or WebSocket frame field. `chats:use` for participant routes and the WebSocket, `chats:export` for `/admin/*`; machine-to-machine tokens are refused on all routes. WebSocket tokens arrive in the first `auth` frame, never in the URL.
+`internal/auth` is copied from order-service; keep the two in step. Identity and permissions come only from the verified Auth0 token, never from a request body or WebSocket frame field. `chats:use` is the only permission, for every chat route and the WebSocket; machine-to-machine tokens are refused on all routes. WebSocket tokens arrive in the first `auth` frame, never in the URL.
 
 ## Verify
 ```sh

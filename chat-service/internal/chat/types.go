@@ -139,14 +139,6 @@ type ErrandEnding struct {
 	EndedAt  time.Time
 }
 
-// ExportFormat is the file format of an admin log export.
-type ExportFormat string
-
-const (
-	ExportJSON ExportFormat = "json"
-	ExportText ExportFormat = "text"
-)
-
 // Errors that callers can act on. The store returns these instead of raw
 // database errors.
 var (

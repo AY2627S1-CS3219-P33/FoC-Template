@@ -129,25 +129,35 @@ func TestLiveChatEndToEnd(t *testing.T) {
 
 func publishAccepted(t *testing.T, amqpURL, errandID string) {
 	t.Helper()
+	publishErrandEvent(t, amqpURL, events.RoutingErrandAccepted, errandID, 3,
+		time.Date(2026, 11, 9, 14, 0, 0, 0, time.UTC))
+}
+
+// publishErrandEvent publishes an errand event between auth0|requester and
+// auth0|courier, as order-service's outbox dispatcher does.
+func publishErrandEvent(t *testing.T, amqpURL, routingKey, errandID string, version int, occurredAt time.Time) {
+	t.Helper()
 	conn, err := amqp.Dial(amqpURL)
 	require.NoError(t, err)
 	defer conn.Close()
 	ch, err := conn.Channel()
 	require.NoError(t, err)
+	at := occurredAt.UTC().Format(time.RFC3339Nano)
+	messageID := errandID + ":" + routingKey + ":" + strconv.Itoa(version)
 	body, err := json.Marshal(map[string]any{
-		"messageId": errandID + ":accepted:3", "type": "errand.accepted",
-		"occurredAt": "2026-11-09T14:00:00Z", "errandId": errandID, "errandVersion": 3,
+		"messageId": messageID, "type": routingKey,
+		"occurredAt": at, "errandId": errandID, "errandVersion": version,
 		"data": map[string]any{
-			"errandId": errandID, "errandVersion": 3, "event": "accept", "from": "OPEN", "to": "ASSIGNED",
+			"errandId": errandID, "errandVersion": version, "event": routingKey, "to": "ASSIGNED",
 			"actorType": "COURIER", "actorId": "auth0|courier",
 			"requesterId": "auth0|requester", "courierId": "auth0|courier",
-			"reward": 5, "at": "2026-11-09T14:00:00Z",
+			"reward": 5, "at": at,
 		},
 	})
 	require.NoError(t, err)
-	require.NoError(t, ch.PublishWithContext(context.Background(), events.Exchange, events.RoutingErrandAccepted, true, false,
+	require.NoError(t, ch.PublishWithContext(context.Background(), events.Exchange, routingKey, true, false,
 		amqp.Publishing{ContentType: "application/json", DeliveryMode: amqp.Persistent,
-			MessageId: errandID + ":accepted:3", Type: events.RoutingErrandAccepted, Body: body}))
+			MessageId: messageID, Type: routingKey, Body: body}))
 }
 
 func write(t *testing.T, conn *websocket.Conn, v any) {

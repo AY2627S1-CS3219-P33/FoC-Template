@@ -185,7 +185,8 @@ func (q *Queries) ListRoomsForUser(ctx context.Context, userID string, limit int
 	return summaries, nil
 }
 
-// ListRoomsForErrand returns every room of an errand, oldest first (admin).
+// ListRoomsForErrand returns every room of an errand, oldest first, including
+// withdrawn couriers' rooms. No route exposes it; tests use it to inspect rooms.
 func (q *Queries) ListRoomsForErrand(ctx context.Context, errandID uuid.UUID) ([]chat.Room, error) {
 	rows, err := q.q.ListRoomsForErrand(ctx, errandID)
 	if err != nil {
@@ -250,22 +251,4 @@ func (q *Queries) ListMessagesBefore(ctx context.Context, roomID uuid.UUID, befo
 	messages := messagesFromRows(rows)
 	slices.Reverse(messages) // the query returns newest first
 	return messages, nil
-}
-
-// ListAllMessages returns a room's whole log, oldest first (admin export).
-func (q *Queries) ListAllMessages(ctx context.Context, roomID uuid.UUID) ([]chat.Message, error) {
-	rows, err := q.q.ListAllMessages(ctx, roomID)
-	if err != nil {
-		return nil, translate("list all messages", err)
-	}
-	return messagesFromRows(rows), nil
-}
-
-// ---- Admin export audit ----
-
-// RecordExport records that adminSubject exported the room's log.
-func (q *Queries) RecordExport(ctx context.Context, roomID uuid.UUID, adminSubject string, format chat.ExportFormat) error {
-	return translate("record export", q.q.InsertExport(ctx, chatgen.InsertExportParams{
-		RoomID: roomID, AdminSubject: adminSubject, Format: string(format),
-	}))
 }

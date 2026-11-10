@@ -1,8 +1,8 @@
 # Chat service
 
-Lets the **requester** and the **assigned courier** of an errand message each other in real time. A room opens when a courier accepts an errand, becomes read-only 24 hours after the errand ends, and is kept for admin export. The design, decisions and build order are in [implementation-plan.md](implementation-plan.md).
+Lets the **requester** and the **assigned courier** of an errand message each other in real time. A room opens when a courier accepts an errand, becomes read-only 24 hours after the errand ends, and is kept in the database afterwards. The design, decisions and build order are in [implementation-plan.md](implementation-plan.md).
 
-**Status:** phases 1 to 6 are done. When a courier accepts an errand, order-service announces it on RabbitMQ and chat-service creates the chat room. The requester and courier chat **live** in a panel on the errand's page in the app, over a WebSocket ([docs/websocket-protocol.md](docs/websocket-protocol.md)), with history and a fallback send over REST ([openapi.yaml](openapi.yaml)). Coming next: closing rooms when errands end (phase 7).
+**Status:** phases 1 to 7 are done. When a courier accepts an errand, order-service announces it on RabbitMQ and chat-service creates the chat room. The requester and courier chat **live** in a panel on the errand's page in the app, over a WebSocket ([docs/websocket-protocol.md](docs/websocket-protocol.md)), with history and a fallback send over REST ([openapi.yaml](openapi.yaml)). When the errand is completed or refunded, or that courier withdraws, the room stays open for 24 hours and then closes: the app stops showing it, while chat-service keeps it, read-only. The admin export (phase 8) was dropped. Coming next: deployment to AWS (phase 9).
 
 ## Contents
 
@@ -13,6 +13,7 @@ Lets the **requester** and the **assigned courier** of an errand message each ot
 - [Trying the API by hand](#trying-the-api-by-hand)
 - [Watching events in RabbitMQ](#watching-events-in-rabbitmq)
 - [Trying live chat](#trying-live-chat)
+- [Trying room closing](#trying-room-closing)
 - [Auth0 set-up](#auth0-set-up)
 - [Working with the database](#working-with-the-database)
 - [Environment variables](#environment-variables)
@@ -43,13 +44,12 @@ This section is for readers new to backend development. It explains what each pa
 - `chat_rooms`: one row per (errand, courier) pair. It includes the closing columns (`ended_at`, `end_reason`, `closes_at`), although the closing logic is only built in phase 7.
 - `chat_messages`: every message, never deleted.
 - `errand_endings`: remembers that an errand completed or was refunded, for the case where that event arrives *before* the room is created (RabbitMQ may deliver events out of order).
-- `chat_log_exports`: an audit trail of which admin downloaded which chat log.
 
 Designing the whole schema now has three benefits:
 
 1. **No second migration later.** Changing a table that already holds real data is the riskiest kind of database change: you have to think about existing rows, locks on large tables, and deploying old and new code side by side. Getting the structure right once avoids that work.
 2. **The design is checked early.** Writing every table forced us to think through the tricky cases (duplicate events, events in the wrong order, a courier withdrawing) before any code depends on the structure.
-3. **Later phases only add code.** Phases 3 to 8 write Go, not SQL schema changes.
+3. **Later phases only add code.** Phases 3 to 7 write Go, not SQL schema changes.
 
 **The database enforces the rules too.** The tables have *constraints*: rules PostgreSQL itself refuses to break, whatever the code does. For example:
 
@@ -60,7 +60,7 @@ Designing the whole schema now has three benefits:
 | `chat_rooms_end_fields` | `ended_at`, `end_reason` and `closes_at` are all set or all empty, and a room cannot close before it ends | Half-ended rooms that would never close |
 | `chat_messages_idempotent` | One message per (room, `client_msg_id`) | A browser retrying a send and posting the message twice |
 | `chat_messages_body_length` | 1 to 2000 characters | Empty or huge messages |
-| Foreign keys (`REFERENCES chat_rooms`) | Messages and exports belong to an existing room, and a room with messages cannot be deleted | Orphan messages, and lost chat history |
+| Foreign keys (`REFERENCES chat_rooms`) | Messages belong to an existing room, and a room with messages cannot be deleted | Orphan messages, and lost chat history |
 
 Even if a future bug skipped a check in Go, the database would still refuse bad data. The tests found a real gap this way: the planned `chat_rooms_end_fields` rule allowed a room with an end time but no closing time, because in SQL a comparison with an empty (`NULL`) value is "unknown", and a constraint only rejects "false". The rule now also requires `closes_at IS NOT NULL`.
 
@@ -133,7 +133,7 @@ The middleware checks the signature with Auth0's public keys (downloaded once an
 
 - **Nobody can pretend to be someone else.** Changing one letter of a token breaks the signature. The user ID always comes from the verified token, never from the request body or URL. The API has no `senderId` field at all, and an unknown field in the body is rejected.
 - **A token for another service is refused.** A token issued for order-service has a different audience, so chat-service rejects it. A leaked token therefore only works for the one API it was issued for.
-- **Permissions, not just identity.** Every route requires the `chats:use` permission. The admin routes in phase 8 will require `chats:export`, which only administrators have. Machine-to-machine tokens (used by services, not people) are refused on these routes.
+- **Permissions, not just identity.** Every chat route requires the `chats:use` permission, the only permission chat-service has. Machine-to-machine tokens (used by services, not people) are refused on these routes.
 
 The package is **copied from order-service** (the plan asks for this) and only the permission names changed. Security code is easy to get subtly wrong, so it is reused rather than rewritten, together with its tests: expired tokens, wrong audiences, forged signatures, rotated keys and an Auth0 outage are all covered.
 
@@ -206,7 +206,7 @@ chat-service never calls order-service and never reads its database (each servic
 ```
 
 - An **exchange** (`foc.events`) receives every event and sorts it by its **routing key** (`errand.accepted`, `errand.completed`, …).
-- A **queue** is a mailbox. chat-service has its own, `chat-service.errand-events`, and **binds** it to the routing keys it cares about. For now that is only `errand.accepted`; the room-closing events are added in phase 7.
+- A **queue** is a mailbox. chat-service has its own, `chat-service.errand-events`, and **binds** it to the routing keys it cares about. Phase 4 bound only `errand.accepted`; phase 7 added `errand.withdrawn`, `errand.completed` and `errand.refunded`.
 - The **consumer** ([internal/events/consumer.go](internal/events/consumer.go)) is a background loop inside chat-service that takes events from the queue one by one.
 
 **Why events instead of order-service calling chat-service?** The two services stay independent. order-service doesn't know or care that chat exists; it only announces facts. If chat-service is down or restarting, nothing fails in order-service: the events simply **wait in the queue** (it is *durable*: it survives restarts) and are processed when chat-service comes back. Other services, such as notifications, can listen to the same events without changing order-service.
@@ -230,7 +230,7 @@ RabbitMQ promises **at-least-once** delivery: an event can arrive **twice**, and
 | `errand.withdrawn` was processed before `errand.accepted` | The accept fills in the details but does not reopen the room | The room already exists and ended; the accept only adds missing data |
 | Two copies of chat-service handle events for the same errand at once | The second waits for the first | `LockErrand` takes a database lock per errand |
 
-(The completed-first and withdrawn-first cases can only happen once phase 7 binds those events. `OnAccepted` already handles them, so phase 7 doesn't have to change it.)
+(The completed-first and withdrawn-first cases can only happen since phase 7 binds those events. `OnAccepted` already handled them, so phase 7 didn't have to change it.)
 
 #### 3. When something goes wrong
 
@@ -372,7 +372,74 @@ The page's own origin (`localhost:8081` or `localhost:5173`) reaches chat-servic
 | **"Connecting chat…" right after accepting** | The room appears when chat-service processes the accept event, usually within a second. The section picks it up from the `room_opened` frame, a re-read after `ready`, or a short poll, and offers "Try again" after 15 s |
 | **Message text is rendered as text**, never as HTML | It is typed by another user. React escapes `{message.body}`; `white-space: pre-wrap` keeps their line breaks |
 
-The panel handles OPEN rooms. A send to a room that has closed is refused by the server and shown as a failed message; the closing banner and the read-only state come in phase 7.
+In phase 6 the panel handled OPEN rooms only; phase 7 added the closing banner and the read-only state.
+
+### Phase 7: closing rooms when the errand ends
+
+A chat is for one errand, so it should not stay open forever. Phase 7 closes it, gently: when the errand ends, the room stays writable for **24 hours** (both people may still need to say "left it with the guard"), then **closes**. A closed room is read-only in chat-service and is never deleted, but the app no longer shows it to the two people.
+
+#### 1. What ends a room
+
+| Event from order-service | Rooms it ends |
+|---|---|
+| `errand.completed` (delivery confirmed, or an admin completed it) | every room of the errand |
+| `errand.refunded` (an admin refunded it after review) | every room of the errand |
+| `errand.withdrawn` (the courier withdrew, or missed the pickup deadline) | only **that courier's** room; a later courier gets a new one |
+
+Delivery and disputes do **not** end the room: the requester may need the courier while checking a delivery or during a review.
+
+#### 2. Three states, no timer job
+
+The room's state is **worked out**, never stored, from one column, `closes_at`:
+
+| `closes_at` | State | Sending |
+|---|---|---|
+| empty | `OPEN` | yes |
+| in the future | `CLOSING` | yes |
+| in the past | `CLOSED` | no: `409 ROOM_CLOSED` (REST) or an `error` frame (WebSocket) |
+
+The event only **sets** `closes_at` = the event's `occurredAt` + `CHAT_CLOSE_DELAY` (24 h). Nothing has to run at the moment a room closes: every read and send compares `closes_at` with the clock. That is why no scheduler or background job is needed, why a closing can never be "missed", and why it works the same on every copy of the service.
+
+**Why `occurredAt` and not "now"?** If chat-service was down for an hour, the completion is processed an hour late. Counting from when the errand *actually* ended keeps the 24 hours honest.
+
+#### 3. Events that arrive twice or out of order
+
+The handlers ([lifecycle.go](internal/chat/lifecycle.go): `OnWithdrawn`, `OnErrandEnded`) follow one rule: **the earliest ending wins.** Setting an ending only ever moves it earlier, never later:
+
+| Situation | What happens |
+|---|---|
+| Any of these events arrives twice | The second changes nothing and tells nobody |
+| Courier A withdrew, B accepted, then the errand completed | B's room ends at the completion; A's keeps its earlier withdrawal time |
+| `errand.withdrawn` arrives before `errand.accepted` | The room is created already ending; the late acceptance cannot reopen it |
+| `errand.completed` arrives before `errand.accepted` | No room yet, so the ending is remembered (`errand_endings`); the late acceptance creates the room already ending |
+| A withdrawal from before the completion arrives after it | The ending moves earlier, to the withdrawal |
+
+As in phase 4, each handler runs in one transaction behind the errand's lock, and RabbitMQ is acked only after it commits.
+
+#### 4. Telling the browsers
+
+Only after the commit, each room whose ending changed gets a `room_closing` frame (`roomId`, `endReason`, `closesAt`) to its two people. A repeat of the event sends nothing.
+
+There is **no "room closed" frame**. The browser already knows `closesAt` and hides the room on its own timer. If the browser's clock is behind, the server's `ROOM_CLOSED` answer to the next send hides it at once.
+
+In the app ([user-frontend/src/chat](../user-frontend/src/chat/roomStatus.ts)):
+
+- **CLOSING:** a banner such as *"This errand is complete. You can keep chatting until 10 Nov, 14:40 (in 23 h 59 min); after that this chat closes and is no longer shown here."* The message box stays.
+- **CLOSED:** the room disappears from the page, without a refresh. If it was the only one, the chat section disappears too. **This is only hidden in the app:** the REST API still lists closed rooms and serves their history (read-only), as the contract says.
+- A requester with several couriers' rooms sees the ones still open or closing in the conversation list, marked `· closing` where it applies.
+- A courier who withdrew sees the errand's public page, but still finds their own room there while it closes.
+- When no room on the page is shown and no courier is expected, the page opens no WebSocket at all.
+
+#### 5. Tests
+
+| Level | What is covered |
+|---|---|
+| message checks (no services) | real `errand.withdrawn`, `errand.completed` and `errand.refunded` messages decode; a withdrawal without `courierId` is refused; each routing key reaches its handler |
+| lifecycle (real PostgreSQL) | completion and refund end the room; a withdrawal ends only that courier's room; duplicates change nothing and announce nothing; withdrawal before acceptance; completion before acceptance; A's earlier withdrawal survives the later completion; a late but earlier withdrawal moves the ending earlier; with a fake clock, a real event leaves the room writable while `CLOSING`, refuses a send one second after `closesAt`, and still allows reading |
+| consumer (real RabbitMQ and PostgreSQL) | the plan's flows through the broker: accepted then completed (each twice), refunded, withdrawn before accepted (each twice), completed before accepted, withdrawal → new courier → completion; a withdrawal without a courier is dead-lettered |
+| end to end ([closing_e2e_test.go](internal/app/closing_e2e_test.go)) | the whole app with a 2-second delay: both connected people get `room_closing` with the right `closesAt`, the room lists as `CLOSING` and still accepts a message, then lists as `CLOSED`, refuses a send with `ROOM_CLOSED`, and still serves its history |
+
+**Rooms from before phase 7.** Events are only routed to the queue once their routing key is bound, so a completion that happened before this build ran was never delivered to chat-service, and its room stays `OPEN`. That only affects local stacks used before now; nothing is deployed yet.
 
 ## Technology
 
@@ -533,14 +600,27 @@ ws.send(JSON.stringify({ type: "send", roomId: "<room id>", clientMsgId: crypto.
 
 The sending tab prints `ack` and `message`; the other tab prints `message` straight away. A command-line alternative is `websocat ws://localhost:3005/ws`, typing each frame as one line. Accepting an errand in the app while both tabs are connected prints `room_opened` in both.
 
+## Trying room closing
+
+Make the 24 hours a minute: add `CHAT_CLOSE_DELAY=1m` to `chat-service/.env` and restart chat-service (`docker compose up -d chat-service` from the repository root).
+
+1. In two browsers, request an errand as one user and accept it as the other, as in [Trying live chat](#trying-live-chat). Chat a little.
+2. As the courier, mark it picked up and delivered; as the requester, confirm the delivery. Both panels show the "This errand is complete …" banner straight away, and sending still works.
+3. A minute after the confirmation, the chat section disappears from both pages, without a refresh, and stays gone after a refresh. The room and its messages are still in the database (query below).
+4. **Withdrawal:** accept another errand, then withdraw as the courier. Both see the banner; the withdrawn courier still finds the room on the errand's page. Accept it with a third user: the requester now has two conversations, the new one open and empty, the old one closing. A minute later the old one disappears from the list.
+
+To check the database: `docker compose exec chat-db psql -U chat_service -d chat_service -c "SELECT courier_id, end_reason, ended_at, closes_at FROM chat_rooms ORDER BY created_at DESC LIMIT 5;"`
+
+Remove `CHAT_CLOSE_DELAY` from `.env` afterwards. A shorter delay applies only to endings processed while it is set; rooms that already have a `closes_at` keep it.
+
 ## Auth0 set-up
 
 Do this once per Auth0 tenant, in the dashboard:
 
 1. **Applications → APIs → Create API**: identifier `https://api.foc.local/chat-service`, signing algorithm RS256.
 2. In its **Settings**, turn on **Enable RBAC** and **Add Permissions in the Access Token**.
-3. In its **Permissions** tab, add `chats:use` (read and send in your own chats) and `chats:export` (admins: download any chat log).
-4. **User Management → Roles**: give `chats:use` to the user role, and both permissions to the administrator role (the roles user-service already assigns).
+3. In its **Permissions** tab, add `chats:use` (read and send in your own chats).
+4. **User Management → Roles**: give `chats:use` to the user role and to the administrator role (the roles user-service already assigns).
 
 ## Working with the database
 

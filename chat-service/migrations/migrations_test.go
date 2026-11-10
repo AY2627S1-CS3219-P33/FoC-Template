@@ -19,7 +19,6 @@ var relations = []string{
 	"chat_rooms",
 	"chat_messages",
 	"errand_endings",
-	"chat_log_exports",
 	"chat_rooms_by_requester",
 	"chat_rooms_by_courier",
 	"chat_messages_room_id_idx",
@@ -131,12 +130,9 @@ func TestSchemaConstraints(t *testing.T) {
 		require.NoError(t, insertMessage(pool, roomB, "same", "hi"), "another room may reuse it")
 	})
 
-	t.Run("messages and exports need an existing room", func(t *testing.T) {
+	t.Run("messages need an existing room", func(t *testing.T) {
 		pool := testdb.Migrated(t).Pool
 		requireCode(t, insertMessage(pool, uuid.New(), "c1", "hi"), "23503")
-		_, err := pool.Exec(ctx, `INSERT INTO chat_log_exports (room_id, admin_subject, format)
-			VALUES ($1, 'auth0|admin', 'json')`, uuid.New())
-		requireCode(t, err, "23503")
 	})
 
 	t.Run("rooms with messages cannot be deleted", func(t *testing.T) {
@@ -158,14 +154,11 @@ func TestSchemaConstraints(t *testing.T) {
 		require.Greater(t, second, first)
 	})
 
-	t.Run("errand endings and export formats are checked", func(t *testing.T) {
+	t.Run("errand ending reasons are checked", func(t *testing.T) {
 		pool := testdb.Migrated(t).Pool
 		_, err := pool.Exec(ctx, `INSERT INTO errand_endings (errand_id, reason, ended_at)
 			VALUES ($1, 'WITHDRAWN', now())`, uuid.New())
 		requireCode(t, err, "23514", "a withdrawal ends one room, not the errand")
-		_, err = pool.Exec(ctx, `INSERT INTO chat_log_exports (room_id, admin_subject, format)
-			VALUES ($1, 'auth0|admin', 'pdf')`, roomID(t, pool))
-		requireCode(t, err, "23514")
 	})
 }
 

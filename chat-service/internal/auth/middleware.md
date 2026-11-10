@@ -14,7 +14,7 @@ This document specifies the authentication and authorization cases handled by th
 | **6. Verifier Unavailable** | Port returns `VerifierUnavailable` (user service or identity provider is down) | `503 Service Unavailable` | `DEPENDENCY_UNAVAILABLE` | `"authentication service unavailable"` |
 | **7. Unexpected Error** | Port returns an unclassified error | `500 Internal Server Error` | `INTERNAL` | `"an unexpected internal error occurred"` *(prevents secret/credential leakage)* |
 | **8. Service Credential on User Route** | Token is valid but is not a user token (e.g. Auth0 `gty` is `client-credentials`), whatever permissions it carries | `403 Forbidden` | `FORBIDDEN` | `"a user credential is required for this operation"` |
-| **9. Insufficient Permissions** | User token is valid, but caller lacks required permission (e.g., normal user calling a review endpoint) | `403 Forbidden` | `FORBIDDEN` | `"insufficient permissions for this operation"` |
+| **9. Insufficient Permissions** | User token is valid, but caller lacks the required permission (e.g., a token without `chats:use`) | `403 Forbidden` | `FORBIDDEN` | `"insufficient permissions for this operation"` |
 | **10. Ignored Client Spoofing** | Caller tries to pass `role=administrator` or `subject` in request queries or bodies | *N/A* | *N/A* | Ignored; identity and permissions are strictly derived from `auth.Principal` |
 | **11. Successful Access** | User token is verified and permissions match (`principal.Has(permission) == true`) | *Pass-through* | *None* | Injects `auth.Principal` into context via `WithPrincipal` and calls `next.ServeHTTP(w, r.WithContext(ctx))` |
 
@@ -24,10 +24,9 @@ Status codes come from `apperror.HTTPStatus`, the single code → status mapping
 
 | Permission | Granted to | Token kind | Used by |
 | :--- | :--- | :--- | :--- |
-| `chats:use` | users and administrators | user | `RequireUse`: participant routes (`/me/chats`, `/errands/{errandId}/chats`, `/chats/{roomId}/messages`) and, later, the WebSocket |
-| `chats:export` | administrators | user | `RequireExport`: `/admin/*` routes (phase 8) |
+| `chats:use` | users and administrators | user | `RequireUse`: participant routes (`/me/chats`, `/errands/{errandId}/chats`, `/chats/{roomId}/messages`); the WebSocket checks it in its `auth` frame |
 
-Both are defined on the Auth0 API `https://api.foc.local/chat-service` (see the chat-service README).
+It is the only permission. It is defined on the Auth0 API `https://api.foc.local/chat-service` (see the chat-service README).
 
 A service token is an Auth0 client-credentials token: its `gty` claim is `client-credentials` and its subject is `<client-id>@clients`. Every other verified token is a user token. `RequirePermission` accepts user tokens only; chat-service has no routes for services.
 

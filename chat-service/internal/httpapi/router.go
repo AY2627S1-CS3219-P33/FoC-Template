@@ -1,6 +1,6 @@
-// Package httpapi mounts chat-service's REST routes. The participant and
-// admin routes arrive in later phases; for now it serves only what the
-// registrars passed to NewRouter provide (GET /readyz).
+// Package httpapi mounts chat-service's REST routes: whatever the registrars
+// passed to NewRouter provide (the participant chat routes, GET /ws and
+// GET /readyz).
 package httpapi
 
 import "net/http"

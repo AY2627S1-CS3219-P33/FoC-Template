@@ -10,14 +10,10 @@ import (
 
 func TestPrincipalPermissionsAreExplicit_NFR3_3(t *testing.T) {
 	user := Principal{Subject: "user-1", Kind: UserToken, Roles: []Role{RoleUser}, Permissions: []Permission{UseChats}}
-	admin := Principal{Subject: "admin-1", Kind: UserToken, Roles: []Role{RoleAdministrator}, Permissions: []Permission{UseChats, ExportChats}}
 	service := Principal{Subject: "client@clients", Kind: ServiceToken, Permissions: []Permission{UseChats}}
 
 	require.True(t, user.Has(UseChats))
-	require.False(t, user.Has(ExportChats))
 	require.False(t, user.Has(Permission("orders:internal")), "unknown permissions are never granted")
-	require.True(t, admin.Has(UseChats))
-	require.True(t, admin.Has(ExportChats))
 	require.True(t, service.Has(UseChats), "Has does not check the token kind; RequirePermission does")
 	require.False(t, (Principal{}).Has(UseChats))
 }
@@ -32,7 +28,7 @@ func TestPrincipalTokenKinds(t *testing.T) {
 }
 
 func TestPrincipalContextRoundTrip(t *testing.T) {
-	principal := Principal{Subject: "admin-1", Kind: UserToken, Roles: []Role{RoleAdministrator}, Permissions: []Permission{UseChats, ExportChats}}
+	principal := Principal{Subject: "admin-1", Kind: UserToken, Roles: []Role{RoleAdministrator}, Permissions: []Permission{UseChats}}
 	ctx := WithPrincipal(context.Background(), principal)
 
 	actual, ok := PrincipalFromContext(ctx)
@@ -57,7 +53,6 @@ func TestAuthenticationFailuresHaveStableKinds(t *testing.T) {
 func TestRolesAndUnknownPermissionsNeverGrantAccess_NFR3_3(t *testing.T) {
 	roleOnly := Principal{Subject: "auth0|admin", Kind: UserToken, Roles: []Role{RoleAdministrator}}
 	require.False(t, roleOnly.Has(UseChats))
-	require.False(t, roleOnly.Has(ExportChats))
 	require.False(t, (Principal{Permissions: []Permission{UseChats}}).Has(UseChats))
 	require.False(t, (Principal{Subject: "user", Permissions: []Permission{"unknown"}}).Has("unknown"))
 	require.False(t, (Principal{Subject: "user", Permissions: []Permission{"suppliers:manage"}}).Has("suppliers:manage"))

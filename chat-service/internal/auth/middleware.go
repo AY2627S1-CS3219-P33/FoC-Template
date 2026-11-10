@@ -26,7 +26,7 @@
 //     - The token is not a user token (e.g. a client-credentials token), whatever permissions it carries.
 //     - Returns 403 FORBIDDEN ("a user credential is required for this operation") (NFR3.5.3).
 //  9. Insufficient permissions (RBAC policy violation):
-//     - Authenticated principal lacks required permission (e.g. non-admin accessing ExportChats).
+//     - Authenticated principal lacks required permission (e.g. a token without chats:use).
 //     - Returns 403 FORBIDDEN ("insufficient permissions for this operation").
 //
 // 10. Client identity or role tampering ignored:
@@ -124,11 +124,6 @@ func (m *Middleware) RequirePermission(permission Permission) func(http.Handler)
 // RequireUse is a convenience middleware requiring the UseChats permission.
 func (m *Middleware) RequireUse(next http.Handler) http.Handler {
 	return m.RequirePermission(UseChats)(next)
-}
-
-// RequireExport is a convenience middleware requiring the ExportChats permission.
-func (m *Middleware) RequireExport(next http.Handler) http.Handler {
-	return m.RequirePermission(ExportChats)(next)
 }
 
 func extractBearerToken(header string) (string, error) {

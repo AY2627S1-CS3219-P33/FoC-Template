@@ -156,9 +156,9 @@ func TestMiddlewarePermissionsAndContextInjection(t *testing.T) {
 		Subject: "user-42", Kind: UserToken,
 		Roles: []Role{RoleUser}, Permissions: []Permission{UseChats},
 	}
-	adminPrincipal := Principal{
+	withoutPermission := Principal{
 		Subject: "admin-99", Kind: UserToken,
-		Roles: []Role{RoleAdministrator}, Permissions: []Permission{UseChats, ExportChats},
+		Roles: []Role{RoleAdministrator}, Permissions: []Permission{"chats:everything"},
 	}
 
 	t.Run("normal user can access read endpoint and context receives principal", func(t *testing.T) {
@@ -186,15 +186,15 @@ func TestMiddlewarePermissionsAndContextInjection(t *testing.T) {
 		require.Equal(t, userPrincipal, capturedPrincipal)
 	})
 
-	t.Run("normal user is rejected from admin endpoint", func(t *testing.T) {
+	t.Run("user without chats:use is rejected, whatever their role", func(t *testing.T) {
 		port := &fakePort{
 			authenticateFunc: func(ctx context.Context, token string) (Principal, error) {
-				return userPrincipal, nil
+				return withoutPermission, nil
 			},
 		}
 		middleware := NewMiddleware(port)
-		handler := middleware.RequireExport(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusCreated)
+		handler := middleware.RequireUse(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			t.Fatal("a user without chats:use reached the handler")
 		}))
 
 		req := httptest.NewRequest(http.MethodPost, "/me/chats", nil)
@@ -207,35 +207,12 @@ func TestMiddlewarePermissionsAndContextInjection(t *testing.T) {
 		require.NoError(t, json.NewDecoder(rec.Body).Decode(&errResp))
 		require.Equal(t, apperror.Forbidden, errResp.Code)
 	})
-
-	t.Run("admin can access manage endpoint", func(t *testing.T) {
-		port := &fakePort{
-			authenticateFunc: func(ctx context.Context, token string) (Principal, error) {
-				return adminPrincipal, nil
-			},
-		}
-		middleware := NewMiddleware(port)
-
-		var capturedPrincipal Principal
-		handler := middleware.RequireExport(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			capturedPrincipal, _ = PrincipalFromContext(r.Context())
-			w.WriteHeader(http.StatusCreated)
-		}))
-
-		req := httptest.NewRequest(http.MethodPost, "/me/chats", nil)
-		req.Header.Set("Authorization", "Bearer admin-token")
-		rec := httptest.NewRecorder()
-		handler.ServeHTTP(rec, req)
-
-		require.Equal(t, http.StatusCreated, rec.Code)
-		require.Equal(t, adminPrincipal, capturedPrincipal)
-	})
 }
 
 func TestMiddlewareRejectsServiceTokensOnUserRoutes_NFR3_5_3(t *testing.T) {
 	for _, principal := range []Principal{
-		{Subject: "client@clients", Kind: ServiceToken, Permissions: []Permission{UseChats, ExportChats}},
-		{Subject: "unknown-kind", Permissions: []Permission{UseChats, ExportChats}},
+		{Subject: "client@clients", Kind: ServiceToken, Permissions: []Permission{UseChats}},
+		{Subject: "unknown-kind", Permissions: []Permission{UseChats}},
 	} {
 		t.Run(principal.Subject, func(t *testing.T) {
 			port := &fakePort{
@@ -244,21 +221,19 @@ func TestMiddlewareRejectsServiceTokensOnUserRoutes_NFR3_5_3(t *testing.T) {
 				},
 			}
 			middleware := NewMiddleware(port)
-			for _, wrap := range []func(http.Handler) http.Handler{middleware.RequireUse, middleware.RequireExport} {
-				handler := wrap(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					t.Fatal("service token reached a user route")
-				}))
+			handler := middleware.RequireUse(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				t.Fatal("service token reached a user route")
+			}))
 
-				req := httptest.NewRequest(http.MethodPost, "/me/chats", nil)
-				req.Header.Set("Authorization", "Bearer service-token")
-				rec := httptest.NewRecorder()
-				handler.ServeHTTP(rec, req)
+			req := httptest.NewRequest(http.MethodPost, "/me/chats", nil)
+			req.Header.Set("Authorization", "Bearer service-token")
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
 
-				require.Equal(t, http.StatusForbidden, rec.Code)
-				var errResp apperror.Error
-				require.NoError(t, json.NewDecoder(rec.Body).Decode(&errResp))
-				require.Equal(t, apperror.Forbidden, errResp.Code)
-			}
+			require.Equal(t, http.StatusForbidden, rec.Code)
+			var errResp apperror.Error
+			require.NoError(t, json.NewDecoder(rec.Body).Decode(&errResp))
+			require.Equal(t, apperror.Forbidden, errResp.Code)
 		})
 	}
 }

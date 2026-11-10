@@ -43,6 +43,8 @@ func (d Disposition) String() string {
 // Applier applies events to rooms; *chat.Lifecycle implements it.
 type Applier interface {
 	OnAccepted(ctx context.Context, event chat.AcceptedEvent) (chat.AcceptResult, error)
+	OnWithdrawn(ctx context.Context, event chat.WithdrawnEvent) (chat.WithdrawResult, error)
+	OnErrandEnded(ctx context.Context, event chat.ErrandEndedEvent) (chat.EndResult, error)
 }
 
 // Handler turns one delivery into a call on the Applier and decides its
@@ -77,6 +79,37 @@ func (h *Handler) Handle(ctx context.Context, routingKey, messageID string, body
 		}
 		log.InfoContext(ctx, "errand.accepted applied",
 			"roomId", result.Room.ID.String(), "roomOpened", result.Opened, "roomClosing", result.Closing)
+		return Ack
+	case RoutingErrandWithdrawn:
+		event, err := decodeWithdrawn(routingKey, body)
+		if err != nil {
+			log.WarnContext(ctx, "errand event rejected: malformed", "reason", err.Error())
+			return Reject
+		}
+		log = log.With("errandId", event.ErrandID.String(), "errandVersion", event.ErrandVersion)
+		result, err := h.applier.OnWithdrawn(ctx, event)
+		if err != nil {
+			return h.failed(ctx, log, err)
+		}
+		log.InfoContext(ctx, "errand.withdrawn applied",
+			"roomId", result.Room.ID.String(), "roomClosing", result.Closing)
+		return Ack
+	case RoutingErrandCompleted, RoutingErrandRefunded:
+		reason := chat.EndCompleted
+		if routingKey == RoutingErrandRefunded {
+			reason = chat.EndRefunded
+		}
+		event, err := decodeErrandEnded(routingKey, body, reason)
+		if err != nil {
+			log.WarnContext(ctx, "errand event rejected: malformed", "reason", err.Error())
+			return Reject
+		}
+		log = log.With("errandId", event.ErrandID.String(), "errandVersion", event.ErrandVersion)
+		result, err := h.applier.OnErrandEnded(ctx, event)
+		if err != nil {
+			return h.failed(ctx, log, err)
+		}
+		log.InfoContext(ctx, routingKey+" applied", "roomsClosing", len(result.Closing))
 		return Ack
 	default:
 		// Only bound keys arrive; anything else is a topology mistake.

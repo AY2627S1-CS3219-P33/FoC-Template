@@ -15,7 +15,6 @@ info:
     permission an operation needs. A caller who is not a participant of a room
     gets 404 ROOM_NOT_FOUND, exactly as for a room that does not exist.
     Live delivery is over a WebSocket (GET /ws; docs/websocket-protocol.md).
-    The admin routes are added in a later phase.
   license:
     name: MIT
     identifier: MIT

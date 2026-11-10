@@ -51,49 +51,47 @@ func requireKind(t *testing.T, err error, kind FailureKind) {
 func TestAuth0ClaimsAndPermissions_NFR3_3(t *testing.T) {
 	v, f, _ := verifierFixture(t)
 	tests := []struct {
-		name        string
-		change      func(map[string]any)
-		invalid     bool
-		use, review bool
-		kind        TokenKind
+		name    string
+		change  func(map[string]any)
+		invalid bool
+		use     bool
+		kind    TokenKind
 	}{
-		{"use", func(c map[string]any) {}, false, true, false, UserToken},
-		{"admin", func(c map[string]any) { c["permissions"] = []string{"chats:use", "chats:export"} }, false, true, true, UserToken},
-		{"review only", func(c map[string]any) { c["permissions"] = []string{"chats:export"} }, false, false, true, UserToken},
-		{"unknown permission", func(c map[string]any) { c["permissions"] = []string{"chats:everything"} }, false, false, false, UserToken},
-		{"empty permissions", func(c map[string]any) { c["permissions"] = []string{} }, false, false, false, UserToken},
+		{"use", func(c map[string]any) {}, false, true, UserToken},
+		{"unknown permission", func(c map[string]any) { c["permissions"] = []string{"chats:everything"} }, false, false, UserToken},
+		{"empty permissions", func(c map[string]any) { c["permissions"] = []string{} }, false, false, UserToken},
 		{"missing permissions and spoofed role scope", func(c map[string]any) {
 			delete(c, "permissions")
 			c["roles"] = []string{"administrator"}
-			c["scope"] = "chats:use chats:export"
-		}, false, false, false, UserToken},
-		{"null permissions", func(c map[string]any) { c["permissions"] = nil }, false, false, false, UserToken},
-		{"wrong permission type", func(c map[string]any) { c["permissions"] = "chats:export" }, true, false, false, ""},
-		{"mixed permission type", func(c map[string]any) { c["permissions"] = []any{"chats:use", 7} }, true, false, false, ""},
-		{"null permission entry", func(c map[string]any) { c["permissions"] = []any{nil} }, true, false, false, ""},
-		{"user service audience", func(c map[string]any) { c["aud"] = "https://api.foc.local/user-service" }, true, false, false, ""},
-		{"ID token audience", func(c map[string]any) { c["aud"] = "browser-client-id" }, true, false, false, ""},
-		{"array audience", func(c map[string]any) { c["aud"] = []string{ChatAudience, f.Server.URL + "/userinfo"} }, false, true, false, UserToken},
-		{"wrong array audience", func(c map[string]any) { c["aud"] = []string{"other"} }, true, false, false, ""},
-		{"wrong issuer", func(c map[string]any) { c["iss"] = "https://attacker.invalid/" }, true, false, false, ""},
-		{"issuer missing slash", func(c map[string]any) { c["iss"] = f.Server.URL }, true, false, false, ""},
-		{"expired", func(c map[string]any) { c["exp"] = time.Now().Add(-time.Minute).Unix() }, true, false, false, ""},
-		{"no expiry", func(c map[string]any) { delete(c, "exp") }, true, false, false, ""},
-		{"not yet valid", func(c map[string]any) { c["nbf"] = time.Now().Add(time.Hour).Unix() }, true, false, false, ""},
-		{"no subject", func(c map[string]any) { delete(c, "sub") }, true, false, false, ""},
-		{"empty subject", func(c map[string]any) { c["sub"] = " " }, true, false, false, ""},
-		{"bound token cannot be bearer", func(c map[string]any) { c["cnf"] = map[string]string{"jkt": "proof-required"} }, true, false, false, ""},
-		{"supplier service audience", func(c map[string]any) { c["aud"] = "https://api.foc.local/supplier-service" }, true, false, false, ""},
+			c["scope"] = "chats:use"
+		}, false, false, UserToken},
+		{"null permissions", func(c map[string]any) { c["permissions"] = nil }, false, false, UserToken},
+		{"wrong permission type", func(c map[string]any) { c["permissions"] = "chats:use" }, true, false, ""},
+		{"mixed permission type", func(c map[string]any) { c["permissions"] = []any{"chats:use", 7} }, true, false, ""},
+		{"null permission entry", func(c map[string]any) { c["permissions"] = []any{nil} }, true, false, ""},
+		{"user service audience", func(c map[string]any) { c["aud"] = "https://api.foc.local/user-service" }, true, false, ""},
+		{"ID token audience", func(c map[string]any) { c["aud"] = "browser-client-id" }, true, false, ""},
+		{"array audience", func(c map[string]any) { c["aud"] = []string{ChatAudience, f.Server.URL + "/userinfo"} }, false, true, UserToken},
+		{"wrong array audience", func(c map[string]any) { c["aud"] = []string{"other"} }, true, false, ""},
+		{"wrong issuer", func(c map[string]any) { c["iss"] = "https://attacker.invalid/" }, true, false, ""},
+		{"issuer missing slash", func(c map[string]any) { c["iss"] = f.Server.URL }, true, false, ""},
+		{"expired", func(c map[string]any) { c["exp"] = time.Now().Add(-time.Minute).Unix() }, true, false, ""},
+		{"no expiry", func(c map[string]any) { delete(c, "exp") }, true, false, ""},
+		{"not yet valid", func(c map[string]any) { c["nbf"] = time.Now().Add(time.Hour).Unix() }, true, false, ""},
+		{"no subject", func(c map[string]any) { delete(c, "sub") }, true, false, ""},
+		{"empty subject", func(c map[string]any) { c["sub"] = " " }, true, false, ""},
+		{"bound token cannot be bearer", func(c map[string]any) { c["cnf"] = map[string]string{"jkt": "proof-required"} }, true, false, ""},
+		{"supplier service audience", func(c map[string]any) { c["aud"] = "https://api.foc.local/supplier-service" }, true, false, ""},
 		{"service token", func(c map[string]any) {
 			c["sub"] = "fixture-client@clients"
 			c["gty"] = "client-credentials"
 			c["permissions"] = []string{"orders:internal"}
-		}, false, false, false, ServiceToken},
+		}, false, false, ServiceToken},
 		{"service token with user permission", func(c map[string]any) {
 			c["gty"] = "client-credentials"
-		}, false, true, false, ServiceToken},
-		{"other grant type is a user token", func(c map[string]any) { c["gty"] = "password" }, false, true, false, UserToken},
-		{"wrong grant type type", func(c map[string]any) { c["gty"] = 1 }, true, false, false, ""},
+		}, false, true, ServiceToken},
+		{"other grant type is a user token", func(c map[string]any) { c["gty"] = "password" }, false, true, UserToken},
+		{"wrong grant type type", func(c map[string]any) { c["gty"] = 1 }, true, false, ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -109,7 +107,6 @@ func TestAuth0ClaimsAndPermissions_NFR3_3(t *testing.T) {
 			require.Equal(t, claims["sub"], p.Subject)
 			require.Equal(t, tt.kind, p.Kind)
 			require.Equal(t, tt.use, p.Has(UseChats))
-			require.Equal(t, tt.review, p.Has(ExportChats))
 			require.Equal(t, claims["exp"], p.ExpiresAt.Unix(), "ExpiresAt is the exp claim")
 		})
 	}
@@ -282,7 +279,7 @@ func TestAuth0FetchFailuresAndRedaction_NFR3_5_NFR6_3(t *testing.T) {
 func TestAuth0MiddlewareStatusAndPermissions_NFR3_3(t *testing.T) {
 	v, f, _ := verifierFixture(t)
 	reached := 0
-	handler := NewMiddleware(v).RequireExport(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := NewMiddleware(v).RequireUse(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		reached++
 		p, ok := PrincipalFromContext(r.Context())
 		require.True(t, ok)
@@ -294,8 +291,8 @@ func TestAuth0MiddlewareStatusAndPermissions_NFR3_3(t *testing.T) {
 		service     bool
 		status      int
 	}{
-		{nil, false, 403}, {[]string{"chats:use"}, false, 403}, {[]string{"chats:export"}, false, 204},
-		{[]string{"chats:use", "chats:export"}, true, 403},
+		{nil, false, 403}, {[]string{"chats:everything"}, false, 403}, {[]string{"chats:use"}, false, 204},
+		{[]string{"chats:use"}, true, 403},
 	} {
 		claims := f.Claims(ChatAudience, tt.permissions)
 		if tt.service {

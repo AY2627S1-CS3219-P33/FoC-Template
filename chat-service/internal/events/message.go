@@ -60,6 +60,43 @@ func decodeAccepted(routingKey string, body []byte) (chat.AcceptedEvent, error) 
 	}, nil
 }
 
+// decodeWithdrawn checks an errand.withdrawn body and converts it. data.courierId
+// is the courier who withdrew or was removed (order-service sets it from the
+// errand before the transition).
+func decodeWithdrawn(routingKey string, body []byte) (chat.WithdrawnEvent, error) {
+	env, data, err := decodeErrandEvent(routingKey, body)
+	if err != nil {
+		return chat.WithdrawnEvent{}, err
+	}
+	if data.CourierID == "" {
+		return chat.WithdrawnEvent{}, fmt.Errorf("%w: data.courierId is required", errMalformed)
+	}
+	errandID, _ := uuid.Parse(env.ErrandID) // checked by decodeErrandEvent
+	return chat.WithdrawnEvent{
+		ErrandID:      errandID,
+		ErrandVersion: env.ErrandVersion,
+		RequesterID:   data.RequesterID,
+		CourierID:     data.CourierID,
+		OccurredAt:    env.OccurredAt,
+	}, nil
+}
+
+// decodeErrandEnded checks an errand.completed or errand.refunded body. The
+// courier is not needed: every room of the errand ends.
+func decodeErrandEnded(routingKey string, body []byte, reason chat.EndReason) (chat.ErrandEndedEvent, error) {
+	env, _, err := decodeErrandEvent(routingKey, body)
+	if err != nil {
+		return chat.ErrandEndedEvent{}, err
+	}
+	errandID, _ := uuid.Parse(env.ErrandID) // checked by decodeErrandEvent
+	return chat.ErrandEndedEvent{
+		ErrandID:      errandID,
+		ErrandVersion: env.ErrandVersion,
+		Reason:        reason,
+		OccurredAt:    env.OccurredAt,
+	}, nil
+}
+
 // decodeErrandEvent checks the envelope and the data fields every errand
 // event has.
 func decodeErrandEvent(routingKey string, body []byte) (envelope, errandEventData, error) {
