@@ -7,9 +7,10 @@ interface Props {
   onBack: () => void;
   onEdit: () => void;
   onDelete: () => Promise<void>;
+  onRequestErrand?: () => void;
 }
 
-export function SupplierDetail({ supplier, isAdmin, onBack, onEdit, onDelete }: Props) {
+export function SupplierDetail({ supplier, isAdmin, onBack, onEdit, onDelete, onRequestErrand }: Props) {
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -44,6 +45,11 @@ export function SupplierDetail({ supplier, isAdmin, onBack, onEdit, onDelete }: 
             <span className="type-chip">{supplier.type}</span>
           </div>
         </div>
+        {onRequestErrand && (
+          <button type="button" className="btn slim" onClick={onRequestErrand}>
+            Request an errand
+          </button>
+        )}
         {isAdmin && (
           <div className="actions" style={{ marginTop: 0 }}>
             <button type="button" className="btn slim" onClick={onEdit}>
@@ -108,20 +114,6 @@ export function SupplierDetail({ supplier, isAdmin, onBack, onEdit, onDelete }: 
           <div>
             <dt>Closing</dt>
             <dd>{supplier.closingTime}</dd>
-          </div>
-        </dl>
-      </section>
-
-      <section className="panel">
-        <h2>Record</h2>
-        <dl className="fields">
-          <div className="full">
-            <dt>Supplier ID</dt>
-            <dd className="mono">{supplier.supplierId}</dd>
-          </div>
-          <div className="full">
-            <dt>Current version ID</dt>
-            <dd className="mono">{supplier.versionId}</dd>
           </div>
         </dl>
       </section>

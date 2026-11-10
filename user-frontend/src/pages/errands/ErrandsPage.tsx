@@ -8,7 +8,7 @@ import {
   type RequesterErrandView,
 } from "../../api/order";
 import { createPlace, type PlaceCreate } from "../../api/places";
-import { listBuildings, listSuppliers, type Lookup } from "../../api/supplier";
+import { listBuildings, listSuppliers, type Lookup, type Supplier } from "../../api/supplier";
 import type { Profile } from "../../api/types";
 import { OpenErrandList } from "./OpenErrandList";
 import { MyErrandList, type MyListKind } from "./MyErrandList";
@@ -22,7 +22,7 @@ type View =
   | { kind: "list" }
   // placeNotice: saved places that could not be added after a create.
   | { kind: "detail"; errandId: string; placeNotice?: string }
-  | { kind: "create" }
+  | { kind: "create"; supplier?: Supplier }
   | { kind: "edit"; errand: RequesterErrandView }
   // "Order again": a new create prefilled from a finished errand.
   | { kind: "reorder"; source: RequesterErrandView };
@@ -39,7 +39,7 @@ const TABS: { key: Tab; label: string }[] = [
   { key: "history", label: "History" },
 ];
 
-export function ErrandsPage() {
+export function ErrandsPage({ initialSupplier }: { initialSupplier?: Supplier }) {
   const { profile, getAccessToken } = useAuth();
   const account = profile as Profile;
 
@@ -64,7 +64,9 @@ export function ErrandsPage() {
   );
 
   const [tab, setTab] = useState<Tab>("browse");
-  const [view, setView] = useState<View>({ kind: "list" });
+  const [view, setView] = useState<View>(() =>
+    initialSupplier ? { kind: "create", supplier: initialSupplier } : { kind: "list" },
+  );
   // Bumped after any transition so the list behind the detail is refetched.
   const [refreshKey, setRefreshKey] = useState(0);
 
@@ -140,6 +142,7 @@ export function ErrandsPage() {
     return (
       <ErrandForm
         mode="create"
+        initialSupplier={view.supplier}
         profile={account}
         buildings={buildings}
         getSupplierToken={getSupplierToken}
