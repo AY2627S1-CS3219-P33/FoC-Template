@@ -76,8 +76,6 @@ def changed_paths(state, commit):
 def affects(component, path):
     if path.endswith(".md"):
         return False
-    if path in {".github/deploy.json", ".github/workflows/deploy.yml"} or path.startswith(".github/scripts/"):
-        return True
     if component == "supplier-service" and path in {"data/csv/supplier-seed-data.csv", ".dockerignore"}:
         return True
     prefix = "user-frontend/" if component == "frontend" else component + "/"

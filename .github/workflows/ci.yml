@@ -17,7 +17,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        service: [user-service, supplier-service, credit-service, order-service, admin-service, chat-service]
+        service: [user-service, supplier-service, credit-service, order-service, admin-service, chat-service, notification-service]
     services:
       postgres:
         image: postgres:18-alpine
@@ -97,6 +97,7 @@ jobs:
           user-service/openapi.yaml supplier-service/openapi.yaml
           credit-service/openapi.yaml order-service/openapi.yaml
           admin-service/openapi.yaml chat-service/openapi.yaml
+          notification-service/openapi.yaml
       - name: Test deployment selection and safeguards
         run: python3 -m unittest discover -s .github/scripts -p 'test_*.py' -v
       - name: Validate workflows
