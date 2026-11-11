@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (model: Claude Opus 5.5), date: 2026-11-09
+// Scope: Implementation of code.
+// Author review: Reviewed, validated, and tested by the authors.
+
 // Package places holds a requester's saved delivery and pickup places, used
 // only to fill in errand requests (references/requester-enhancements-n2h.md,
 // "Saved places"). This file declares the Store port and its types;

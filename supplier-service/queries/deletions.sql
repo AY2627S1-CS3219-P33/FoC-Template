@@ -1,3 +1,8 @@
+-- AI Assistance Disclosure:
+-- Tool: Claude Code (model: Claude Opus 5.5), date: 2026-09-29
+-- Scope: Implementation of SQL queries.
+-- Author review: Reviewed, validated, and tested by the authors.
+
 -- name: CreateOrGetDeletionOperation :one
 INSERT INTO supplier_deletion_operations (
     operation_id,

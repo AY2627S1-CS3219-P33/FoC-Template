@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (model: Claude Opus 5.5), date: 2026-10-22
+// Scope: Implementation of code.
+// Author review: Reviewed, validated, and tested by the authors.
+
 // Package app is order-service's composition root (I1). It selects the
 // adapters, mounts every feature's routes on one router, and runs the HTTP
 // server next to the background workers: the outbox dispatcher, the

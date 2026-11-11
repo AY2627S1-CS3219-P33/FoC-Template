@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (model: Claude Opus 5.5), date: 2026-10-22
+// Scope: Implementation of code.
+// Author review: Reviewed, validated, and tested by the authors.
+
 // Package requester serves the requester's errand actions (A5): editing an
 // open errand (F3.4, F4.4), cancelling it (F3.5, F4.5.1), and confirming or
 // disputing its delivery (F3.10). Each request is decided by errand.Next and

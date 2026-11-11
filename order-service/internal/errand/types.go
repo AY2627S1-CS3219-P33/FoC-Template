@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (model: Claude Opus 5.5), date: 2026-10-18
+// Scope: Implementation of code.
+// Author review: Reviewed, validated, and tested by the authors.
+
 // Package errand holds the errand domain: states, events, the Diagram 1
 // transition table and the outbox rows each transition emits. Everything in
 // this package's top-level files is pure: no I/O and no wall clock.

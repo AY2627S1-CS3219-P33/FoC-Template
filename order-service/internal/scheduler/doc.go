@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (model: Claude Opus 5.5), date: 2026-10-22
+// Scope: Implementation of code.
+// Author review: Reviewed, validated, and tested by the authors.
+
 // Package scheduler runs order-service's deadline jobs (B4a): the periodic
 // batches that move errands whose deadline has passed (F3.7, F3.8.4, F3.8.5,
 // F3.10.3).

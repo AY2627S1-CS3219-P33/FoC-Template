@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (model: Claude Opus 5.5), date: 2026-10-18
+// Scope: Implementation of code.
+// Author review: Reviewed, validated, and tested by the authors.
+
 // Package migrations embeds the ordered Goose SQL migrations so database
 // tests apply exactly the schema that deployment applies. Goose itself reads
 // only the numbered .sql files in this directory.

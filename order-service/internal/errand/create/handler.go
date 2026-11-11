@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (model: Claude Opus 5.5), date: 2026-10-22
+// Scope: Implementation of code.
+// Author review: Reviewed, validated, and tested by the authors.
+
 // Package create serves POST /errands (A2): it validates the submission,
 // resolves the pickup supplier and delivery building against
 // supplier-service, and stores the errand in PENDING_RESERVATION with its

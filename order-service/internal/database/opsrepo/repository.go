@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (model: Claude Opus 5.5), date: 2026-10-18
+// Scope: Implementation of code.
+// Author review: Reviewed, validated, and tested by the authors.
+
 // Package opsrepo stores Person B's operational data in PostgreSQL: supplier
 // deletion fences, open reviews, the admin audit log, settings and reminder
 // outbox rows, plus read-only errand counts for internal routes. It is a thin

@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (model: Claude Opus 5.5), date: 2026-10-22
+// Scope: Implementation of code.
+// Author review: Reviewed, validated, and tested by the authors.
+
 // Package review serves Person B's admin routes: the review queue (F6.1),
 // settings (F6.3.5), the errand event log (F6.2) and suspicious-activity
 // flags (F6.3). Failed outbox rows are Person C's (internal/outboxadmin).

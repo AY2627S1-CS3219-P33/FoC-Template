@@ -1,3 +1,10 @@
+<!--
+AI Assistance Disclosure:
+Tool: Claude Code (model: Claude Opus 5.5), date: 2026-10-02
+Scope: Documentation writing and formatting.
+Author review: Reviewed, validated, and tested by the authors.
+-->
+
 # Administrator Supplier Deletion Workflow
 
 This document specifies the deletion workflow and error-handling cases enforced by the administrator deletion handler in [`handler.go`](./handler.go), adhering to the supplier service contract, commit specification B5, requirements F2.4, F2.4.2, F2.4.3, F2.4.4, NFR7.3.2, and NFR7.4.

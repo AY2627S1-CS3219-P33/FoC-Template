@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (model: Claude Opus 5.5), date: 2026-10-18
+// Scope: Boilerplate generation for build/container/tooling configuration.
+// Author review: Reviewed, validated, and tested by the authors.
+
 module github.com/CS3219-AY2627S1/FoC-Template/order-service
 
 go 1.27.0

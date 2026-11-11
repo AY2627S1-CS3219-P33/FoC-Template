@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (model: Claude Opus 5.5), date: 2026-10-18
+// Scope: Implementation of code.
+// Author review: Reviewed, validated, and tested by the authors.
+
 // Package resilience holds the shared failure-isolation plumbing (NFR7.1):
 // exponential backoff with full jitter, a circuit breaker, and Do, which runs
 // one call under a per-call timeout and records its outcome on a breaker.
