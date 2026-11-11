@@ -17,6 +17,20 @@ are released.
 
 ---
 
+## Team Members
+
+**Team 33**
+
+| Name | Role |
+| ----- | ----- |
+| Brendan | User Service, Cloud Deployment, CI/CD |
+| Gabriel | Order Service, Supplier Service, Requester Enhancements |
+| Lucas | Credit Service, Admin Service |
+| Hung | Supplier Service, Order Service, Chat Service |
+| Zi Yang | Frontend, Notification Service |
+
+---
+
 ## Repository Structure
 
 The repository follows a **one-service-per-folder** structure. Each
@@ -44,6 +58,59 @@ microservice lives in its own top-level folder with its own `Dockerfile`,
 ```
 
 See each service's own `README.md` for its API, data model and how to run it.
+
+---
+
+## Local Compose stack
+
+Copy `.env.example` to `.env`, set the Auth0 values, then run
+`docker compose up --build`. Open the frontend at <http://localhost:8081>.
+
+The root [compose.yaml](compose.yaml) defines the user, supplier, credit and
+notification services, the frontend and RabbitMQ, and pulls in the order, chat
+and admin stacks from their own `compose.yaml` files via `include`. The whole
+system therefore starts with a single command.
+
+| Service | Host port | Supporting containers |
+| ----- | ----- | ----- |
+| `user-frontend` (nginx) | 8081 | — |
+| `user-service` | internal only | `user-db`, `user-migrate` |
+| `supplier-service` | internal only | `supplier-db`, `supplier-migrate` |
+| `order-service` | 3003 | `order-db`, `order-redis`, `order-migrate` |
+| `credit-service` | 3004 | `credit-db`, `credit-migrate` |
+| `admin-service` | 3005 | `admin-db`, `admin-migrate` |
+| `chat-service` | 3006 | `chat-db`, `chat-migrate` |
+| `notification-service` | 3007 | `notification-db`, `notification-migrate` |
+| `queue-service` (RabbitMQ) | 5672 (AMQP), 15672 (management UI) | — |
+
+All host ports are bound to `127.0.0.1`. The frontend's nginx proxies API
+calls to the services over the Compose network. RabbitMQ credentials default to
+`foc` / `foc-local-dev` and can be overridden with `RABBITMQ_DEFAULT_USER` and
+`RABBITMQ_DEFAULT_PASS`. The management UI is at <http://localhost:15672>.
+
+Each service has its own database in a separate named volume. `docker compose
+down` keeps their data; `docker compose down -v` deletes it. A Goose migration
+job (`<service>-migrate`) runs before each API starts, and Goose applies only
+migrations not yet recorded in that database. To add a migration, add the next
+numbered `.sql` file with `-- +goose Up` and `-- +goose Down` sections to the
+service's `migrations/` folder, then run
+`docker compose run --rm <service>-migrate` (e.g. `user-migrate`,
+`order-migrate`, `credit-migrate`).
+See each service's migration README for its history and rollback details.
+If reusing a user database where versions 1–4 were applied before Goose was
+introduced, follow the existing-database baseline instructions in the user
+migration README before starting the stack; do not baseline a fresh database.
+
+### Admin dashboard
+
+The admin area (`/admin`) has an **Overview** tab and a **Metrics** tab. The
+Overview counters (open reviews, ongoing errands, errands waiting for a
+courier) are live reads from order-service (`GET /admin/overview`, permission
+`errands:review`). The Metrics tab and the readiness section of Overview come
+from `admin-service/`, which builds a read model from order-service's events
+and needs the Auth0 permission `dashboard:read`. See
+[admin-service/README.md](admin-service/README.md) and, for the AWS and Auth0
+steps that are not yet done, [docs/ecs-deployment-notes.md](docs/ecs-deployment-notes.md).
 
 ---
 
