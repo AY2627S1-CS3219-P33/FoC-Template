@@ -1,3 +1,10 @@
+<!--
+AI Assistance Disclosure:
+Tool: Claude Code (model: Claude Opus 5.5), date: 2026-10-18
+Scope: Documentation writing and formatting.
+Author review: Reviewed, validated, and tested by the authors.
+-->
+
 # Authentication & Authorization Middleware
 
 This document specifies the authentication and authorization cases handled by the HTTP middleware in [`middleware.go`](./middleware.go), adhering to F1.6, NFR3.3 and NFR3.5.3. It is adapted from supplier-service's middleware.

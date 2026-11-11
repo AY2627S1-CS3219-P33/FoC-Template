@@ -1,3 +1,10 @@
+<!--
+AI Assistance Disclosure:
+Tool: Claude Code (model: Claude Opus 5.5), date: 2026-10-22
+Scope: Documentation writing and formatting.
+Author review: Reviewed, validated, and tested by the authors.
+-->
+
 # Browsing errands (A3)
 
 `browse` serves the read-only errand routes (commit A3, `feat(order-browse):

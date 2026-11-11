@@ -1,3 +1,8 @@
+-- AI Assistance Disclosure:
+-- Tool: Claude Code (model: Claude Opus 5.5), date: 2026-10-18
+-- Scope: Implementation of SQL queries.
+-- Author review: Reviewed, validated, and tested by the authors.
+
 -- Errand lifecycle queries, owned by Person A and generated into
 -- internal/database/errandgen. errandrepo runs them inside its own
 -- transactions; none of them commits anything by itself.

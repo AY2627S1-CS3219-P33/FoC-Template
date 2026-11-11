@@ -1,3 +1,8 @@
+# AI Assistance Disclosure:
+# Tool: Claude Code (model: Claude Opus 5.5), date: 2026-09-29
+# Scope: Boilerplate generation for build/container/tooling configuration.
+# Author review: Reviewed, validated, and tested by the authors.
+
 version: "2"
 sql:
   - engine: postgresql

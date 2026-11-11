@@ -1,3 +1,10 @@
+<!--
+AI Assistance Disclosure:
+Tool: Claude Code (model: Claude Opus 5.5), date: 2026-10-02
+Scope: Documentation writing and formatting.
+Author review: Reviewed, validated, and tested by the authors.
+-->
+
 # Supplier Auth0 authentication (C1)
 
 Supplier-service validates RS256 access tokens locally against Auth0 public

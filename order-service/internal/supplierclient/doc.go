@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (model: Claude Opus 5.5), date: 2026-10-18
+// Scope: Implementation of code.
+// Author review: Reviewed, validated, and tested by the authors.
+
 // Package supplierclient implements errand.SupplierGate against
 // supplier-service (F2.5.1, F2.5.2, F2.4.3, F3.1.1, NFR3.5, NFR7.1).
 //

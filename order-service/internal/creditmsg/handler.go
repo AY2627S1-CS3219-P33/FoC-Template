@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (model: Claude Opus 5.5), date: 2026-10-20
+// Scope: Implementation of code.
+// Author review: Reviewed, validated, and tested by the authors.
+
 // Package creditmsg consumes credit-service's results from
 // order-service.credit-results and applies them to errands and to the outbox
 // rows of the commands they answer (M4, gate C1 in docs/contracts.md).

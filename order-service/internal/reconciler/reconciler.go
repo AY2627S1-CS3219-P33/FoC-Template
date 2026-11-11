@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (model: Claude Opus 5.5), date: 2026-10-22
+// Scope: Implementation of code.
+// Author review: Reviewed, validated, and tested by the authors.
+
 // Package reconciler recovers stuck credit operations. An eligible errand is
 // resolved within timeout + reconciler interval (including up to 20% jitter)
 // + dispatcher backoff cap, provided the database and broker are available.

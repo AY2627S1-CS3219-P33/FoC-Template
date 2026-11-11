@@ -1,3 +1,8 @@
+-- AI Assistance Disclosure:
+-- Tool: Claude Code (model: Claude Opus 5.5), date: 2026-09-29
+-- Scope: Implementation of SQL migration scripts for the team-designed schema.
+-- Author review: Reviewed, validated, and tested by the authors.
+
 -- +goose Up
 
 -- Keep this function aligned with supplier.NormalizeName: trim outer

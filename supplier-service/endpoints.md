@@ -1,3 +1,10 @@
+<!--
+AI Assistance Disclosure:
+Tool: Claude Code (model: Claude Opus 5.5), date: 2026-10-02
+Scope: Documentation writing and formatting.
+Author review: Reviewed, validated, and tested by the authors.
+-->
+
 # Supplier Service Endpoints & Architecture
 
 This document summarizes the HTTP endpoints and component architecture implemented across Person B's commits according to [commit-plan.md](file:///e:/University/Y4S1/CS3219/FoC-Template/commit-plan.md#L211-L290), [contracts.md](file:///e:/University/Y4S1/CS3219/FoC-Template/supplier-service/docs/contracts.md), and [openapi.yaml](file:///e:/University/Y4S1/CS3219/FoC-Template/supplier-service/openapi.yaml).

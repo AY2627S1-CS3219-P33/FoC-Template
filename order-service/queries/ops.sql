@@ -1,3 +1,8 @@
+-- AI Assistance Disclosure:
+-- Tool: Claude Code (model: Claude Opus 5.5), date: 2026-10-18
+-- Scope: Implementation of SQL queries.
+-- Author review: Reviewed, validated, and tested by the authors.
+
 -- Fence, review, audit, settings and reminder queries, owned by Person B and
 -- generated into internal/database/opsgen. B reads errands but never writes
 -- them, and writes outbox rows only through InsertReminder.

@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (model: Claude Opus 5.5), date: 2026-10-22
+// Scope: Implementation of code.
+// Author review: Reviewed, validated, and tested by the authors.
+
 package create
 
 import (
