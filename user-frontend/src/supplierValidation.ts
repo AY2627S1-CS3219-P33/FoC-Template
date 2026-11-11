@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude, date: 2026-11-11
+// Scope: Client-side user-frontend validation for supplier data.
+// Author review: I validated correctness, edited for style, and added boundary checks.
+
 // Client-side mirror of the Supplier Service field contract
 // (supplier-service/openapi/common.yaml SupplierFields). The service remains the
 // source of truth; these checks give immediate feedback and match its limits.

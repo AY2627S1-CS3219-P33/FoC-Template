@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude, date: 2026-11-11
+// Scope: Implementation of notification-service notification business logic.
+// Author review: I validated correctness, edited for style, and added boundary checks.
+
 // Package notification holds the notification aggregate and use cases. A
 // notification is one user-facing fact about an errand, addressed to exactly
 // one recipient (an Auth0 subject). The message layer turns an errand event

@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude, date: 2026-11-11
+// Scope: Implementation of notification-service PostgreSQL connection management.
+// Author review: I validated correctness, edited for style, and added boundary checks.
+
 // Package notifrepo is the PostgreSQL implementation of notification.Store.
 // Reads are always scoped to one recipient. Writes are idempotent on
 // (message_id, recipient), so a redelivered event adds nothing.

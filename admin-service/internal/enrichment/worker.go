@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (model: Claude Opus 5.5), date: 2026-11-09
+// Scope: Implementation of code.
+// Author review: Reviewed, validated, and tested by the authors.
+
 // Package enrichment fills in each errand's supplier and delivery building.
 //
 // The events carry neither, so after an errand's accepted event, and after

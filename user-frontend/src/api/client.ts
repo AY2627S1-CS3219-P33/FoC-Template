@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude, date: 2026-11-11
+// Scope: User-frontend API client for client service data.
+// Author review: I validated correctness, edited for style, and added boundary checks.
+
 import type { AdminUsersPage, AuthConfig, Profile, ProfilePatch } from "./types";
 
 // RequestError carries the service's structured error code so callers can react

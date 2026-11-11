@@ -1,3 +1,10 @@
+<!--
+AI Assistance Disclosure:
+Tool: ChatGPT (model: GPT-6 Luna), date: 2026-11-11
+Scope: Documentation for user-service Auth0 authentication and identity integration.
+Author review: I validated correctness, edited for style, and added boundary checks.
+-->
+
 # Auth0 identity integration
 
 `UserInfoClient` retrieves the profile associated with a validated Auth0 access token without exposing the token or upstream response body in errors. Auth0 Universal Login owns registration, credentials, password policy, password reset, login, logout, and sessions. This service stores no passwords or local sessions.

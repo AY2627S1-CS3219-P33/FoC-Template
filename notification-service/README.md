@@ -1,3 +1,10 @@
+<!--
+AI Assistance Disclosure:
+Tool: Claude, date: 2026-11-11
+Scope: service project documentation for notification-service.
+Author review: I validated correctness, edited for style, and added boundary checks.
+-->
+
 # notification-service
 
 Per-user notifications about errands. The service subscribes to the errand

@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude, date: 2026-11-11
+// Scope: Vite development and build configuration for user-frontend.
+// Author review: I validated correctness, edited for style, and added boundary checks.
+
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 

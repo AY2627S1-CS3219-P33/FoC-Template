@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude, date: 2026-11-11
+// Scope: User-frontend errands page and ErrandCard behavior.
+// Author review: I validated correctness, edited for style, and added boundary checks.
+
 import type { ErrandStatus, Item, PickupLocation, DeliveryBuilding } from "../../api/order";
 import {
   creditText,

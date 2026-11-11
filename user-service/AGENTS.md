@@ -1,3 +1,10 @@
+<!--
+AI Assistance Disclosure:
+Tool: ChatGPT (model: GPT-6 Luna), date: 2026-11-11
+Scope: Development instructions for user-service.
+Author review: I validated correctness, edited for style, and added boundary checks.
+-->
+
 # User service
 
 - Keep changes within `user-service/` unless explicitly authorized otherwise.

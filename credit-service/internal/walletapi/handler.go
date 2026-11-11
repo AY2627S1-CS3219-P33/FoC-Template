@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (model: Claude Opus 5.5), date: 2026-10-17
+// Scope: Implementation of code.
+// Author review: Reviewed, validated, and tested by the authors.
+
 // Package walletapi exposes the wallet use cases over HTTP.
 //
 //	GET /v1/wallet/me              user    credits:read:own

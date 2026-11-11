@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude, date: 2026-11-11
+// Scope: User-frontend API client for places service data.
+// Author review: I validated correctness, edited for style, and added boundary checks.
+
 // Saved places client (order-service /me/places, requester enhancements P3).
 // Shapes mirror order-service/openapi/places.yaml. The places are always the
 // token subject's own: no call takes a user ID, and another user's place is

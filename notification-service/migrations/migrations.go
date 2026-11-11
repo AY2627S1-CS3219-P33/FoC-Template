@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude, date: 2026-11-11
+// Scope: Database schema migrations for notification-service.
+// Author review: I validated correctness, edited for style, and added boundary checks.
+
 // Package migrations embeds the ordered Goose SQL migrations. The service does
 // not apply them (infra/migrate.sh does, as the migrator role); it embeds them
 // only to know which schema version it expects.

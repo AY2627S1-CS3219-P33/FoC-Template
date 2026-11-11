@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude, date: 2026-11-11
+// Scope: User-frontend suppliers page and SupplierDetail behavior.
+// Author review: I validated correctness, edited for style, and added boundary checks.
+
 import { useState } from "react";
 import { SupplierError, type Supplier } from "../../api/supplier";
 

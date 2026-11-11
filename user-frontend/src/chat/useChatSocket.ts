@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude, date: 2026-11-11
+// Scope: User-frontend chat interface and useChatSocket behavior.
+// Author review: I validated correctness, edited for style, and added boundary checks.
+
 import { useCallback, useEffect, useRef, useState } from "react";
 import { chatSocketUrl, type SendFrame, type ServerFrame } from "../api/chat";
 

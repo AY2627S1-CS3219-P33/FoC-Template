@@ -1,3 +1,10 @@
+<!--
+AI Assistance Disclosure:
+Tool: ChatGPT (model: GPT-6 Luna), date: 2026-11-11
+Scope: Documentation for user-service HTTP authentication middleware.
+Author review: I validated correctness, edited for style, and added boundary checks.
+-->
+
 # HTTP access enforcement — planned responsibilities
 
 Auth0 authentication validates RS256 access-token signatures, issuer, audience, and lifetime with `go-jwt-middleware/v3`. Protected handlers receive the trusted `sub` claim through request context. Raw bearer tokens are used only after validation and only to retrieve the matching Auth0 `/userinfo` profile.

@@ -1,3 +1,10 @@
+<!--
+AI Assistance Disclosure:
+Tool: ChatGPT (model: GPT-6 Luna), date: 2026-11-11
+Scope: Documentation for user-service application configuration and bootstrap.
+Author review: I validated correctness, edited for style, and added boundary checks.
+-->
+
 # Configuration — planned responsibilities
 
 Current implementation: `Load` reads required `DATABASE_URL`, `AUTH0_DOMAIN`, `AUTH0_CLIENT_ID`, and `AUTH0_AUDIENCE`, plus optional `HTTP_ADDRESS` (default `:8080`). Administrator role management uses `AUTH0_M2M_CLIENT_ID`, `AUTH0_M2M_CLIENT_SECRET`, `AUTH0_MANAGEMENT_API_AUDIENCE`, `AUTH0_USER_ROLE_ID`, and `AUTH0_ADMIN_ROLE_ID`; the M2M values are optional while the feature is not configured, and paired credentials/role IDs must be supplied together. When M2M credentials are set, the Management API audience is also required. It is separate from the custom login domain: use the canonical tenant API identifier such as `https://your-tenant.auth0.com/api/v2/`. The M2M secret is never exposed in browser configuration or errors. Repository connection setup validates connectivity without exposing credentials.

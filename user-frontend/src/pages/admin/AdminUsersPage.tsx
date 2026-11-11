@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude, date: 2026-11-11
+// Scope: User-frontend admin page and AdminUsersPage behavior.
+// Author review: I validated correctness, edited for style, and added boundary checks.
+
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { listAdminUsers, RequestError, setAdministrator } from "../../api/client";

@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude, date: 2026-11-11
+// Scope: User-frontend admin page and AdminLayout behavior.
+// Author review: I validated correctness, edited for style, and added boundary checks.
+
 import { Link, NavLink, Outlet } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
 import type { Profile } from "../../api/types";
