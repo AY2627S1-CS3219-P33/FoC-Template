@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude, date: 2026-11-11
+// Scope: Notification-service executable entry point.
+// Author review: I validated correctness, edited for style, and added boundary checks.
+
 package main
 
 import (

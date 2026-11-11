@@ -1,3 +1,10 @@
+<!--
+AI Assistance Disclosure:
+Tool: ChatGPT (model: GPT-6 Luna), date: 2026-11-11
+Scope: Project documentation for user-service.
+Author review: I validated correctness, edited for style, and added boundary checks.
+-->
+
 # User service
 
 PostgreSQL-backed student-account service for the food-delivery platform. Auth0 owns registration, credentials, and sessions; this service validates access tokens, provisions local application accounts, and manages profile data. The browser application lives in [user-frontend](../user-frontend/README.md).

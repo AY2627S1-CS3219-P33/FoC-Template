@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude, date: 2026-11-11
+// Scope: User-frontend authentication state and embeddedAuth handling.
+// Author review: I validated correctness, edited for style, and added boundary checks.
+
 import { WebAuth, type Auth0DecodedHash, type Auth0Error } from "auth0-js";
 import type { AuthConfig } from "../api/types";
 

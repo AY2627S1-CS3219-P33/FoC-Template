@@ -1,3 +1,8 @@
+-- AI Assistance Disclosure:
+-- Tool: Claude, date: 2026-11-11
+-- Scope: Database schema migrations for notification-service.
+-- Author review: I validated correctness, edited for style, and added boundary checks.
+
 -- +goose Up
 
 -- Runs as migrator. Gives the notification runtime role data access only: it can

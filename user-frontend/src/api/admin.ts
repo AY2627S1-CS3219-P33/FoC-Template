@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude, date: 2026-11-11
+// Scope: User-frontend API client for admin service data.
+// Author review: I validated correctness, edited for style, and added boundary checks.
+
 // Admin Service client. Shapes mirror admin-service/openapi.yaml. The service
 // is reached at /admin-service (its documented gateway route); in dev the Vite
 // proxy forwards there. Every route needs a login token for the admin-service

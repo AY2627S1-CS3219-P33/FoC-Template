@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: ChatGPT (model: GPT-6 Luna), date: 2026-11-11
+// Scope: Implementation of user-service persistence and PostgreSQL repositories.
+// Author review: I validated correctness, edited for style, and added boundary checks.
+
 package repository
 
 import (

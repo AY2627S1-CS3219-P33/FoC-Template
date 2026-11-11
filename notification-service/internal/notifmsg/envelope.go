@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude, date: 2026-11-11
+// Scope: Implementation of notification-service notification event messaging.
+// Author review: I validated correctness, edited for style, and added boundary checks.
+
 // Package notifmsg is the message layer of notification-service: it turns the
 // bytes of a RabbitMQ errand event into user-facing notifications and stores
 // them. It knows the shapes in docs/asyncapi.yaml and nothing about the

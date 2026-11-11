@@ -1,3 +1,10 @@
+<!--
+AI Assistance Disclosure:
+Tool: ChatGPT (model: GPT-6 Luna), date: 2026-11-11
+Scope: Documentation for user-service persistence and PostgreSQL repositories.
+Author review: I validated correctness, edited for style, and added boundary checks.
+-->
+
 # Persistence — planned responsibilities
 
 Current implementation: `Postgres` uses pgx to provision active Auth0-backed USER accounts, find non-deleted accounts, update permitted profile fields, and soft-delete accounts. The account migration enforces unique email and Auth0 identities, including after deletion. `Open` connects and pings with redacted errors. Bootstrap persistence now locks its coordination row and commits account creation with durable completion atomically. Audit persistence remains unimplemented.

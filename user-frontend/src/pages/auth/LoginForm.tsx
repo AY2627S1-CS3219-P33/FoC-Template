@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude, date: 2026-11-11
+// Scope: User-frontend auth page and LoginForm behavior.
+// Author review: I validated correctness, edited for style, and added boundary checks.
+
 import { useRef, useState, type FormEvent } from "react";
 import { useAuth } from "../../auth/AuthContext";
 

@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude, date: 2026-11-11
+// Scope: Package documentation for notification-service Auth0 authentication and authorization.
+// Author review: I validated correctness, edited for style, and added boundary checks.
+
 // Package auth verifies Auth0 access tokens and enforces explicit notification
 // permissions. Adapted from credit-service/internal/auth.
 //

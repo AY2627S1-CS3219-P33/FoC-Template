@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude, date: 2026-11-11
+// Scope: Implementation of notification-service service readiness checks.
+// Author review: I validated correctness, edited for style, and added boundary checks.
+
 // Package readiness exposes the service readiness route.
 package readiness
 

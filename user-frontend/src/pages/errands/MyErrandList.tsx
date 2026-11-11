@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude, date: 2026-11-11
+// Scope: User-frontend errands page and MyErrandList behavior.
+// Author review: I validated correctness, edited for style, and added boundary checks.
+
 import { useCallback, useState } from "react";
 import {
   listDeliveringErrands,

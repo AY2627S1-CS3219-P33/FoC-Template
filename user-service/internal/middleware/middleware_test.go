@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: ChatGPT (model: GPT-6 Luna), date: 2026-11-11
+// Scope: Tests for user-service HTTP authentication middleware.
+// Author review: I validated correctness, edited for style, and added boundary checks.
+
 package middleware
 
 import (

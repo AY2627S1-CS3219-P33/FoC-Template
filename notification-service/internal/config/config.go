@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude, date: 2026-11-11
+// Scope: Implementation of notification-service runtime configuration.
+// Author review: I validated correctness, edited for style, and added boundary checks.
+
 // Package config loads and validates service settings from environment variables.
 package config
 
