@@ -1,3 +1,8 @@
+# AI Assistance Disclosure:
+# Tool: Claude Code (model: Claude Opus 5.5), date: 2026-10-18
+# Scope: Boilerplate generation for build/container/tooling configuration.
+# Author review: Reviewed, validated, and tested by the authors.
+
 version: "2"
 # Four targets so each stream regenerates only its own package. All read the
 # full migrations/ schema; every table but saved_places is frozen in S0

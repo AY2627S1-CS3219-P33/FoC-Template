@@ -1,3 +1,10 @@
+<!--
+AI Assistance Disclosure:
+Tool: Claude Code (model: Claude Opus 5.5), date: 2026-09-29
+Scope: Documentation writing and formatting.
+Author review: Reviewed, validated, and tested by the authors.
+-->
+
 ## Scope
 
 Own supplier and pickup-location listing, search, creation, update, deletion, seed data, and record-versioning behaviour defined by F2.

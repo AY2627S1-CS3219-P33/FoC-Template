@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (model: Claude Opus 5.5), date: 2026-10-22
+// Scope: Implementation of code.
+// Author review: Reviewed, validated, and tested by the authors.
+
 // Package readiness serves GET /readyz (NFR4.1.2), unauthenticated.
 //
 // The service is not ready (503 {"status":"not_ready"}) only when Postgres is

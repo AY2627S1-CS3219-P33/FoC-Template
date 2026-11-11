@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (model: Claude Opus 5.5), date: 2026-10-18
+// Scope: Implementation of code.
+// Author review: Reviewed, validated, and tested by the authors.
+
 // Package cache holds order-service's Redis read-cache adapters and their
 // no-op counterparts (NFR5.1, NFR7.1).
 //

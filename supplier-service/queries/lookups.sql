@@ -1,3 +1,8 @@
+-- AI Assistance Disclosure:
+-- Tool: Claude Code (model: Claude Opus 5.5), date: 2026-10-13
+-- Scope: Implementation of SQL queries.
+-- Author review: Reviewed, validated, and tested by the authors.
+
 -- Administrator management of the buildings and supplier_types lookups. The
 -- two tables have identical shapes, so each query has one variant per table.
 -- Lists are ordered by lookup key then id so equal keys (a live row and the

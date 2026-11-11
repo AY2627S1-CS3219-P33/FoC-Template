@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (model: Claude Opus 5.5), date: 2026-10-23
+// Scope: Implementation of code.
+// Author review: Reviewed, validated, and tested by the authors.
+
 // Package serviceauth authenticates supplier-service's outgoing
 // service-to-service calls (NFR3.3, NFR3.5.2, NFR3.5.3).
 //

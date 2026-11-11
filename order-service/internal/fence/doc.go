@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (model: Claude Opus 5.5), date: 2026-10-18
+// Scope: Implementation of code.
+// Author review: Reviewed, validated, and tested by the authors.
+
 // Package fence serves the supplier deletion fence that supplier-service
 // calls before and after deleting a supplier (F2.4.2, NFR7.3, gate C2). It
 // implements order-service's side of supplier-service's docs/contracts.md

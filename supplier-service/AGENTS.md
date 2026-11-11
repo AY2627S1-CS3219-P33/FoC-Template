@@ -1,3 +1,10 @@
+<!--
+AI Assistance Disclosure:
+Tool: Claude Code (model: Claude Opus 5.5), date: 2026-09-03
+Scope: Documentation writing and formatting.
+Author review: Reviewed, validated, and tested by the authors.
+-->
+
 # Supplier service guidance
 
 This file applies to work in `supplier-service/`. Keep supplier and pickup-location data, its validation, persistence, and history in this service. Coordinate with the user service for administrator identity and permissions, and with the order service for errand references and active-errand checks. Do not move order or credit lifecycle logic into this service.

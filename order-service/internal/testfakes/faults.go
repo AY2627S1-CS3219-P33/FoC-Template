@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (model: Claude Opus 5.5), date: 2026-10-18
+// Scope: Implementation of code.
+// Author review: Reviewed, validated, and tested by the authors.
+
 // Package testfakes has in-memory fakes of every port in internal/errand
 // and of places.Store, plus FakeCreditService, which plays credit-service's
 // side of the credit message contract. The fakes are safe for concurrent use

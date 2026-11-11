@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (model: Claude Opus 5.5), date: 2026-10-22
+// Scope: Implementation of code.
+// Author review: Reviewed, validated, and tested by the authors.
+
 // Package accept serves POST /errands/{errandId}/accept (A4): OPEN →
 // ASSIGNED for an eligible courier (F3.3). Eligibility comes from the
 // courier's withdrawal history and the restriction settings; the transition

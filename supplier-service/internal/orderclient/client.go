@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (model: Claude Opus 5.5), date: 2026-10-23
+// Scope: Implementation of code.
+// Author review: Reviewed, validated, and tested by the authors.
+
 // Package orderclient is supplier-service's client for order-service's
 // supplier deletion fence (B4). It implements deletefeature.OrderDeletionFence
 // over the internal routes in order-service/docs/contracts.md ("Wire format"),

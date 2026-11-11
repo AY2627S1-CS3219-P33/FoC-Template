@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (model: Claude Opus 5.5), date: 2026-10-22
+// Scope: Implementation of code.
+// Author review: Reviewed, validated, and tested by the authors.
+
 // Package errandhttp holds the HTTP pieces Person A's errand handlers share
 // (A2–A7): the caller's identity, error responses, and the response schemas
 // of openapi/common.yaml. It makes no decisions about errands; those are

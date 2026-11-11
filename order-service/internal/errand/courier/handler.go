@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (model: Claude Opus 5.5), date: 2026-10-22
+// Scope: Implementation of code.
+// Author review: Reviewed, validated, and tested by the authors.
+
 // Package courier serves the assigned courier's errand actions (A6):
 // withdrawing (F3.6, F3.6.1, F4.3.3), picking up (F3.8.1), delivering
 // (F3.8.2) and reporting an issue after pickup (F3.6.2). Each request is

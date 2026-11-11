@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (model: Claude Opus 5.5), date: 2026-10-02
+// Scope: Implementation of code.
+// Author review: Reviewed, validated, and tested by the authors.
+
 // Package auth middleware enforces identity verification and permission policies
 // for protected HTTP endpoints according to requirements F2.1-F2.4 and NFR3.3.
 //

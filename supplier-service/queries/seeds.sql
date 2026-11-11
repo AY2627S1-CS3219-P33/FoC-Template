@@ -1,3 +1,8 @@
+-- AI Assistance Disclosure:
+-- Tool: Claude Code (model: Claude Opus 5.5), date: 2026-10-01
+-- Scope: Implementation of SQL queries.
+-- Author review: Reviewed, validated, and tested by the authors.
+
 -- name: LockSeedDataset :exec
 SELECT pg_advisory_xact_lock(
     hashtextextended(sqlc.arg(dataset_namespace)::text, 0)

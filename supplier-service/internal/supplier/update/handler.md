@@ -1,3 +1,10 @@
+<!--
+AI Assistance Disclosure:
+Tool: Claude Code (model: Claude Opus 5.5), date: 2026-10-02
+Scope: Documentation writing and formatting.
+Author review: Reviewed, validated, and tested by the authors.
+-->
+
 # Administrator Supplier Update Workflow
 
 This document specifies the update workflow and error-handling cases enforced by the administrator update handler in [`handler.go`](./handler.go), adhering to the supplier service contract, commit specification B3, requirements F2.3, F2.3.1, F2.3.2, F2.3.4, F2.5, F2.5.1, and F2.5.3.

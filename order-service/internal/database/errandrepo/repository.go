@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (model: Claude Opus 5.5), date: 2026-10-22
+// Scope: Implementation of code.
+// Author review: Reviewed, validated, and tested by the authors.
+
 // Package errandrepo is the PostgreSQL errand.Store. It is the only writer of
 // errands and errand_transitions, and it writes the outbox and errand_reviews
 // rows a transition emits in the same READ COMMITTED transaction as the

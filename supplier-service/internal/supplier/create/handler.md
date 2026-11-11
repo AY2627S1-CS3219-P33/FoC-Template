@@ -1,3 +1,10 @@
+<!--
+AI Assistance Disclosure:
+Tool: Claude Code (model: Claude Opus 5.5), date: 2026-10-02
+Scope: Documentation writing and formatting.
+Author review: Reviewed, validated, and tested by the authors.
+-->
+
 # Administrator Supplier Creation Workflow
 
 This document specifies the creation workflow and error-handling cases enforced by the administrator creation handler in [`handler.go`](./handler.go), adhering to the supplier service contract, commit specification B2, requirements F2.2, F2.2.1–F2.2.3, F2.2.5, NFR2.2, and NFR2.2.1.
