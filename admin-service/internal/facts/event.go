@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (model: Claude Opus 5.5), date: 2026-11-09
+// Scope: Implementation of code.
+// Author review: Reviewed, validated, and tested by the authors.
+
 // Package facts is admin-service's read model: the events order-service
 // published, and the per-errand state and times distilled from them. The
 // metrics are computed from these two tables at query time.

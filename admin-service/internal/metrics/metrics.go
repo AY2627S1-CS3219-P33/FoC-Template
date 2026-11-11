@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (model: Claude Opus 5.5), date: 2026-11-09
+// Scope: Implementation of code.
+// Author review: Reviewed, validated, and tested by the authors.
+
 // Package metrics computes the dashboard's metrics 5 to 11 from the read
 // model at query time. The definitions (docs in the plan, and the comments in
 // queries/metrics.sql) are:

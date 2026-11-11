@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (model: Claude Opus 5.5), date: 2026-10-22
+// Scope: Implementation of code.
+// Author review: Reviewed, validated, and tested by the authors.
+
 // Package outboxrepo holds the SQL for the result outbox: adding a result in
 // the transaction of the balance change (Enqueue), and the queries a
 // dispatcher uses to publish rows (Claim, MarkSent, Reschedule, MarkFailed).
