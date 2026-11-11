@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (model: Claude Opus 5.5), date: 2026-11-10
+// Scope: Implementation of code.
+// Author review: Reviewed, validated, and tested by the authors.
+
 // Package chat holds chat-service's business types and, from phase 3, its
 // rules (who may read or send, and the room lifecycle). REST, WebSocket and
 // the event consumer all go through it, so their rules cannot drift apart.

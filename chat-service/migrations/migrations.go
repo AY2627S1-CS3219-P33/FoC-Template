@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (model: Claude Opus 5.5), date: 2026-10-17
+// Scope: Implementation of code.
+// Author review: Reviewed, validated, and tested by the authors.
+
 // Package migrations embeds the ordered goose SQL migrations. The service
 // never applies them (the chat-migrate job does, before the service starts);
 // it embeds them so tests apply exactly the schema deployment applies, and so

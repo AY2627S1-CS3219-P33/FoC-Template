@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (model: Claude Opus 5.5), date: 2026-11-10
+// Scope: Implementation of code.
+// Author review: Reviewed, validated, and tested by the authors.
+
 // Package hub remembers which WebSocket connections are open in this copy of
 // the service, keyed by user, and hands payloads to them. It is the only
 // state chat-service keeps in memory; everything that must be correct lives

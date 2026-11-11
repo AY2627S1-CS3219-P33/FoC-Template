@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (model: Claude Opus 5.5), date: 2026-11-10
+// Scope: Implementation of code.
+// Author review: Reviewed, validated, and tested by the authors.
+
 // Package protocol is chat-service's wire format: the JSON shapes of rooms and
 // messages, used by both the REST API and the WebSocket, and every WebSocket
 // frame. docs/websocket-protocol.md describes the same frames for client

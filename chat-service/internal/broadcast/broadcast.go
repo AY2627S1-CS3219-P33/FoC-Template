@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (model: Claude Opus 5.5), date: 2026-11-10
+// Scope: Implementation of code.
+// Author review: Reviewed, validated, and tested by the authors.
+
 // Package broadcast answers "deliver this frame to these users, wherever they
 // are connected". It is the only part that changes when chat-service runs as
 // several copies: LocalBroadcaster hands frames straight to this copy's hub;
