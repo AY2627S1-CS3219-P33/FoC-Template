@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude, date: 2026-11-11
+// Scope: Implementation of notification-service PostgreSQL connection management.
+// Author review: I validated correctness, edited for style, and added boundary checks.
+
 // Package database creates the PostgreSQL connection pool.
 package database
 

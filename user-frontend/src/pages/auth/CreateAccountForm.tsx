@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude, date: 2026-11-11
+// Scope: User-frontend auth page and CreateAccountForm behavior.
+// Author review: I validated correctness, edited for style, and added boundary checks.
+
 import { useMemo, useRef, useState, type FormEvent } from "react";
 import { useAuth } from "../../auth/AuthContext";
 import { checkPassword, isNusEmail, passwordSatisfied } from "../../validation";

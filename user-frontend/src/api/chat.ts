@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude, date: 2026-11-11
+// Scope: User-frontend API client for chat service data.
+// Author review: I validated correctness, edited for style, and added boundary checks.
+
 // Chat Service client. Shapes mirror chat-service/openapi.yaml (REST) and
 // chat-service/docs/websocket-protocol.md (live frames). The service is reached
 // at /chat-service (its gateway route); nginx and the Vite proxy strip the

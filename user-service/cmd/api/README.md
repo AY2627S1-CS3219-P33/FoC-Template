@@ -1,3 +1,10 @@
+<!--
+AI Assistance Disclosure:
+Tool: ChatGPT (model: GPT-6 Luna), date: 2026-11-11
+Scope: API server entry point and its documentation.
+Author review: I validated correctness, edited for style, and added boundary checks.
+-->
+
 # Application entry point — planned responsibilities
 
 The entry point loads local environment values when present, validates configuration, connects to PostgreSQL, wires Auth0 JWT validation and account provisioning, serves the embedded test page, runs super-administrator bootstrap before accepting requests, and performs graceful HTTP shutdown. Migrations must be applied separately before startup.

@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude, date: 2026-11-11
+// Scope: Implementation of notification-service notification HTTP API.
+// Author review: I validated correctness, edited for style, and added boundary checks.
+
 // Package notificationapi exposes the notification use cases over HTTP.
 //
 //	GET  /v1/notifications               user  notifications:read:own

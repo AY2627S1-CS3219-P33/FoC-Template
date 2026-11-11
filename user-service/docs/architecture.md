@@ -1,3 +1,10 @@
+<!--
+AI Assistance Disclosure:
+Tool: ChatGPT (model: GPT-6 Luna), date: 2026-11-11
+Scope: Architecture documentation for user-service.
+Author review: I validated correctness, edited for style, and added boundary checks.
+-->
+
 # User-service architecture
 
 These diagrams describe the current user-service implementation. Auth0 owns

@@ -1,3 +1,10 @@
+<!--
+AI Assistance Disclosure:
+Tool: Claude, date: 2026-11-11
+Scope: frontend project documentation for user-frontend.
+Author review: I validated correctness, edited for style, and added boundary checks.
+-->
+
 # User Frontend
 
 Responsive SPA for Friend on Campus. It is the single browser client for the

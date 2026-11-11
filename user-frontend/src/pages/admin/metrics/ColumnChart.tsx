@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude, date: 2026-11-11
+// Scope: User-frontend admin page and ColumnChart behavior.
+// Author review: I validated correctness, edited for style, and added boundary checks.
+
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { compact, shortDate, tickStep } from "./format";
 

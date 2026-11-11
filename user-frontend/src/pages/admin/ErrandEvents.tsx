@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude, date: 2026-11-11
+// Scope: User-frontend admin page and ErrandEvents behavior.
+// Author review: I validated correctness, edited for style, and added boundary checks.
+
 import { useCallback, useState, type FormEvent } from "react";
 import { listErrandEvents, type ErrandStatus, type TransitionRecord } from "../../api/order";
 import { usePagedList } from "../errands/usePagedList";

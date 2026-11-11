@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude, date: 2026-11-11
+// Scope: Reusable user-frontend RoleBadge component.
+// Author review: I validated correctness, edited for style, and added boundary checks.
+
 import type { Role } from "../api/types";
 
 const LABELS: Record<Role, string> = {

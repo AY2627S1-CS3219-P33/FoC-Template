@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude, date: 2026-11-11
+// Scope: User-frontend API client for credit service data.
+// Author review: I validated correctness, edited for style, and added boundary checks.
+
 // Credit Service client.
 //
 // Mirrors the frozen read surface in credit-service/openapi.yaml (v1.0.0). The

@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude, date: 2026-11-11
+// Scope: User-frontend SavedPlaces page and SavedPlaces behavior.
+// Author review: I validated correctness, edited for style, and added boundary checks.
+
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { useAuth } from "../auth/AuthContext";
 import { deletePlace, listPlaces, updatePlace, type PlacePatch, type SavedPlace } from "../api/places";

@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude, date: 2026-11-11
+// Scope: User-frontend API client for types service data.
+// Author review: I validated correctness, edited for style, and added boundary checks.
+
 // Shapes mirror the user-service HTTP contract (internal/service.Profile and the
 // /api/auth/config response). Keep these in sync with the Go service.
 

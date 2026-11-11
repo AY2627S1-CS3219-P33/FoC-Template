@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude, date: 2026-11-11
+// Scope: User-frontend admin page and format behavior.
+// Author review: I validated correctness, edited for style, and added boundary checks.
+
 // Number, duration and date formatting for the metric panels.
 
 /** "45 s", "1 min 36 s", "2 h 5 min". Coarse on purpose: these are medians. */

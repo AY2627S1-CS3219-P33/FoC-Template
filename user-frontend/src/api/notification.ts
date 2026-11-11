@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude, date: 2026-11-11
+// Scope: User-frontend API client for notification service data.
+// Author review: I validated correctness, edited for style, and added boundary checks.
+
 // Notification Service client.
 //
 // Mirrors notification-service/openapi.yaml (v1.1.0). Every route is scoped to
