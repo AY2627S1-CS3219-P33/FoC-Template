@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (model: Claude Opus 5.5), date: 2026-11-10
+// Scope: Implementation of code.
+// Author review: Reviewed, validated, and tested by the authors.
+
 // Package ws runs chat-service's WebSocket endpoint, GET /ws: one connection
 // per browser tab, from the handshake to the close. The frames are in
 // package protocol and described for client authors in

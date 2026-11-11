@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (model: Claude Opus 5.5), date: 2026-11-10
+// Scope: Implementation of code.
+// Author review: Reviewed, validated, and tested by the authors.
+
 // Package chattest provides an in-memory chat.Store for tests of chat.Service
 // and the HTTP handlers. It returns the same results as internal/store, whose
 // own integration tests check them against PostgreSQL.

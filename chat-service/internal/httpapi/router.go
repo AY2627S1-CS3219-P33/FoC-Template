@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (model: Claude Opus 5.5), date: 2026-11-10
+// Scope: Implementation of code.
+// Author review: Reviewed, validated, and tested by the authors.
+
 // Package httpapi mounts chat-service's REST routes: whatever the registrars
 // passed to NewRouter provide (the participant chat routes, GET /ws and
 // GET /readyz).

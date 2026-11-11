@@ -1,3 +1,10 @@
+<!--
+AI Assistance Disclosure:
+Tool: Claude Code (model: Claude Opus 5.5), date: 2026-11-10
+Scope: Documentation writing and formatting.
+Author review: Reviewed, validated, and tested by the authors.
+-->
+
 # chat-service WebSocket protocol
 
 This is the contract between a browser and `GET /ws`. The browser client is [useChatSocket.ts](../../user-frontend/src/chat/useChatSocket.ts) in user-frontend. The REST routes are in [../openapi.yaml](../openapi.yaml); the frames here use the same room and message shapes and the same error codes. The Go definitions are in [internal/protocol](../internal/protocol/protocol.go).

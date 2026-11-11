@@ -1,3 +1,8 @@
+# AI Assistance Disclosure:
+# Tool: Claude Code (model: Claude Opus 5.5), date: 2026-09-03
+# Scope: Boilerplate generation for build/container/tooling configuration.
+# Author review: Reviewed, validated, and tested by the authors.
+
 FROM golang:1.27.1-alpine AS build
 
 WORKDIR /src

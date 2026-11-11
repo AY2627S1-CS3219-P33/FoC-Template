@@ -1,3 +1,10 @@
+<!--
+AI Assistance Disclosure:
+Tool: Claude Code (model: Claude Opus 5.5), date: 2026-11-10
+Scope: Documentation writing and formatting.
+Author review: Reviewed, validated, and tested by the authors.
+-->
+
 # Chat service
 
 Lets the **requester** and the **assigned courier** of an errand message each other in real time. A room opens when a courier accepts an errand, becomes read-only 24 hours after the errand ends, and is kept in the database afterwards. The design, decisions and build order are in [implementation-plan.md](implementation-plan.md).

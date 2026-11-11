@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (model: Claude Opus 5.5), date: 2026-11-10
+// Scope: Implementation of code.
+// Author review: Reviewed, validated, and tested by the authors.
+
 // Package testdb gives integration tests their own PostgreSQL schema on the
 // test database, migrated with the same goose files deployment uses and
 // dropped when the test ends. Tests skip themselves when TEST_DATABASE_URL

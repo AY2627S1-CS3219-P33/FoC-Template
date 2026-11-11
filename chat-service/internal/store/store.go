@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (model: Claude Opus 5.5), date: 2026-11-10
+// Scope: Implementation of code.
+// Author review: Reviewed, validated, and tested by the authors.
+
 // Package store is the only package that runs SQL. It wraps the
 // sqlc-generated code in internal/database/chatgen, runs transactions, and
 // converts rows into chat types and database errors into chat errors, so

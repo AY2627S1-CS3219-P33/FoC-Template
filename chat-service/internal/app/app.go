@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (model: Claude Opus 5.5), date: 2026-11-10
+// Scope: Implementation of code.
+// Author review: Reviewed, validated, and tested by the authors.
+
 // Package app is chat-service's composition root: it builds every component,
 // mounts the routes, and runs the HTTP server next to the background workers
 // (the RabbitMQ errand-event consumer and the broadcaster).

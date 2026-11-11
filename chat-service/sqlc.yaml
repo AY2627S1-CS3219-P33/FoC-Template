@@ -1,3 +1,8 @@
+# AI Assistance Disclosure:
+# Tool: Claude Code (model: Claude Opus 5.5), date: 2026-11-10
+# Scope: Boilerplate generation for build/container/tooling configuration.
+# Author review: Reviewed, validated, and tested by the authors.
+
 version: "2"
 # One target: queries/chat.sql against the full migrations/ schema. Run
 # `go run github.com/sqlc-dev/sqlc/cmd/sqlc@v1.31.1 generate` after changing
