@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (model: Claude Opus 5.5), date: 2026-11-09
+// Scope: Implementation of code.
+// Author review: Reviewed, validated, and tested by the authors.
+
 // Package app is admin-service's composition root. It builds the HTTP server
 // and runs it next to the background workers (the event consumer).
 package app

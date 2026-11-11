@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (model: Claude Opus 5.5), date: 2026-11-09
+// Scope: Implementation of code.
+// Author review: Reviewed, validated, and tested by the authors.
+
 // Package orderclient calls order-service's export routes
 // (order-service/docs/contracts.md, "Export routes") with admin-service's
 // machine-to-machine token, which needs orders:admin-read.

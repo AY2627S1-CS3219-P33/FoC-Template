@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude Code (model: Claude Opus 5.5), date: 2026-09-29
+// Scope: Implementation of code.
+// Author review: Reviewed, validated, and tested by the authors.
+
 // Package config loads and validates service settings from environment variables.
 package config
 
