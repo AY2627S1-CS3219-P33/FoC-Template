@@ -1,3 +1,8 @@
+# AI Assistance Disclosure:
+# Tool: ChatGPT (model: GPT-6 Luna), date: 2026-11-11
+# Scope: Container build configuration for user-service.
+# Author review: I validated correctness, edited for style, and added boundary checks.
+
 FROM golang:1.26.7-alpine AS build
 WORKDIR /src
 RUN apk add --no-cache ca-certificates

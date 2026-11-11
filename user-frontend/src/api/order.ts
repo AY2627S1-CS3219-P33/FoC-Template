@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude, date: 2026-11-11
+// Scope: User-frontend API client for order service data.
+// Author review: I validated correctness, edited for style, and added boundary checks.
+
 // Order Service client. Shapes mirror the frozen OpenAPI contract
 // (order-service/openapi). The service is reached at /order-service (its
 // documented gateway route); in dev the Vite proxy forwards there.

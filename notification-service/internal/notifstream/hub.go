@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude, date: 2026-11-11
+// Scope: Implementation of notification-service notification real-time delivery.
+// Author review: I validated correctness, edited for style, and added boundary checks.
+
 // Package notifstream is the push side of the service. When the event consumer
 // records a notification for a user, every HTTP stream that user has open is
 // woken so it can send the fresh unread state. This replaces client polling:

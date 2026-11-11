@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude, date: 2026-11-11
+// Scope: User-frontend admin page and OverviewPage behavior.
+// Author review: I validated correctness, edited for style, and added boundary checks.
+
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { getOverview, type AdminOverview } from "../../api/order";

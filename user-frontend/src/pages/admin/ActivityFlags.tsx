@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude, date: 2026-11-11
+// Scope: User-frontend admin page and ActivityFlags behavior.
+// Author review: I validated correctness, edited for style, and added boundary checks.
+
 import { useCallback, useEffect, useState } from "react";
 import { listFlags, type Flag } from "../../api/order";
 import { errandError } from "../errands/messages";

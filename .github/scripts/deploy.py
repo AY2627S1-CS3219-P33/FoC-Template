@@ -1,3 +1,8 @@
+# AI Assistance Disclosure:
+# Tool: ChatGPT (model: GPT-6 Luna), date: 2026-11-11
+# Scope: Implementation of the manual GitHub deployment script.
+# Author review: I validated correctness, edited for style, and added boundary checks.
+
 """Manual GitHub deployment. AWS access uses the CLI's short-lived OIDC session."""
 
 import copy

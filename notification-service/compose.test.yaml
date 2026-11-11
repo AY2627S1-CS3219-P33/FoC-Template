@@ -1,3 +1,8 @@
+# AI Assistance Disclosure:
+# Tool: Claude, date: 2026-11-11
+# Scope: integration test environment orchestration for notification-service.
+# Author review: I validated correctness, edited for style, and added boundary checks.
+
 # Throwaway Postgres and RabbitMQ for the integration tests. Start with
 #   docker compose -f compose.test.yaml up -d
 # then run the tests with both URLs set (one process, shared resources):

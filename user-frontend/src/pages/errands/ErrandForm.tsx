@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude, date: 2026-11-11
+// Scope: User-frontend errands page and ErrandForm behavior.
+// Author review: I validated correctness, edited for style, and added boundary checks.
+
 import { useEffect, useId, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { OrderError, type ErrandCreate, type ErrandEdit, type Item, type RequesterErrandView } from "../../api/order";
 import {

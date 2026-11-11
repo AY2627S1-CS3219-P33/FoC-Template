@@ -1,3 +1,10 @@
+<!--
+AI Assistance Disclosure:
+Tool: ChatGPT (model: GPT-6 Luna), date: 2026-11-11
+Scope: Documentation for user-service HTTP API handlers and readiness endpoints.
+Author review: I validated correctness, edited for style, and added boundary checks.
+-->
+
 # HTTP handlers — planned responsibilities
 
 The package exposes public health/browser configuration and protects provisioning, logout, profile operations, Auth0 user search, and administrator role changes with Auth0 JWT validation. The browser application lives in `user-frontend/`. Provisioning accepts identity only from validated token context and Auth0 `/userinfo`, never browser-submitted profile fields. Administrator endpoints require an active local account and the Auth0 `users:manage:roles` permission, then use server-side M2M credentials to read or update Auth0. Profile role labels are derived from this permission; roles are not stored in the local database. Logout returns `204` before the SPA clears its in-memory state and Auth0 browser session; stateless access tokens remain valid until expiry.

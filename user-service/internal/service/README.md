@@ -1,3 +1,10 @@
+<!--
+AI Assistance Disclosure:
+Tool: ChatGPT (model: GPT-6 Luna), date: 2026-11-11
+Scope: Documentation for user-service user account and administrator business services.
+Author review: I validated correctness, edited for style, and added boundary checks.
+-->
+
 # Business services — planned requirement breakdown
 
 Current implementation: verified Auth0 student provisioning and active-account profile reads/updates. Profile credit balance is unavailable without an adapter. Business deletion validates confirmation/account state, then returns a dependency-unavailable error without modifying data. Initial super-administrator bootstrap is implemented using trusted deployment configuration and an atomic repository callback. The other remaining workflows below are planned, not implemented.

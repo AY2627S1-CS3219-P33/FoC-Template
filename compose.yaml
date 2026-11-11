@@ -1,3 +1,8 @@
+# AI Assistance Disclosure:
+# Tool: ChatGPT Luna 6, date: 2026-11-10
+# Scope: Root Docker Compose orchestration for the project services.
+# Author review: I validated correctness, edited for style, and added boundary checks.
+
 include:
   - order-service/compose.yaml
   - chat-service/compose.yaml
@@ -55,7 +60,8 @@ services:
       queue-service:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3004/readyz"]
+      test:
+        ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3004/readyz"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -70,7 +76,11 @@ services:
     volumes:
       - notification_postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U notification_service -d notification_service"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U notification_service -d notification_service",
+        ]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -114,7 +124,8 @@ services:
       queue-service:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3007/readyz"]
+      test:
+        ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3007/readyz"]
       interval: 10s
       timeout: 5s
       retries: 5

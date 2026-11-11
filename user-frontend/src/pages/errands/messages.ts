@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude, date: 2026-11-11
+// Scope: User-frontend errands page and messages behavior.
+// Author review: I validated correctness, edited for style, and added boundary checks.
+
 // Turns the Order Service's stable error codes into something a student can act
 // on. The codes come from order-service/openapi/common.yaml Error; anything
 // unmapped falls through to the service's own message.

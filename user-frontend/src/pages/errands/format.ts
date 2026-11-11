@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude, date: 2026-11-11
+// Scope: User-frontend errands page and format behavior.
+// Author review: I validated correctness, edited for style, and added boundary checks.
+
 // Presentation helpers shared by the errand screens. Nothing here decides what
 // an errand may do — the service does, and ErrandDetail reads the status and
 // viewerRole it returns.

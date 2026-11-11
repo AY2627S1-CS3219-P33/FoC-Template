@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude, date: 2026-11-11
+// Scope: Implementation of notification-service structured service logging.
+// Author review: I validated correctness, edited for style, and added boundary checks.
+
 // Package logging builds the service's structured JSON logger.
 package logging
 

@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude, date: 2026-11-11
+// Scope: Implementation of notification-service database test helpers.
+// Author review: I validated correctness, edited for style, and added boundary checks.
+
 // Package testdb gives integration tests a migrated, empty PostgreSQL
 // database. Tests skip themselves when TEST_DATABASE_URL is not set; start the
 // database with `docker compose -f compose.test.yaml up -d`. Because the tests

@@ -1,3 +1,8 @@
+# AI Assistance Disclosure:
+# Tool: Claude, date: 2026-11-11
+# Scope: container image build configuration for notification-service.
+# Author review: I validated correctness, edited for style, and added boundary checks.
+
 FROM golang:1.27.1-alpine AS build
 WORKDIR /src
 COPY go.mod go.sum ./

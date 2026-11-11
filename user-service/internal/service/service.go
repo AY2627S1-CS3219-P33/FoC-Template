@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: ChatGPT (model: GPT-6 Luna), date: 2026-11-11
+// Scope: Implementation of user-service user account and administrator business services.
+// Author review: I validated correctness, edited for style, and added boundary checks.
+
 // Package service implements internal student-account business operations.
 package service
 

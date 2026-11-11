@@ -1,3 +1,10 @@
+<!--
+AI Assistance Disclosure:
+Tool: Claude, date: 2026-11-11
+Scope: Notification-service API and event contract documentation.
+Author review: I validated correctness, edited for style, and added boundary checks.
+-->
+
 # notification-service contracts
 
 This service implements the notification half of the messaging contract in

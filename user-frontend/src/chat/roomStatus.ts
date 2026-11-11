@@ -1,3 +1,8 @@
+// AI Assistance Disclosure:
+// Tool: Claude, date: 2026-11-11
+// Scope: User-frontend chat interface and roomStatus behavior.
+// Author review: I validated correctness, edited for style, and added boundary checks.
+
 import { useEffect, useState } from "react";
 import type { ChatRole, ChatRoom, EndReason, RoomStatus } from "../api/chat";
 
